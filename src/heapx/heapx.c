@@ -1159,4 +1159,4 @@ PyInit_iheap(void)
   return module;
 }
 
-// CHECKPOINT
+// CHECKPOINT: The heapify function has been perfected!
