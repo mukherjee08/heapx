@@ -19,7 +19,7 @@ Heap data types are very useful because they always keep the most important item
 
 ### **1. Native Max-heap & Min-heap Support**
 
-The standard 
+
 
 ### **2. Advanced Performance Optimizations**
 
