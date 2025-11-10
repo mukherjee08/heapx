@@ -1,18 +1,42 @@
 /*
-Compile this module with:
+Enhanced iheap - Ultra-optimized heap operations for Python
 
-/usr/bin/clang -shared -fPIC -O3 -march=native -flto \
-  -DNDEBUG -ffast-math \
-  -I/Users/mukhani/miniconda3/envs/iheap/include/python3.12 \
-  iheap.c \
-  -o iheap.cpython-312-darwin.so \
+Compile this module with maximum optimization:
+
+# For macOS/Linux with Clang (recommended):
+clang -shared -fPIC -O3 -march=native -mtune=native -flto -ffast-math \
+  -funroll-loops -fvectorize -fslp-vectorize -DNDEBUG \
+  -Wno-unused-function -Wno-gcc-compat \
+  -I$(python3-config --includes | cut -d' ' -f1 | sed 's/-I//') \
+  iheap.c -o iheap$(python3-config --extension-suffix) \
   -undefined dynamic_lookup
 
-Function: heapify( heap, max_heap=False, cmp=None, arity=2)
+# For macOS/Linux with GCC:
+gcc -shared -fPIC -O3 -march=native -mtune=native -flto -ffast-math \
+  -funroll-loops -ftree-vectorize -DNDEBUG \
+  -Wno-unused-function \
+  -I$(python3-config --includes | cut -d' ' -f1 | sed 's/-I//') \
+  iheap.c -o iheap$(python3-config --extension-suffix)
+
+# For Windows with MSVC:
+cl /O2 /Ot /GL /DNDEBUG /I"%PYTHON_INCLUDE%" iheap.c /link /DLL /LTCG \
+   /OUT:iheap.pyd "%PYTHON_LIBS%\python3X.lib"
+
+# Alternative one-liner for current environment:
+python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtune=native -flto -ffast-math -funroll-loops -fvectorize -fslp-vectorize -DNDEBUG -Wno-unused-function -Wno-gcc-compat -I{sysconfig.get_path(\"include\")} iheap.c -o iheap{sysconfig.get_config_var(\"EXT_SUFFIX\")} -undefined dynamic_lookup')" | sh
+
+Function: heapify(heap, max_heap=False, cmp=None, arity=2)
   - heap    : any list-like Python sequence supporting len, __getitem__, __setitem__
-  - max_heap: bool (default False: min-heap)
+  - max_heap: bool (default False: min-heap, True: max-heap)
   - cmp     : optional key function; when provided comparisons are performed on cmp(x)
-  - arity   : integer >= 1 (default 2)
+  - arity   : integer >= 1 (default 2: binary heap, 3: ternary, 4: quaternary, etc.)
+
+Performance optimizations included:
+  - Fast comparison paths for all Python numeric types
+  - Specialized algorithms for different heap configurations
+  - Advanced memory prefetching and cache optimization
+  - Automatic algorithm selection for maximum performance
+  - Cross-platform compiler-specific optimizations
 */
 
 #define PY_SSIZE_T_CLEAN
@@ -1096,9 +1120,9 @@ static PyMethodDef Methods[] = {
   {NULL, NULL, 0, NULL}
 };
 
-static struct PyModuleDef heapx = {
+static struct PyModuleDef iheapmodule = {
   PyModuleDef_HEAD_INIT,
-  "heapx",
+  "iheap",
   "Ultra-optimized heap operations with comprehensive fast comparison paths\n\n"
   "This module provides enhanced heap operations with superior performance\n"
   "and flexibility compared to Python's standard heapq module. Built as a\n"
@@ -1116,18 +1140,18 @@ static struct PyModuleDef heapx = {
 };
 
 PyMODINIT_FUNC
-PyInit_heapx(void)
+PyInit_iheap(void)
 {
-  PyObject *module = PyModule_Create(&heapx);
+  PyObject *module = PyModule_Create(&iheapmodule);
   if (unlikely(!module)) return NULL;
   
   /* Add module-level constants */
-  if (unlikely(PyModule_AddStringConstant(module, "__version__", "1.0.0") < 0)) {
+  if (unlikely(PyModule_AddStringConstant(module, "__version__", "2.0.0") < 0)) {
     Py_DECREF(module);
     return NULL;
   }
   
-  if (unlikely(PyModule_AddStringConstant(module, "__author__", "Aniruddha Mukherjee") < 0)) {
+  if (unlikely(PyModule_AddStringConstant(module, "__author__", "iheap contributors") < 0)) {
     Py_DECREF(module);
     return NULL;
   }
