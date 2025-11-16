@@ -106,7 +106,7 @@ def read_long_description():
 # Main heapx extension configuration
 heapx_extension = Extension(
   name='heapx',
-  sources=['heapx.c'],
+  sources=["src/heapx/heapx.c"],
   language='c',
   define_macros=[
     # Enable all optimizations

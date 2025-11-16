@@ -27,7 +27,7 @@ python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtu
 
 */
 
-#define PY_SSIZE_T_CLEAN
+// #define PY_SSIZE_T_CLEAN // already defined in the compiler command line
 #include <Python.h>
 #include <listobject.h>
 #include <string.h>
