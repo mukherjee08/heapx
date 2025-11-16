@@ -1,0 +1,25 @@
+# Essential source files
+include heapx.c
+include *.py
+
+# Build configuration
+include pyproject.toml
+include setup.py
+
+# Documentation
+include README.md
+include LICENSE
+
+# Package metadata
+include MANIFEST.in
+
+# Exclude build artifacts
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude *$py.class
+global-exclude *.so
+global-exclude *.dylib
+global-exclude .DS_Store
+global-exclude *.egg-info
+global-exclude build
+global-exclude dist
