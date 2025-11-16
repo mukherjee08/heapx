@@ -1226,7 +1226,7 @@ static struct PyModuleDef heapx = {
 };
 
 PyMODINIT_FUNC
-PyInit(void)
+PyInit_heapx(void)
 {
   PyObject *module = PyModule_Create(&heapx);
   if (unlikely(!module)) return NULL;
