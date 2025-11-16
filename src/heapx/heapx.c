@@ -8,7 +8,7 @@ clang -shared -fPIC -O3 -march=native -mtune=native -flto -ffast-math \
   -funroll-loops -fvectorize -fslp-vectorize -DNDEBUG \
   -Wno-unused-function -Wno-gcc-compat \
   -I$(python3-config --includes | cut -d' ' -f1 | sed 's/-I//') \
-  iheap.c -o iheap$(python3-config --extension-suffix) \
+  heapx.c -o heapx$(python3-config --extension-suffix) \
   -undefined dynamic_lookup
 
 # For macOS/Linux with GCC:
@@ -16,27 +16,15 @@ gcc -shared -fPIC -O3 -march=native -mtune=native -flto -ffast-math \
   -funroll-loops -ftree-vectorize -DNDEBUG \
   -Wno-unused-function \
   -I$(python3-config --includes | cut -d' ' -f1 | sed 's/-I//') \
-  iheap.c -o iheap$(python3-config --extension-suffix)
+  heapx.c -o heapx$(python3-config --extension-suffix)
 
 # For Windows with MSVC:
-cl /O2 /Ot /GL /DNDEBUG /I"%PYTHON_INCLUDE%" iheap.c /link /DLL /LTCG \
-   /OUT:iheap.pyd "%PYTHON_LIBS%\python3X.lib"
+cl /O2 /Ot /GL /DNDEBUG /I"%PYTHON_INCLUDE%" heapx.c /link /DLL /LTCG \
+  /OUT:heapx.pyd "%PYTHON_LIBS%\python3X.lib"
 
 # Alternative one-liner for current environment:
-python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtune=native -flto -ffast-math -funroll-loops -fvectorize -fslp-vectorize -DNDEBUG -Wno-unused-function -Wno-gcc-compat -I{sysconfig.get_path(\"include\")} iheap.c -o iheap{sysconfig.get_config_var(\"EXT_SUFFIX\")} -undefined dynamic_lookup')" | sh
+python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtune=native -flto -ffast-math -funroll-loops -fvectorize -fslp-vectorize -DNDEBUG -Wno-unused-function -Wno-gcc-compat -I{sysconfig.get_path(\"include\")} heapx.c -o heapx{sysconfig.get_config_var(\"EXT_SUFFIX\")} -undefined dynamic_lookup')" | sh
 
-Function: heapify(heap, max_heap=False, cmp=None, arity=2)
-  - heap    : any list-like Python sequence supporting len, __getitem__, __setitem__
-  - max_heap: bool (default False: min-heap, True: max-heap)
-  - cmp     : optional key function; when provided comparisons are performed on cmp(x)
-  - arity   : integer >= 1 (default 2: binary heap, 3: ternary, 4: quaternary, etc.)
-
-Performance optimizations included:
-  - Fast comparison paths for all Python numeric types
-  - Specialized algorithms for different heap configurations
-  - Advanced memory prefetching and cache optimization
-  - Automatic algorithm selection for maximum performance
-  - Cross-platform compiler-specific optimizations
 */
 
 #define PY_SSIZE_T_CLEAN
