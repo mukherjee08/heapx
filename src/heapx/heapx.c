@@ -1,5 +1,5 @@
 /*
-Enhanced iheap - Ultra-optimized heap operations for Python
+Enhanced heapx - Ultra-optimized heap operations for Python
 
 Compile this module with maximum optimization:
 
@@ -1210,30 +1210,29 @@ static PyMethodDef Methods[] = {
   {NULL, NULL, 0, NULL}
 };
 
-static struct PyModuleDef iheapmodule = {
+static struct PyModuleDef heapx = {
   PyModuleDef_HEAD_INIT,
-  "iheap",
+  "heapx",
   "Ultra-optimized heap operations with comprehensive functionality\n\n"
   "This module provides enhanced heap operations with superior performance\n"
   "and flexibility compared to Python's standard heapq module. Built as a\n"
   "C extension with advanced optimizations including:\n\n"
   "Core Operations:\n"
-  "- heapify: Transform sequence into heap with max/min and n-ary support\n"
-  "- push: Insert single items or bulk insert with optimized sift-up\n"
-  "- pop: Extract top items with single or bulk operations\n"
-  "- sort: Heapsort with in-place and copy modes\n"
-  "- remove: Remove items by index, identity, or predicate\n"
-  "- replace: Replace items by index, identity, or predicate\n"
-  "- merge: Merge multiple heaps efficiently\n\n"
+  "\t- heapify: Transform sequence into heap with max/min and n-ary support\n"
+  "\t- push: Insert single items or bulk insert with optimized sift-up\n"
+  "\t- pop: Extract top items with single or bulk operations\n"
+  "\t- sort: Heapsort with in-place and copy modes\n"
+  "\t- remove: Remove n items by index, identity, or predicate\n"
+  "\t- replace: Replace n items by index, identity, or predicate\n"
+  "\t- merge: Merge multiple heaps efficiently\n\n"
   "Advanced Features:\n"
-  "- Fast comparison paths for all Python numeric types\n"
-  "- Specialized algorithms for different heap configurations\n"
-  "- Advanced memory prefetching and cache optimization\n"
-  "- Automatic algorithm selection for maximum performance\n"
-  "- Native max-heap support without data transformation\n"
-  "- N-ary heap support with configurable arity\n"
-  "- Custom comparison functions with intelligent key caching\n\n"
-  "Typical performance improvements: 40-80% faster than heapq",
+  "\t- Fast comparison paths for all Python numeric types\n"
+  "\t- Specialized algorithms for different heap configurations\n"
+  "\t- Advanced memory prefetching and cache optimization\n"
+  "\t- Automatic algorithm selection for maximum performance\n"
+  "\t- Native max-heap support without data transformation\n"
+  "\t- N-ary heap support with configurable arity\n"
+  "\t- Custom comparison functions with intelligent key caching\n\n",
   -1,
   Methods
 };
@@ -3438,7 +3437,7 @@ py_merge(PyObject *self, PyObject *args, PyObject *kwargs) {
         Py_DECREF(result);
         return NULL;
       }
-      
+
       if (unlikely(PyList_Append(result, item) < 0)) {
         Py_DECREF(item);
         Py_DECREF(result);
