@@ -105,7 +105,7 @@ def read_long_description():
 
 # Main heapx extension configuration
 heapx_extension = Extension(
-  name='heapx',
+  name='heapx._heapx',
   sources=["src/heapx/heapx.c"],
   language='c',
   define_macros=[
@@ -183,8 +183,8 @@ setup(
   },
   zip_safe=False,
   include_package_data=True,
+  package_dir={'': 'src'},
   packages=['heapx'],
-  package_dir={'heapx': '.'},
   package_data={
     'heapx': ['*.pyi', 'py.typed'],
   },

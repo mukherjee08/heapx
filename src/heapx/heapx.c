@@ -1200,7 +1200,7 @@ static PyMethodDef Methods[] = {
 
 static struct PyModuleDef heapx = {
   PyModuleDef_HEAD_INIT,
-  "heapx",
+  "_heapx",
   "Ultra-optimized heap operations with comprehensive functionality\n\n"
   "This module provides enhanced heap operations with superior performance\n"
   "and flexibility compared to Python's standard heapq module. Built as a\n"
@@ -1226,22 +1226,22 @@ static struct PyModuleDef heapx = {
 };
 
 PyMODINIT_FUNC
-PyInit_heapx(void)
+PyInit__heapx(void)
 {
   PyObject *module = PyModule_Create(&heapx);
   if (unlikely(!module)) return NULL;
-  
+
   /* Add module-level constants */
   if (unlikely(PyModule_AddStringConstant(module, "__version__", "1.0.0") < 0)) {
     Py_DECREF(module);
     return NULL;
   }
-  
+
   if (unlikely(PyModule_AddStringConstant(module, "__author__", "heapx contributors") < 0)) {
     Py_DECREF(module);
     return NULL;
   }
-  
+
   return module;
 }
 
