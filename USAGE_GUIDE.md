@@ -53,3 +53,14 @@
 
 3. *Install the dource distribution* in the project directory root using the command:
   `python -m pip install -e .`
+
+---
+
+## [DEV] Part $3$: Test the heapx module import.
+
+1. *Check the attribute (name, version, author, etc.)* using the below command:
+  `python -m pip show heapx`
+
+2. 
+
+
