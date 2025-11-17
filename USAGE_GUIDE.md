@@ -1,7 +1,7 @@
 ## Testing Development
 
 1. *Create a new virtual environment* using the command:
-  `python -m venve .<env-name>`
+  `python -m venv .<env-name>`
 
 2. *Activate the created environment* using the command:
   `source .<env-name>/bin/activate`
@@ -32,4 +32,11 @@
 
 6. *Check the generated sdist and wheel distribution builds* using the below command:
   `python -m twine check dist/*`
+
+7. *Ensure that the python version matches the wheel's dist/cpXXX version tag* using the below command:
+  `tree && python --version`
+
+8. *Confirm that the python and pip belongs to the created .<env-name>* using the below command:
+  `which python && which pip`
+
 
