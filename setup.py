@@ -120,11 +120,7 @@ heapx_extension = Extension(
 
 setup(
   name='heapx',
-  use_scm_version={
-    'write_to': 'heapx/_version.py',
-    'fallback_version': '1.0.0',
-  },
-  author='HeapX Contributors',
+  author='Aniruddha Mukherjee',
   author_email='aniruddhamukherjee2000@gmail.com',
   description='Ultra-optimized heap operations with comprehensive functionality and superior performance',
   long_description=read_long_description(),
