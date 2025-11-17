@@ -1,4 +1,4 @@
-## Testing Development
+## [DEV] Part $1$: Creating the `heapx` module.
 
 1. *Create a new virtual environment* using the command:
   `python -m venv .<env-name>`
@@ -39,4 +39,17 @@
 8. *Confirm that the python and pip belongs to the created .<env-name>* using the below command:
   `which python && which pip`
 
+---
 
+## [DEV] Part $2$: Install `heapx` development build to venv.
+
+1. *Install the wheel distribution directly* in MacOS using the command:
+  `python -m pip install dist/heapx-V.V.V-cpXXX-cpXXX-macosx_12_0_arm64.whl`
+  Please note that in the above command $V.V.V$ represents the heapx module version and $XXX$ represents the desired python version.
+
+2. *Install the sdist distribution directly* using the command:
+  `python -m pip install dist/heapx-V.V.V.tar.gz`
+  Please note that in the above command $V.V.V$ represents the heapx module version.
+
+3. *Install the dource distribution* in the project directory root using the command:
+  `python -m pip install -e .`
