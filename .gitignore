@@ -22,6 +22,7 @@ src/heapx/*.so
 src/heapx/*.pyd
 src/heapx/*cpython*.so
 src/heapx/*.dylib
+src/heapx/_version.py
 
 # Editor/OS files
 .DS_Store
