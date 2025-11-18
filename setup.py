@@ -9,7 +9,7 @@ for different platforms and compilers.
 import os
 import sys
 import platform
-from setuptools import setup, Extension
+from setuptools import setup, Extension, find_packages
 from setuptools.command.build_ext import build_ext
 
 class UltraOptimizedBuildExt(build_ext):
@@ -180,7 +180,7 @@ setup(
   zip_safe=False,
   include_package_data=True,
   package_dir={'': 'src'},
-  packages=['heapx'],
+  packages=find_packages(where="src"),
   package_data={
     'heapx': ['*.pyi', 'py.typed'],
   },
