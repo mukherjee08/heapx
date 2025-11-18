@@ -36,7 +36,7 @@ class UltraOptimizedBuildExt(build_ext):
       cc_env = os.environ.get('CC', 'cc')
       try:
         version_output = os.popen(f"'{cc_env}' --version 2>/dev/null").read().lower()
-        if 'clang' in version_output: return 'clang'
+        if ('clang' in version_output): return 'clang'
         else: return 'gcc' # Default to gcc if clang not detected
       except: return 'gcc' # Fallback on error
     else: return 'generic'
