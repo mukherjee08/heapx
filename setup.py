@@ -32,10 +32,15 @@ class UltraOptimizedBuildExt(build_ext):
     elif (compiler in ['unix', 'mingw32']):
       
       # Detect specific Unix compilers
-      if ('clang' in os.popen('$CC --version 2>/dev/null').read().lower()): return 'clang'
-      else: return 'gcc'
+      # Use a safer check for compiler version
+      cc_env = os.environ.get('CC', 'cc')
+      try:
+        version_output = os.popen(f"'{cc_env}' --version 2>/dev/null").read().lower()
+        if 'clang' in version_output: return 'clang'
+        else: return 'gcc' # Default to gcc if clang not detected
+      except: return 'gcc' # Fallback on error
     else: return 'generic'
-  
+
   def apply_ultra_optimizations(self, ext, compiler_type):
     """Apply maximum optimizations based on compiler and platform."""
     # Common optimizations for all platforms
