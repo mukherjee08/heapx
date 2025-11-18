@@ -62,7 +62,7 @@ class UltraOptimizedBuildExt(build_ext):
       
       # x86-64 specific optimizations
       elif (('x86' in arch) and is_64bit): opts.extend(['-mavx2', '-mbmi2', '-mpopcnt'])
-        
+
     elif (compiler_type == 'gcc'):
       opts = [
         '-O3', '-march=native', '-mtune=native', '-flto', '-ffast-math',
