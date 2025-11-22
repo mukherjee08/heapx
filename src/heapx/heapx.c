@@ -1966,7 +1966,8 @@ list_heapsort_ultra_optimized(PyListObject *listobj, int reverse, int is_max, Py
   if (unlikely(n <= 1)) return 0;
   
   PyObject **items = ASSUME_ALIGNED(listobj->ob_item, sizeof(void*));
-  int sort_is_max = reverse ? (is_max ? 0 : 1) : is_max;
+  /* For ascending sort: use max-heap. For descending sort: use min-heap */
+  int sort_is_max = reverse ? 0 : 1;
   
   /* HOT PATH: Binary heap heapsort */
   if (likely(arity == 2)) {
@@ -2074,7 +2075,8 @@ py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
   }
 
   /* Determine heap direction for initial heapify */
-  int heapify_is_max = reverse ? (is_max ? 0 : 1) : is_max;
+  /* For ascending sort: need max-heap. For descending sort: need min-heap */
+  int heapify_is_max = reverse ? 0 : 1;
 
   /* HOT PATH: List without key function */
   if (likely(PyList_CheckExact(work_heap) && cmp == Py_None)) {

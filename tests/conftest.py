@@ -5,6 +5,17 @@ from   pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 DIST_DIR     = PROJECT_ROOT / "dist"
 BUILD_DIR    = PROJECT_ROOT / "build"
+SRC_DIR      = PROJECT_ROOT / "src"
+
+def pytest_collection_finish(session):
+  """Print test cases after collection, before execution."""
+  window_size = 66
+  print("\n" + "="*window_size)
+  print("COLLECTED TEST CASES:")
+  print("="*window_size)
+  for i, item in enumerate(session.items, 1):
+    print(f"  {i}. {item.nodeid}")
+  print("="*window_size + "\n")
 
 @pytest.fixture(scope="session", autouse=True)
 def build_distributions():
@@ -19,8 +30,15 @@ def build_distributions():
   
   yield # Run all tests
 
-  # Cleanup
+  # Cleanup build artifacts
   if DIST_DIR.exists() : shutil.rmtree(DIST_DIR)
   if BUILD_DIR.exists(): shutil.rmtree(BUILD_DIR)
+  
+  # Cleanup egg-info directories
   for egg_dir in PROJECT_ROOT.glob("*.egg-info"): shutil.rmtree(egg_dir)
-  for egg_dir in (PROJECT_ROOT / "src").glob("*.egg-info"): shutil.rmtree(egg_dir)
+  for egg_dir in SRC_DIR.glob("**/*.egg-info"): shutil.rmtree(egg_dir)
+  
+  # Cleanup compiled extensions (.so, .pyd, .dll)
+  for so_file in SRC_DIR.glob("**/*.so"): so_file.unlink()
+  for pyd_file in SRC_DIR.glob("**/*.pyd"): pyd_file.unlink()
+  for dll_file in SRC_DIR.glob("**/*.dll"): dll_file.unlink()
