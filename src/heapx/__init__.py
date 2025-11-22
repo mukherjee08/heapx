@@ -1,7 +1,6 @@
 """heapx: Ultra-optimized heap operations for Python."""
 
 import importlib.metadata as _metadata
-import sys as _sys
 
 # ---------------------------------------------------------------------------
 # 1. Dynamic Version Resolution
@@ -28,7 +27,7 @@ except ImportError:
   # If the direct relative import fails, the binary might not be built.
   pass
 
-if _ext is None:
+if (_ext is None):
   # Provide a professional, actionable error message if loading fails
   raise ImportError(
     "The compiled 'heapx' extension is not available. This usually means "

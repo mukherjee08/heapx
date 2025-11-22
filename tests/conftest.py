@@ -1,5 +1,5 @@
 """Pytest configuration with automatic build and cleanup."""
-import shutil, subprocess, pytest # type: ignore
+import shutil, subprocess, sys, pytest # type: ignore
 from   pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -22,7 +22,7 @@ def build_distributions():
   """Build wheel and sdist before tests, cleanup after."""
 
   subprocess.run(
-    ["python", "-m", "build", "--sdist", "--wheel"],
+    [sys.executable, "-m", "build", "--sdist", "--wheel"],
     cwd=PROJECT_ROOT,
     check=True,
     capture_output=True
@@ -42,3 +42,6 @@ def build_distributions():
   for so_file in SRC_DIR.glob("**/*.so")  : so_file.unlink()
   for pyd_file in SRC_DIR.glob("**/*.pyd"): pyd_file.unlink()
   for dll_file in SRC_DIR.glob("**/*.dll"): dll_file.unlink()
+  
+  # Cleanup __pycache__ directories
+  for pycache in PROJECT_ROOT.glob("**/__pycache__"): shutil.rmtree(pycache)
