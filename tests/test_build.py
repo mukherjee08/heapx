@@ -30,23 +30,17 @@ Notes (important):
       python tests/build.py
 """
 
-from __future__ import annotations
-
-import json
-import os
-import shutil
-import subprocess
-import sys
-import tempfile
-from pathlib import Path
-from typing import List, Tuple
+from   __future__ import annotations
+import json, subprocess, sys, tempfile
+from   pathlib    import Path
+from   typing     import List, Tuple
 
 # -------------------- Configuration --------------------
-MODULE_PREFERRED = "heapx"   # try this import first; most packages provide a python wrapper
-MODULE_FALLBACK = "_heapx"   # the compiled C extension's module name (from PyInit__heapx)
-DIST_DIR = Path("dist")
-PROJECT_ROOT = Path.cwd()
-TIMEOUT = 300  # generous timeout for installs/builds (seconds)
+MODULE_PREFERRED = "heapx" # Try this import first; most packages provide a python wrapper
+MODULE_FALLBACK = "_heapx" # The compiled C extension's module name (from PyInit__heapx)
+DIST_DIR = Path("dist")    # The directory for dist/* 
+PROJECT_ROOT = Path.cwd()  # The wd for the root of the project
+TIMEOUT = 300              # generous timeout for installs/builds (seconds)
 
 # -------------------- Smoke test code --------------------
 SMOKE_TEST = r'''
@@ -178,33 +172,25 @@ def find_unique(pattern: str) -> Path:
 def create_venv(directory: Path) -> Path:
   """Create venv and return path to its python executable."""
   rc, out, err = run([sys.executable, "-m", "venv", str(directory)])
-  if rc != 0:
-    raise RuntimeError(f"Failed to create venv: rc={rc}\nstdout:\n{out}\nstderr:\n{err}")
-  if sys.platform == "win32":
-    py = directory / "Scripts" / "python.exe"
-  else:
-    py = directory / "bin" / "python"
-  if not py.exists():
-    raise FileNotFoundError(f"Created venv but python executable not found at {py}")
+  if (rc != 0): raise RuntimeError(f"Failed to create venv: rc={rc}\nstdout:\n{out}\nstderr:\n{err}")
+  if (sys.platform == "win32"): py = directory / "Scripts" / "python.exe"
+  else: py = directory / "bin" / "python"
+  if (not py.exists()): raise FileNotFoundError(f"Created venv but python executable not found at {py}")
   return py
 
 def venv_pip_install(python: Path, specs: List[str], cwd: Path = None) -> None:
   """Upgrade pip/setuptools/wheel then pip install given specs inside venv python."""
   rc, out, err = run([str(python), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"], cwd=cwd)
-  if rc != 0:
-    raise RuntimeError(f"Failed to upgrade pip/setuptools/wheel in venv: rc={rc}\nstdout:\n{out}\nstderr:\n{err}")
+  if (rc != 0): raise RuntimeError(f"Failed to upgrade pip/setuptools/wheel in venv: rc={rc}\nstdout:\n{out}\nstderr:\n{err}")
   cmd = [str(python), "-m", "pip", "install"] + specs
   rc, out, err = run(cmd, cwd=cwd)
-  if rc != 0:
-    raise RuntimeError(f"pip install failed for {specs}: rc={rc}\nstdout:\n{out}\nstderr:\n{err}")
+  if (rc != 0): raise RuntimeError(f"pip install failed for {specs}: rc={rc}\nstdout:\n{out}\nstderr:\n{err}")
 
 def run_smoke(python: Path) -> None:
   """Run the SMOKE_TEST code inside the venv's python; validate output contains SMOKE-OK."""
   rc, out, err = run([str(python), "-c", SMOKE_TEST])
-  if rc != 0:
-    raise RuntimeError(f"Smoke test failed: rc={rc}\nstdout:\n{out}\nstderr:\n{err}")
-  if "SMOKE-OK" not in out:
-    raise RuntimeError(f"Smoke test did not print SMOKE-OK. stdout:\n{out}\nstderr:\n{err}")
+  if (rc != 0): raise RuntimeError(f"Smoke test failed: rc={rc}\nstdout:\n{out}\nstderr:\n{err}")
+  if ("SMOKE-OK" not in out): raise RuntimeError(f"Smoke test did not print SMOKE-OK. stdout:\n{out}\nstderr:\n{err}")
 
 # -------------------- Test helpers --------------------
 
@@ -219,14 +205,12 @@ def _install_and_test(specs: List[str], cwd: Path = None) -> None:
 # -------------------- Pytest-compatible tests --------------------
 
 def test_install_wheel_and_smoke():
-  if not DIST_DIR.exists():
-    raise AssertionError(f"{DIST_DIR} missing; run 'python -m build' first")
+  if (not DIST_DIR.exists()): raise AssertionError(f"{DIST_DIR} missing; run 'python -m build' first")
   wheel = find_unique("heapx-*.whl")
   _install_and_test([str(wheel)])
 
 def test_install_sdist_and_smoke():
-  if not DIST_DIR.exists():
-    raise AssertionError(f"{DIST_DIR} missing; run 'python -m build' first")
+  if (not DIST_DIR.exists()): raise AssertionError(f"{DIST_DIR} missing; run 'python -m build' first")
   sdist = find_unique("heapx-*.tar.gz")
   _install_and_test([str(sdist)])
 
@@ -235,7 +219,8 @@ def test_install_editable_and_smoke():
 
 # -------------------- Allow running as a script --------------------
 
-if __name__ == "__main__":
+def main():
+
   results = {}
   try:
     test_install_wheel_and_smoke()
@@ -256,6 +241,7 @@ if __name__ == "__main__":
     results["editable"] = f"error: {e}"
 
   print(json.dumps(results, indent=2))
-  if any(v != "ok" for v in results.values()):
-    sys.exit(1)
+  if any(v != "ok" for v in results.values()): sys.exit(1)
   print("All install-and-smoke checks passed.")
+
+if (__name__ == "__main__"): main()

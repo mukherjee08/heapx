@@ -36,9 +36,9 @@ def build_distributions():
   
   # Cleanup egg-info directories
   for egg_dir in PROJECT_ROOT.glob("*.egg-info"): shutil.rmtree(egg_dir)
-  for egg_dir in SRC_DIR.glob("**/*.egg-info"): shutil.rmtree(egg_dir)
+  for egg_dir in SRC_DIR.glob("**/*.egg-info")  : shutil.rmtree(egg_dir)
   
   # Cleanup compiled extensions (.so, .pyd, .dll)
-  for so_file in SRC_DIR.glob("**/*.so"): so_file.unlink()
+  for so_file in SRC_DIR.glob("**/*.so")  : so_file.unlink()
   for pyd_file in SRC_DIR.glob("**/*.pyd"): pyd_file.unlink()
   for dll_file in SRC_DIR.glob("**/*.dll"): dll_file.unlink()
