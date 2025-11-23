@@ -310,6 +310,25 @@ optimized_compare(PyObject *a, PyObject *b, int op) {
   return PyObject_RichCompareBool(a, b, op);
 }
 
+/* Optimized key function invocation with vectorcall support (Python 3.8+) */
+static FORCE_INLINE PyObject *
+call_key_function(PyObject *keyfunc, PyObject *item) {
+#if PY_VERSION_HEX >= 0x03080000
+  /* Python 3.8+: Use vectorcall protocol for maximum performance */
+  vectorcallfunc vectorcall = PyVectorcall_Function(keyfunc);
+  if (likely(vectorcall != NULL)) {
+    /* Fast path: Direct vectorcall invocation bypasses argument tuple creation */
+    PyObject *args[1] = {item};
+    return vectorcall(keyfunc, args, 1 | PY_VECTORCALL_ARGUMENTS_OFFSET, NULL);
+  }
+  /* Fallback: Standard call for non-vectorcall callables */
+  return PyObject_CallOneArg(keyfunc, item);
+#else
+  /* Python 3.7 and earlier: Use standard call protocol */
+  return PyObject_CallOneArg(keyfunc, item);
+#endif
+}
+
 /* SIMD and homogeneous array detection for vectorization opportunities */
 static int
 detect_homogeneous_type(PyObject **items, Py_ssize_t n) {
@@ -420,7 +439,7 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
 
   /* PHASE 1: PRECOMPUTE ALL KEYS */
   for (Py_ssize_t i = 0; i < n; i++) {
-    PyObject *k = PyObject_CallOneArg(keyfunc, items[i]);
+    PyObject *k = call_key_function(keyfunc, items[i]);
     if (unlikely(!k)) {
       for (Py_ssize_t j = 0; j < i; j++) Py_DECREF(keys[j]);
       PyMem_Free(keys);
@@ -638,7 +657,7 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
 
   /* Precompute all keys */
   for (Py_ssize_t i = 0; i < n; i++) {
-    PyObject *k = PyObject_CallOneArg(keyfunc, items[i]);
+    PyObject *k = call_key_function(keyfunc, items[i]);
     if (unlikely(!k)) {
       for (Py_ssize_t j = 0; j < i; j++) Py_DECREF(keys[j]);
       PyMem_Free(keys);
@@ -816,9 +835,9 @@ heapify_arity_one_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp)
 
       PyObject *parentkey, *childkey;
       if (likely(cmp)) {
-        parentkey = PyObject_CallOneArg(cmp, parent);
+        parentkey = call_key_function(cmp, parent);
         if (unlikely(!parentkey)) { Py_DECREF(parent); Py_DECREF(childobj); return -1; }
-        childkey = PyObject_CallOneArg(cmp, childobj);
+        childkey = call_key_function(cmp, childobj);
         if (unlikely(!childkey)) { Py_DECREF(parent); Py_DECREF(childobj); Py_DECREF(parentkey); return -1; }
       } else {
         parentkey = parent;
@@ -869,7 +888,7 @@ generic_heapify_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp, Py_ss
       
       PyObject *bestkey;
       if (likely(cmp)) {
-        bestkey = PyObject_CallOneArg(cmp, bestobj);
+        bestkey = call_key_function(cmp, bestobj);
         if (unlikely(!bestkey)) { Py_DECREF(bestobj); return -1; }
       } else {
         bestkey = bestobj;
@@ -892,7 +911,7 @@ generic_heapify_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp, Py_ss
         
         PyObject *curkey;
         if (likely(cmp)) {
-          curkey = PyObject_CallOneArg(cmp, cur);
+          curkey = call_key_function(cmp, cur);
           if (unlikely(!curkey)) { 
             Py_DECREF(cur); Py_DECREF(bestobj); Py_DECREF(bestkey); 
             return -1; 
