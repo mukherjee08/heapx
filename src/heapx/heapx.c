@@ -1232,12 +1232,12 @@ PyInit__heapx(void)
   if (unlikely(!module)) return NULL;
 
   /* Add module-level constants */
-  if (unlikely(PyModule_AddStringConstant(module, "__version__", "1.0.0") < 0)) {
+  if (unlikely(PyModule_AddStringConstant(module, "__version__", "0.0.0") < 0)) {
     Py_DECREF(module);
     return NULL;
   }
 
-  if (unlikely(PyModule_AddStringConstant(module, "__author__", "heapx contributors") < 0)) {
+  if (unlikely(PyModule_AddStringConstant(module, "__author__", "Aniruddha Mukherjee") < 0)) {
     Py_DECREF(module);
     return NULL;
   }
