@@ -8,6 +8,7 @@
   - [4. Broader Sequence Support](#4-broader-sequence-support)
   - [5. Custom Comparison Functions](#5-custom-comparison-functions)
   - [6. Memory Efficiency](#6-memory-efficiency)
+- [API Function Overview](#)
 
 ## Overview
 
@@ -38,4 +39,60 @@ Heap data types are very useful because they always keep the most important item
 
 
 ### **6. Memory Efficiency**
+
+
+## API Function Overview
+
+
+
+### Heapify
+
+
+
+### Push
+
+
+
+### Pop
+
+
+
+### Remove
+
+
+
+### Replace
+
+
+
+### Sort
+
+
+
+### Merge
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
