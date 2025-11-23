@@ -451,27 +451,24 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
   /* OPTIMIZATION: Detect homogeneous key types for fast comparison paths */
   int key_homogeneous_type = detect_homogeneous_type(keys, n);
 
-  /* PHASE 2: FLOYD'S HEAPIFICATION WITH FAST KEY COMPARISONS */
+  /* PHASE 2: STANDARD HEAPIFICATION WITH KEY COMPARISONS */
+  /* Note: Cannot use Floyd's algorithm with key caching as it breaks key-item correspondence */
   for (Py_ssize_t i = (n - 2) >> 1; i >= 0; i--) {
+    PyObject *newitem = items[i];
+    PyObject *newkey = keys[i];
     Py_ssize_t pos = i;
-    PyObject *newitem = items[pos];
-    PyObject *newkey = keys[pos];
     
-    /* Sift down phase with fast key comparisons */
+    /* Sift down: find the correct position for newitem */
     while (1) {
       Py_ssize_t child = (pos << 1) + 1;
       if (unlikely(child >= n)) break;
       
       Py_ssize_t best = child;
-      PyObject *bestkey = keys[child];
       
-      /* Advanced prefetching for key arrays */
-      PREFETCH_MULTIPLE(keys, (child << 1) + 1, PREFETCH_DISTANCE, n);
-      
+      /* Find best child */
       Py_ssize_t right = child + 1;
       if (likely(right < n)) {
-        /* FAST KEY COMPARISON: Use optimized comparison for common key types */
-        int cmp = optimized_compare(keys[right], bestkey, is_max ? Py_GT : Py_LT);
+        int cmp = optimized_compare(keys[right], keys[child], is_max ? Py_GT : Py_LT);
         if (unlikely(cmp < 0)) {
           for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
           PyMem_Free(keys);
@@ -479,34 +476,29 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
         }
         if (cmp) {
           best = right;
-          bestkey = keys[right];
         }
       }
       
-      /* Move both item and key together - no ref counting in inner loop */
-      items[pos] = items[best];
-      keys[pos] = bestkey;
-      pos = best;
-    }
-    
-    /* Sift up phase with fast key comparisons */
-    while (pos > i) {
-      Py_ssize_t parent = (pos - 1) >> 1;
-      int cmp = optimized_compare(newkey, keys[parent], is_max ? Py_GT : Py_LT);
-      if (unlikely(cmp < 0)) {
+      /* Check if newkey satisfies heap property at this position */
+      int need_swap = optimized_compare(keys[best], newkey, is_max ? Py_GT : Py_LT);
+      if (unlikely(need_swap < 0)) {
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
         PyMem_Free(keys);
         return -1;
       }
-      if (!cmp) break;
+      if (!need_swap) break;
       
-      items[pos] = items[parent];
-      keys[pos] = keys[parent];
-      pos = parent;
+      /* Move best child up to current position */
+      items[pos] = items[best];
+      keys[pos] = keys[best];
+      pos = best;
     }
     
-    items[pos] = newitem;
-    keys[pos] = newkey;
+    /* Place newitem and newkey at final position */
+    if (pos != i) {
+      items[pos] = newitem;
+      keys[pos] = newkey;
+    }
   }
 
   /* PHASE 3: CLEANUP */
@@ -672,6 +664,7 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
     PyObject *newitem = items[pos];
     PyObject *newkey = keys[pos];
     
+    /* Standard sift-down */
     while (1) {
       Py_ssize_t child = 3 * pos + 1;
       if (unlikely(child >= n)) break;
@@ -707,25 +700,19 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
         }
       }
       
-      items[pos] = items[best];
-      keys[pos] = bestkey;
-      pos = best;
-    }
-    
-    /* Sift up phase */
-    while (pos > i) {
-      Py_ssize_t parent = (pos - 1) / 3;
-      int cmp = optimized_compare(newkey, keys[parent], is_max ? Py_GT : Py_LT);
-      if (unlikely(cmp < 0)) {
+      /* Check if newkey is in correct position */
+      int need_swap = optimized_compare(bestkey, newkey, is_max ? Py_GT : Py_LT);
+      if (unlikely(need_swap < 0)) {
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
         PyMem_Free(keys);
         return -1;
       }
-      if (!cmp) break;
+      if (!need_swap) break;
       
-      items[pos] = items[parent];
-      keys[pos] = keys[parent];
-      pos = parent;
+      /* Swap */
+      items[pos] = items[best];
+      keys[pos] = keys[best];
+      pos = best;
     }
     
     items[pos] = newitem;
@@ -945,7 +932,7 @@ generic_heapify_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp, Py_ss
       
       PyObject *parentkey;
       if (likely(cmp)) {
-        parentkey = PyObject_CallOneArg(cmp, parent);
+        parentkey = call_key_function(cmp, parent);
         if (unlikely(!parentkey)) { 
           Py_DECREF(parent); Py_DECREF(bestobj); Py_DECREF(bestkey); 
           return -1; 
@@ -955,13 +942,19 @@ generic_heapify_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp, Py_ss
         Py_INCREF(parentkey);
       }
 
-      /* FAST COMPARISON: Use optimized comparison for parent-child check */
-      int done = optimized_compare(parentkey, bestkey, is_max ? Py_GE : Py_LE);
-      Py_DECREF(parent); Py_DECREF(parentkey);
-      Py_DECREF(bestobj); Py_DECREF(bestkey);
+      /* FAST COMPARISON: Check if we should continue sifting down */
+      int should_continue = optimized_compare(bestkey, parentkey, is_max ? Py_GT : Py_LT);
+      Py_DECREF(parentkey);
       
-      if (unlikely(done < 0)) return -1;
-      if (done) break;
+      if (unlikely(should_continue < 0)) { 
+        Py_DECREF(parent); Py_DECREF(bestobj); Py_DECREF(bestkey); 
+        return -1; 
+      }
+      
+      if (!should_continue) { 
+        Py_DECREF(parent); Py_DECREF(bestobj); Py_DECREF(bestkey); 
+        break; 
+      }
 
       PyObject *tmp_parent = PySequence_GetItem(heap, pos);
       PyObject *tmp_child = PySequence_GetItem(heap, best);
@@ -1018,8 +1011,8 @@ py_heapify(PyObject *self, PyObject *args, PyObject *kwargs)
   if (likely(PyList_CheckExact(heap))) {
     PyListObject *listobj = (PyListObject *)heap;
     
-    /* Small heap optimization */
-    if (unlikely(n <= 16)) {
+    /* Small heap optimization (only for no key function) */
+    if (unlikely(n <= 16 && cmp == Py_None)) {
       rc = list_heapify_small_ultra_optimized(listobj, is_max, arity);
       
     } else if (likely(cmp == Py_None)) {

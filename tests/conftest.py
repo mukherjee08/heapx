@@ -7,6 +7,14 @@ DIST_DIR     = PROJECT_ROOT / "dist"
 BUILD_DIR    = PROJECT_ROOT / "build"
 SRC_DIR      = PROJECT_ROOT / "src"
 
+def pytest_configure(config):
+  """Build and install package before test collection."""
+  subprocess.run(
+    [sys.executable, "-m", "pip", "install", "-e", ".", "--force-reinstall", "--no-deps", "-q"],
+    cwd=PROJECT_ROOT,
+    check=True
+  )
+
 def pytest_collection_finish(session):
   """Print test cases after collection, before execution."""
   window_size = 66
@@ -19,8 +27,7 @@ def pytest_collection_finish(session):
 
 @pytest.fixture(scope="session", autouse=True)
 def build_distributions():
-  """Build wheel and sdist before tests, cleanup after."""
-
+  """Build wheel and sdist for distribution tests."""
   subprocess.run(
     [sys.executable, "-m", "build", "--sdist", "--wheel"],
     cwd=PROJECT_ROOT,
@@ -44,4 +51,5 @@ def build_distributions():
   for dll_file in SRC_DIR.glob("**/*.dll"): dll_file.unlink()
   
   # Cleanup __pycache__ directories
-  for pycache in PROJECT_ROOT.glob("**/__pycache__"): shutil.rmtree(pycache)
+  for pycache in PROJECT_ROOT.glob("**/__pycache__"): 
+    shutil.rmtree(pycache, ignore_errors=True)
