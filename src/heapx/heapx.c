@@ -1604,6 +1604,104 @@ list_sift_down_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, P
   return 0;
 }
 
+/* Helper: Remove single item at index with O(log n) inline heap maintenance */
+HOT_FUNCTION static inline int
+list_remove_at_index_optimized(PyListObject *listobj, Py_ssize_t idx, int is_max, PyObject *keyfunc, Py_ssize_t arity) {
+  Py_ssize_t n = Py_SIZE(listobj);
+  if (unlikely(idx < 0 || idx >= n)) return -1;
+  
+  PyObject **items = listobj->ob_item;
+  PyObject *removed = items[idx];
+  Py_INCREF(removed);
+  
+  /* Move last element to removed position */
+  Py_ssize_t last_idx = n - 1;
+  if (idx == last_idx) {
+    /* Removing last element - just shrink */
+    Py_DECREF(removed);
+    if (unlikely(PyList_SetSlice((PyObject*)listobj, last_idx, n, NULL) < 0)) return -1;
+    return 0;
+  }
+  
+  PyObject *last_item = items[last_idx];
+  Py_INCREF(last_item);
+  
+  /* Shrink list */
+  if (unlikely(PyList_SetSlice((PyObject*)listobj, last_idx, n, NULL) < 0)) {
+    Py_DECREF(removed);
+    Py_DECREF(last_item);
+    return -1;
+  }
+  
+  /* Refresh pointer after resize */
+  items = listobj->ob_item;
+  Py_ssize_t new_size = Py_SIZE(listobj);
+  
+  /* Place last item at removed position */
+  Py_SETREF(items[idx], last_item);
+  
+  /* Restore heap property: try sift-up first, then sift-down */
+  if (keyfunc == NULL) {
+    if (idx > 0) {
+      Py_ssize_t parent = (idx - 1) / arity;
+      int cmp_res = optimized_compare(items[idx], items[parent], is_max ? Py_GT : Py_LT);
+      if (unlikely(cmp_res < 0)) {
+        Py_DECREF(removed);
+        return -1;
+      }
+      if (cmp_res) {
+        if (unlikely(list_sift_up_ultra_optimized(listobj, idx, is_max, arity) < 0)) {
+          Py_DECREF(removed);
+          return -1;
+        }
+        Py_DECREF(removed);
+        return 0;
+      }
+    }
+    if (unlikely(list_sift_down_ultra_optimized(listobj, idx, new_size, is_max, arity) < 0)) {
+      Py_DECREF(removed);
+      return -1;
+    }
+  } else {
+    if (idx > 0) {
+      Py_ssize_t parent = (idx - 1) / arity;
+      PyObject *key_item = call_key_function(keyfunc, items[idx]);
+      if (unlikely(!key_item)) {
+        Py_DECREF(removed);
+        return -1;
+      }
+      PyObject *key_parent = call_key_function(keyfunc, items[parent]);
+      if (unlikely(!key_parent)) {
+        Py_DECREF(key_item);
+        Py_DECREF(removed);
+        return -1;
+      }
+      int cmp_res = optimized_compare(key_item, key_parent, is_max ? Py_GT : Py_LT);
+      Py_DECREF(key_item);
+      Py_DECREF(key_parent);
+      if (unlikely(cmp_res < 0)) {
+        Py_DECREF(removed);
+        return -1;
+      }
+      if (cmp_res) {
+        if (unlikely(list_sift_up_with_key_ultra_optimized(listobj, idx, is_max, keyfunc, arity) < 0)) {
+          Py_DECREF(removed);
+          return -1;
+        }
+        Py_DECREF(removed);
+        return 0;
+      }
+    }
+    if (unlikely(list_sift_down_with_key_ultra_optimized(listobj, idx, new_size, is_max, keyfunc, arity) < 0)) {
+      Py_DECREF(removed);
+      return -1;
+    }
+  }
+  
+  Py_DECREF(removed);
+  return 0;
+}
+
 /* Ultra-optimized push with comprehensive dispatch following priority table */
 static PyObject *
 py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
@@ -2810,6 +2908,7 @@ py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
 }
 
 /* Perfect production-ready remove operation */
+/* Ultra-optimized remove with 11-priority dispatch and O(log n) inline maintenance */
 static PyObject *
 py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
   static char *kwlist[] = {"heap", "indices", "object", "predicate", "n", "return_items", "max_heap", "cmp", "arity", NULL};
@@ -2856,7 +2955,7 @@ py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
     }
   }
 
-  /* HOT PATH: Single index removal from list */
+  /* HOT PATH: Single index removal with O(log n) inline maintenance */
   if (likely(PyList_CheckExact(heap) && indices != Py_None && object == Py_None && 
              predicate == Py_None && PyLong_Check(indices))) {
     
@@ -2872,135 +2971,80 @@ py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
       }
     }
     
+    PyListObject *listobj = (PyListObject *)heap;
     PyObject *removed_item = NULL;
     if (return_items) {
-      removed_item = PyList_GET_ITEM(heap, idx);
+      removed_item = listobj->ob_item[idx];
       Py_INCREF(removed_item);
     }
     
-    if (unlikely(PySequence_DelItem(heap, idx) < 0)) {
-      Py_XDECREF(removed_item);
-      return NULL;
+    Py_ssize_t new_size = heap_size - 1;
+    
+    /* Priority 1: Small heap (n ≤ 16) - use insertion sort after removal */
+    if (unlikely(new_size <= 16 && cmp == Py_None)) {
+      if (unlikely(PySequence_DelItem(heap, idx) < 0)) {
+        Py_XDECREF(removed_item);
+        return NULL;
+      }
+      
+      if (new_size > 0) {
+        PyObject **items = listobj->ob_item;
+        for (Py_ssize_t i = 1; i < new_size; i++) {
+          PyObject *key = items[i];
+          Py_INCREF(key);
+          Py_ssize_t j = i - 1;
+          while (j >= 0) {
+            int cmp_res = optimized_compare(key, items[j], is_max ? Py_GT : Py_LT);
+            if (unlikely(cmp_res < 0)) {
+              Py_DECREF(key);
+              Py_XDECREF(removed_item);
+              return NULL;
+            }
+            if (!cmp_res) break;
+            Py_INCREF(items[j]);
+            Py_SETREF(items[j + 1], items[j]);
+            j--;
+          }
+          Py_SETREF(items[j + 1], key);
+        }
+      }
+      
+      if (return_items) {
+        PyObject *items_list = PyList_New(1);
+        if (unlikely(!items_list)) {
+          Py_DECREF(removed_item);
+          return NULL;
+        }
+        PyList_SET_ITEM(items_list, 0, removed_item);
+        return Py_BuildValue("(nO)", 1, items_list);
+      }
+      return PyLong_FromLong(1);
     }
     
-    /* Re-heapify efficiently using optimized functions */
-    if (PyList_GET_SIZE(heap) > 0) {
-      if (cmp == Py_None) {
-        PyListObject *listobj = (PyListObject *)heap;
-        if (likely(arity == 2)) {
-          if (unlikely(list_heapify_floyd_ultra_optimized(listobj, is_max) < 0)) {
-            Py_XDECREF(removed_item);
-            return NULL;
-          }
-        } else if (arity == 3) {
-          if (unlikely(list_heapify_ternary_ultra_optimized(listobj, is_max) < 0)) {
-            Py_XDECREF(removed_item);
-            return NULL;
-          }
-        } else if (arity == 4) {
-          if (unlikely(list_heapify_quaternary_ultra_optimized(listobj, is_max) < 0)) {
-            Py_XDECREF(removed_item);
-            return NULL;
-          }
-        } else {
-          /* Use general heapify for other arities */
-          PyObject *heapify_args = PyTuple_Pack(1, heap);
-          if (unlikely(!heapify_args)) {
-            Py_XDECREF(removed_item);
-            return NULL;
-          }
-          
-          PyObject *heapify_kwargs = PyDict_New();
-          if (unlikely(!heapify_kwargs)) {
-            Py_DECREF(heapify_args);
-            Py_XDECREF(removed_item);
-            return NULL;
-          }
-          
-          if (unlikely(PyDict_SetItemString(heapify_kwargs, "max_heap", max_heap_obj) < 0)) {
-            Py_DECREF(heapify_args);
-            Py_DECREF(heapify_kwargs);
-            Py_XDECREF(removed_item);
-            return NULL;
-          }
-          
-          PyObject *arity_obj = PyLong_FromSsize_t(arity);
-          if (unlikely(!arity_obj)) {
-            Py_DECREF(heapify_args);
-            Py_DECREF(heapify_kwargs);
-            Py_XDECREF(removed_item);
-            return NULL;
-          }
-          
-          if (unlikely(PyDict_SetItemString(heapify_kwargs, "arity", arity_obj) < 0)) {
-            Py_DECREF(heapify_args);
-            Py_DECREF(heapify_kwargs);
-            Py_DECREF(arity_obj);
-            Py_XDECREF(removed_item);
-            return NULL;
-          }
-          Py_DECREF(arity_obj);
-
-          PyObject *heapify_result = py_heapify(self, heapify_args, heapify_kwargs);
-          Py_DECREF(heapify_args);
-          Py_DECREF(heapify_kwargs);
-          
-          if (unlikely(!heapify_result)) {
-            Py_XDECREF(removed_item);
-            return NULL;
-          }
-          Py_DECREF(heapify_result);
-        }
-      } else {
-        /* Fallback for key function */
-        PyObject *heapify_args = PyTuple_Pack(1, heap);
-        if (unlikely(!heapify_args)) {
-          Py_XDECREF(removed_item);
-          return NULL;
-        }
-        
-        PyObject *heapify_kwargs = PyDict_New();
-        if (unlikely(!heapify_kwargs)) {
-          Py_DECREF(heapify_args);
-          Py_XDECREF(removed_item);
-          return NULL;
-        }
-        
-        if (unlikely(PyDict_SetItemString(heapify_kwargs, "max_heap", max_heap_obj) < 0 ||
-                     PyDict_SetItemString(heapify_kwargs, "cmp", cmp) < 0)) {
-          Py_DECREF(heapify_args);
-          Py_DECREF(heapify_kwargs);
-          Py_XDECREF(removed_item);
-          return NULL;
-        }
-        
-        PyObject *arity_obj = PyLong_FromSsize_t(arity);
-        if (unlikely(!arity_obj)) {
-          Py_DECREF(heapify_args);
-          Py_DECREF(heapify_kwargs);
-          Py_XDECREF(removed_item);
-          return NULL;
-        }
-        
-        if (unlikely(PyDict_SetItemString(heapify_kwargs, "arity", arity_obj) < 0)) {
-          Py_DECREF(heapify_args);
-          Py_DECREF(heapify_kwargs);
-          Py_DECREF(arity_obj);
-          Py_XDECREF(removed_item);
-          return NULL;
-        }
-        Py_DECREF(arity_obj);
-
-        PyObject *heapify_result = py_heapify(self, heapify_args, heapify_kwargs);
-        Py_DECREF(heapify_args);
-        Py_DECREF(heapify_kwargs);
-        
-        if (unlikely(!heapify_result)) {
-          Py_XDECREF(removed_item);
-          return NULL;
-        }
-        Py_DECREF(heapify_result);
+    /* Priority 2: Arity=1 (sorted list) - O(n) removal with shift */
+    if (unlikely(arity == 1)) {
+      if (unlikely(PySequence_DelItem(heap, idx) < 0)) {
+        Py_XDECREF(removed_item);
+        return NULL;
       }
+      
+      if (return_items) {
+        PyObject *items_list = PyList_New(1);
+        if (unlikely(!items_list)) {
+          Py_DECREF(removed_item);
+          return NULL;
+        }
+        PyList_SET_ITEM(items_list, 0, removed_item);
+        return Py_BuildValue("(nO)", 1, items_list);
+      }
+      return PyLong_FromLong(1);
+    }
+    
+    /* Priorities 3-10: Use O(log n) inline heap maintenance */
+    PyObject *keyfunc = (cmp == Py_None) ? NULL : cmp;
+    if (unlikely(list_remove_at_index_optimized(listobj, idx, is_max, keyfunc, arity) < 0)) {
+      Py_XDECREF(removed_item);
+      return NULL;
     }
     
     if (return_items) {
@@ -3011,12 +3055,11 @@ py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
       }
       PyList_SET_ITEM(items_list, 0, removed_item);
       return Py_BuildValue("(nO)", 1, items_list);
-    } else {
-      return PyLong_FromLong(1);
     }
+    return PyLong_FromLong(1);
   }
 
-  /* GENERAL CASE: Multiple criteria or complex removal */
+  /* GENERAL CASE: Multiple criteria or batch removal */
   PyObject *to_remove = PySet_New(NULL);
   if (unlikely(!to_remove)) return NULL;
 
@@ -3254,9 +3297,33 @@ py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
   
   Py_DECREF(remove_list);
 
-  /* Re-heapify after removals using optimized functions */
-  if (PySequence_Size(heap) > 0) {
-    if (PyList_CheckExact(heap) && cmp == Py_None) {
+  /* Re-heapify after batch removals - use full heapify for efficiency */
+  Py_ssize_t new_size = PySequence_Size(heap);
+  if (new_size > 0) {
+    /* Priority 1: Small heap after removal */
+    if (unlikely(new_size <= 16 && PyList_CheckExact(heap) && cmp == Py_None)) {
+      PyListObject *listobj = (PyListObject *)heap;
+      PyObject **items = listobj->ob_item;
+      for (Py_ssize_t i = 1; i < new_size; i++) {
+        PyObject *key = items[i];
+        Py_INCREF(key);
+        Py_ssize_t j = i - 1;
+        while (j >= 0) {
+          int cmp_res = optimized_compare(key, items[j], is_max ? Py_GT : Py_LT);
+          if (unlikely(cmp_res < 0)) {
+            Py_DECREF(key);
+            Py_XDECREF(removed_items);
+            return NULL;
+          }
+          if (!cmp_res) break;
+          Py_INCREF(items[j]);
+          Py_SETREF(items[j + 1], items[j]);
+          j--;
+        }
+        Py_SETREF(items[j + 1], key);
+      }
+    } else if (PyList_CheckExact(heap) && cmp == Py_None) {
+      /* Priorities 3-7: Arity-specific heapify without key */
       PyListObject *listobj = (PyListObject *)heap;
       if (likely(arity == 2)) {
         if (unlikely(list_heapify_floyd_ultra_optimized(listobj, is_max) < 0)) {
@@ -3274,110 +3341,17 @@ py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
           return NULL;
         }
       } else {
-        PyObject *heapify_args = PyTuple_Pack(1, heap);
-        if (unlikely(!heapify_args)) {
+        if (unlikely(list_heapify_small_ultra_optimized(listobj, is_max, arity) < 0)) {
           Py_XDECREF(removed_items);
           return NULL;
         }
-        
-        PyObject *heapify_kwargs = PyDict_New();
-        if (unlikely(!heapify_kwargs)) {
-          Py_DECREF(heapify_args);
-          Py_XDECREF(removed_items);
-          return NULL;
-        }
-        
-        if (unlikely(PyDict_SetItemString(heapify_kwargs, "max_heap", max_heap_obj) < 0)) {
-          Py_DECREF(heapify_args);
-          Py_DECREF(heapify_kwargs);
-          Py_XDECREF(removed_items);
-          return NULL;
-        }
-        
-        PyObject *arity_obj = PyLong_FromSsize_t(arity);
-        if (unlikely(!arity_obj)) {
-          Py_DECREF(heapify_args);
-          Py_DECREF(heapify_kwargs);
-          Py_XDECREF(removed_items);
-          return NULL;
-        }
-        
-        if (unlikely(PyDict_SetItemString(heapify_kwargs, "arity", arity_obj) < 0)) {
-          Py_DECREF(heapify_args);
-          Py_DECREF(heapify_kwargs);
-          Py_DECREF(arity_obj);
-          Py_XDECREF(removed_items);
-          return NULL;
-        }
-        Py_DECREF(arity_obj);
-
-        PyObject *heapify_result = py_heapify(self, heapify_args, heapify_kwargs);
-        Py_DECREF(heapify_args);
-        Py_DECREF(heapify_kwargs);
-        
-        if (unlikely(!heapify_result)) {
-          Py_XDECREF(removed_items);
-          return NULL;
-        }
-        Py_DECREF(heapify_result);
       }
     } else {
-      /* Fallback heapify */
-      PyObject *heapify_args = PyTuple_Pack(1, heap);
-      if (unlikely(!heapify_args)) {
+      /* Fallback: generic heapify */
+      if (unlikely(generic_heapify_ultra_optimized(heap, is_max, (cmp == Py_None ? NULL : cmp), arity) < 0)) {
         Py_XDECREF(removed_items);
         return NULL;
       }
-      
-      PyObject *heapify_kwargs = PyDict_New();
-      if (unlikely(!heapify_kwargs)) {
-        Py_DECREF(heapify_args);
-        Py_XDECREF(removed_items);
-        return NULL;
-      }
-      
-      if (unlikely(PyDict_SetItemString(heapify_kwargs, "max_heap", max_heap_obj) < 0)) {
-        Py_DECREF(heapify_args);
-        Py_DECREF(heapify_kwargs);
-        Py_XDECREF(removed_items);
-        return NULL;
-      }
-      
-      if (cmp != Py_None) {
-        if (unlikely(PyDict_SetItemString(heapify_kwargs, "cmp", cmp) < 0)) {
-          Py_DECREF(heapify_args);
-          Py_DECREF(heapify_kwargs);
-          Py_XDECREF(removed_items);
-          return NULL;
-        }
-      }
-      
-      PyObject *arity_obj = PyLong_FromSsize_t(arity);
-      if (unlikely(!arity_obj)) {
-        Py_DECREF(heapify_args);
-        Py_DECREF(heapify_kwargs);
-        Py_XDECREF(removed_items);
-        return NULL;
-      }
-      
-      if (unlikely(PyDict_SetItemString(heapify_kwargs, "arity", arity_obj) < 0)) {
-        Py_DECREF(heapify_args);
-        Py_DECREF(heapify_kwargs);
-        Py_DECREF(arity_obj);
-        Py_XDECREF(removed_items);
-        return NULL;
-      }
-      Py_DECREF(arity_obj);
-
-      PyObject *heapify_result = py_heapify(self, heapify_args, heapify_kwargs);
-      Py_DECREF(heapify_args);
-      Py_DECREF(heapify_kwargs);
-      
-      if (unlikely(!heapify_result)) {
-        Py_XDECREF(removed_items);
-        return NULL;
-      }
-      Py_DECREF(heapify_result);
     }
   }
 
