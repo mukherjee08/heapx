@@ -1,0 +1,859 @@
+"""
+Comprehensive test suite for heapx.push function.
+
+Tests cover all parameters, data types, edge cases, and performance benchmarks
+against Python's standard heapq module.
+"""
+
+import heapq
+import heapx
+import pytest
+import random
+import string
+import time
+import sys
+from typing import List, Any, Callable, Tuple
+from statistics import mean, stdev
+
+# ============================================================================
+# Test Data Generators
+# ============================================================================
+
+def generate_integers(n: int, seed: int = 42) -> List[int]:
+  """Generate list of random integers."""
+  random.seed(seed)
+  return [random.randint(-1000000, 1000000) for _ in range(n)]
+
+def generate_floats(n: int, seed: int = 42) -> List[float]:
+  """Generate list of random floats."""
+  random.seed(seed)
+  return [random.uniform(-1000.0, 1000.0) for _ in range(n)]
+
+def generate_strings(n: int, seed: int = 42) -> List[str]:
+  """Generate list of random strings."""
+  random.seed(seed)
+  return [''.join(random.choices(string.ascii_letters, k=10)) for _ in range(n)]
+
+def generate_tuples(n: int, seed: int = 42) -> List[Tuple[int, str]]:
+  """Generate list of random tuples."""
+  random.seed(seed)
+  return [(random.randint(0, 1000), ''.join(random.choices(string.ascii_letters, k=5))) 
+          for _ in range(n)]
+
+def is_valid_heap(arr: List[Any], max_heap: bool = False, arity: int = 2) -> bool:
+  """Verify heap property for n-ary heap."""
+  n = len(arr)
+  for i in range(n):
+    for j in range(1, arity + 1):
+      child = arity * i + j
+      if child >= n:
+        break
+      if max_heap:
+        if arr[i] < arr[child]:
+          return False
+      else:
+        if arr[i] > arr[child]:
+          return False
+  return True
+
+# ============================================================================
+# Basic Functionality Tests
+# ============================================================================
+
+class TestBasicPush:
+  """Test basic push functionality."""
+
+  def test_push_to_empty(self):
+    """Test push to empty heap."""
+    heap = []
+    heapx.push(heap, 42)
+    assert heap == [42]
+
+  def test_push_single_min(self):
+    """Test single push to min-heap."""
+    heap = [1, 3, 5]
+    heapx.heapify(heap)
+    heapx.push(heap, 2)
+    assert is_valid_heap(heap)
+    assert heap[0] == 1
+
+  def test_push_single_max(self):
+    """Test single push to max-heap."""
+    heap = [5, 3, 1]
+    heapx.heapify(heap, max_heap=True)
+    heapx.push(heap, 4, max_heap=True)
+    assert is_valid_heap(heap, max_heap=True)
+    assert heap[0] == 5
+
+  def test_push_smaller_than_root(self):
+    """Test pushing element smaller than root."""
+    heap = [5, 10, 15]
+    heapx.heapify(heap)
+    heapx.push(heap, 1)
+    assert heap[0] == 1
+    assert is_valid_heap(heap)
+
+  def test_push_larger_than_all(self):
+    """Test pushing element larger than all."""
+    heap = [1, 3, 5]
+    heapx.heapify(heap)
+    heapx.push(heap, 100)
+    assert heap[0] == 1
+    assert is_valid_heap(heap)
+
+  def test_push_duplicate(self):
+    """Test pushing duplicate element."""
+    heap = [1, 3, 5]
+    heapx.heapify(heap)
+    heapx.push(heap, 3)
+    assert is_valid_heap(heap)
+
+  def test_push_multiple_sequential(self):
+    """Test multiple sequential pushes."""
+    heap = []
+    for val in [5, 3, 8, 1, 9, 2, 7]:
+      heapx.push(heap, val)
+    assert is_valid_heap(heap)
+    assert heap[0] == 1
+
+  def test_push_maintains_size(self):
+    """Test push increases heap size by 1."""
+    heap = [1, 3, 5]
+    heapx.heapify(heap)
+    heapx.push(heap, 2)
+    assert len(heap) == 4
+
+  def test_push_negative_numbers(self):
+    """Test push with negative numbers."""
+    heap = []
+    for val in [-5, -3, -8, -1]:
+      heapx.push(heap, val)
+    assert heap[0] == -8
+    assert is_valid_heap(heap)
+
+  def test_push_zero(self):
+    """Test push with zero."""
+    heap = [-5, 5]
+    heapx.heapify(heap)
+    heapx.push(heap, 0)
+    assert is_valid_heap(heap)
+
+# ============================================================================
+# Integer Tests
+# ============================================================================
+
+class TestIntegerPush:
+  """Test push with integer data."""
+
+  @pytest.mark.parametrize("n", [10, 100, 1000])
+  def test_random_integers_min(self, n):
+    """Test push with random integers (min-heap)."""
+    heap = []
+    data = generate_integers(n)
+    for val in data:
+      heapx.push(heap, val)
+    assert is_valid_heap(heap)
+    assert len(heap) == n
+
+  @pytest.mark.parametrize("n", [10, 100, 1000])
+  def test_random_integers_max(self, n):
+    """Test push with random integers (max-heap)."""
+    heap = []
+    data = generate_integers(n)
+    for val in data:
+      heapx.push(heap, val, max_heap=True)
+    assert is_valid_heap(heap, max_heap=True)
+    assert len(heap) == n
+
+  @pytest.mark.parametrize("n", [10, 100, 1000])
+  def test_sorted_integers_ascending(self, n):
+    """Test push with sorted ascending integers."""
+    heap = []
+    for val in range(n):
+      heapx.push(heap, val)
+    assert is_valid_heap(heap)
+    assert heap[0] == 0
+
+  @pytest.mark.parametrize("n", [10, 100, 1000])
+  def test_sorted_integers_descending(self, n):
+    """Test push with sorted descending integers."""
+    heap = []
+    for val in range(n, 0, -1):
+      heapx.push(heap, val)
+    assert is_valid_heap(heap)
+    assert heap[0] == 1
+
+  def test_large_range_integers(self):
+    """Test push with large range integers."""
+    heap = []
+    for val in [1000000, -1000000, 0, 500000, -500000]:
+      heapx.push(heap, val)
+    assert is_valid_heap(heap)
+    assert heap[0] == -1000000
+
+# ============================================================================
+# Float Tests
+# ============================================================================
+
+class TestFloatPush:
+  """Test push with float data."""
+
+  @pytest.mark.parametrize("n", [10, 100, 1000])
+  def test_random_floats_min(self, n):
+    """Test push with random floats (min-heap)."""
+    heap = []
+    data = generate_floats(n)
+    for val in data:
+      heapx.push(heap, val)
+    assert is_valid_heap(heap)
+
+  @pytest.mark.parametrize("n", [10, 100, 1000])
+  def test_random_floats_max(self, n):
+    """Test push with random floats (max-heap)."""
+    heap = []
+    data = generate_floats(n)
+    for val in data:
+      heapx.push(heap, val, max_heap=True)
+    assert is_valid_heap(heap, max_heap=True)
+
+  def test_float_precision(self):
+    """Test push with high precision floats."""
+    heap = []
+    for val in [1.0000001, 1.0000002, 1.0, 1.0000003]:
+      heapx.push(heap, val)
+    assert is_valid_heap(heap)
+    assert heap[0] == 1.0
+
+  def test_float_special_values(self):
+    """Test push with special float values."""
+    heap = []
+    for val in [float('inf'), -float('inf'), 0.0, 1.0]:
+      heapx.push(heap, val)
+    assert heap[0] == -float('inf')
+
+# ============================================================================
+# String Tests
+# ============================================================================
+
+class TestStringPush:
+  """Test push with string data."""
+
+  @pytest.mark.parametrize("n", [10, 100, 1000])
+  def test_random_strings_min(self, n):
+    """Test push with random strings (min-heap)."""
+    heap = []
+    data = generate_strings(n)
+    for val in data:
+      heapx.push(heap, val)
+    assert is_valid_heap(heap)
+
+  @pytest.mark.parametrize("n", [10, 100, 1000])
+  def test_random_strings_max(self, n):
+    """Test push with random strings (max-heap)."""
+    heap = []
+    data = generate_strings(n)
+    for val in data:
+      heapx.push(heap, val, max_heap=True)
+    assert is_valid_heap(heap, max_heap=True)
+
+  def test_string_case_sensitivity(self):
+    """Test push with case-sensitive strings."""
+    heap = []
+    for val in ["apple", "Apple", "APPLE", "aPpLe"]:
+      heapx.push(heap, val)
+    assert is_valid_heap(heap)
+
+  def test_empty_strings(self):
+    """Test push with empty strings."""
+    heap = []
+    for val in ["", "a", "", "b"]:
+      heapx.push(heap, val)
+    assert is_valid_heap(heap)
+
+# ============================================================================
+# Tuple Tests
+# ============================================================================
+
+class TestTuplePush:
+  """Test push with tuple data."""
+
+  @pytest.mark.parametrize("n", [10, 100, 1000])
+  def test_random_tuples_min(self, n):
+    """Test push with random tuples (min-heap)."""
+    heap = []
+    data = generate_tuples(n)
+    for val in data:
+      heapx.push(heap, val)
+    assert is_valid_heap(heap)
+
+  @pytest.mark.parametrize("n", [10, 100, 1000])
+  def test_random_tuples_max(self, n):
+    """Test push with random tuples (max-heap)."""
+    heap = []
+    data = generate_tuples(n)
+    for val in data:
+      heapx.push(heap, val, max_heap=True)
+    assert is_valid_heap(heap, max_heap=True)
+
+
+# ============================================================================
+# Arity Parameter Tests
+# ============================================================================
+
+class TestArityParameter:
+  """Test push with different arity values."""
+
+  @pytest.mark.parametrize("arity", [1, 2, 3, 4, 5, 8, 16])
+  @pytest.mark.parametrize("n", [20, 100])
+  def test_various_arity_min(self, arity, n):
+    """Test push with various arity values (min-heap)."""
+    heap = []
+    data = generate_integers(n)
+    for val in data:
+      heapx.push(heap, val, arity=arity)
+    assert is_valid_heap(heap, max_heap=False, arity=arity)
+
+  @pytest.mark.parametrize("arity", [1, 2, 3, 4, 5, 8, 16])
+  @pytest.mark.parametrize("n", [20, 100])
+  def test_various_arity_max(self, arity, n):
+    """Test push with various arity values (max-heap)."""
+    heap = []
+    data = generate_integers(n)
+    for val in data:
+      heapx.push(heap, val, max_heap=True, arity=arity)
+    assert is_valid_heap(heap, max_heap=True, arity=arity)
+
+  def test_unary_heap(self):
+    """Test push with arity=1 (sorted list)."""
+    heap = []
+    for val in [5, 3, 8, 1, 9]:
+      heapx.push(heap, val, arity=1)
+    assert heap == sorted(heap)
+
+  def test_ternary_heap(self):
+    """Test push with arity=3."""
+    heap = []
+    for val in range(30, 0, -1):
+      heapx.push(heap, val, arity=3)
+    assert is_valid_heap(heap, arity=3)
+    assert heap[0] == 1
+
+  def test_quaternary_heap(self):
+    """Test push with arity=4."""
+    heap = []
+    for val in range(20, 0, -1):
+      heapx.push(heap, val, arity=4)
+    assert is_valid_heap(heap, arity=4)
+    assert heap[0] == 1
+
+# ============================================================================
+# Custom Comparison Tests
+# ============================================================================
+
+class TestCustomComparison:
+  """Test push with custom comparison functions."""
+
+  def test_absolute_value_comparison(self):
+    """Test push with absolute value comparison."""
+    heap = []
+    for val in [-5, 2, -8, 1, 9, -3]:
+      heapx.push(heap, val, cmp=abs)
+    assert abs(heap[0]) == 1
+
+  def test_reverse_comparison(self):
+    """Test push with reverse comparison."""
+    heap = []
+    for val in [5, 2, 8, 1, 9]:
+      heapx.push(heap, val, cmp=lambda x: -x)
+    assert heap[0] == 9
+
+  def test_tuple_second_element(self):
+    """Test push comparing by tuple second element."""
+    heap = []
+    for val in [(1, 5), (2, 3), (3, 7), (4, 1)]:
+      heapx.push(heap, val, cmp=lambda x: x[1])
+    assert heap[0][1] == 1
+
+  def test_string_length_comparison(self):
+    """Test push comparing by string length."""
+    heap = []
+    for val in ["apple", "pie", "a", "banana"]:
+      heapx.push(heap, val, cmp=len)
+    assert len(heap[0]) == 1
+
+  @pytest.mark.parametrize("n", [10, 100, 1000])
+  def test_custom_cmp_with_arity(self, n):
+    """Test push with custom comparison and various arities."""
+    heap = []
+    data = generate_integers(n)
+    for val in data:
+      heapx.push(heap, val, cmp=abs, arity=3)
+    # Verify heap property with abs
+    for i in range(len(heap)):
+      for j in range(1, 4):
+        child = 3 * i + j
+        if child < len(heap):
+          assert abs(heap[i]) <= abs(heap[child])
+
+# ============================================================================
+# Bulk Insertion Tests
+# ============================================================================
+
+class TestBulkInsertion:
+  """Test bulk push operations."""
+
+  def test_bulk_push_list(self):
+    """Test bulk push with list."""
+    heap = [1, 3, 5]
+    heapx.heapify(heap)
+    heapx.push(heap, [2, 4, 6])
+    assert len(heap) == 6
+    assert is_valid_heap(heap)
+
+  def test_bulk_push_empty_list(self):
+    """Test bulk push with empty list."""
+    heap = [1, 3, 5]
+    heapx.heapify(heap)
+    heapx.push(heap, [])
+    assert len(heap) == 3
+
+  def test_bulk_push_large(self):
+    """Test bulk push with large list."""
+    heap = []
+    heapx.push(heap, list(range(100)))
+    assert len(heap) == 100
+    assert is_valid_heap(heap)
+
+  def test_bulk_push_max_heap(self):
+    """Test bulk push to max-heap."""
+    heap = [5, 3, 1]
+    heapx.heapify(heap, max_heap=True)
+    heapx.push(heap, [4, 6, 2], max_heap=True)
+    assert is_valid_heap(heap, max_heap=True)
+
+  def test_bulk_push_with_arity(self):
+    """Test bulk push with custom arity."""
+    heap = []
+    heapx.push(heap, list(range(50)), arity=3)
+    assert is_valid_heap(heap, arity=3)
+
+# ============================================================================
+# Edge Cases Tests
+# ============================================================================
+
+class TestEdgeCases:
+  """Test edge cases and boundary conditions."""
+
+  def test_push_to_size_16(self):
+    """Test push to heap of size 16 (boundary for small heap optimization)."""
+    heap = list(range(16))
+    heapx.heapify(heap)
+    heapx.push(heap, -1)
+    assert is_valid_heap(heap)
+    assert heap[0] == -1
+
+  def test_push_to_size_17(self):
+    """Test push to heap of size 17."""
+    heap = list(range(17))
+    heapx.heapify(heap)
+    heapx.push(heap, -1)
+    assert is_valid_heap(heap)
+    assert heap[0] == -1
+
+  def test_all_equal_elements(self):
+    """Test push with all equal elements."""
+    heap = [5, 5, 5]
+    heapx.heapify(heap)
+    heapx.push(heap, 5)
+    assert all(x == 5 for x in heap)
+
+  def test_invalid_arity(self):
+    """Test push with invalid arity."""
+    heap = []
+    with pytest.raises(ValueError):
+      heapx.push(heap, 1, arity=0)
+
+  def test_invalid_cmp(self):
+    """Test push with invalid cmp."""
+    heap = []
+    with pytest.raises(TypeError):
+      heapx.push(heap, 1, cmp="not_callable")
+
+  def test_push_tuple_as_single_item(self):
+    """Test that tuple is treated as single item, not sequence."""
+    heap = []
+    heapx.push(heap, (1, 2, 3))
+    assert len(heap) == 1
+    assert heap[0] == (1, 2, 3)
+
+  def test_push_string_as_single_item(self):
+    """Test that string is treated as single item."""
+    heap = []
+    heapx.push(heap, "hello")
+    assert len(heap) == 1
+    assert heap[0] == "hello"
+
+# ============================================================================
+# Sequence Type Tests
+# ============================================================================
+
+class TestSequenceTypes:
+  """Test push with different sequence types."""
+
+  def test_push_to_list(self):
+    """Test push to list (most common case)."""
+    heap = []
+    heapx.push(heap, 5)
+    assert isinstance(heap, list)
+    assert heap == [5]
+
+  def test_push_maintains_list_type(self):
+    """Test that push maintains list type."""
+    heap = [1, 3, 5]
+    heapx.heapify(heap)
+    heapx.push(heap, 2)
+    assert isinstance(heap, list)
+
+# ============================================================================
+# Correctness Verification Tests
+# ============================================================================
+
+class TestCorrectnessVerification:
+  """Verify correctness by extracting all elements."""
+
+  @pytest.mark.parametrize("n", [10, 100, 1000])
+  def test_extract_all_min_heap(self, n):
+    """Test that all elements can be extracted in sorted order (min-heap)."""
+    heap = []
+    data = generate_integers(n)
+    for val in data:
+      heapx.push(heap, val)
+    
+    result = []
+    while heap:
+      result.append(heapx.pop(heap))
+    
+    assert result == sorted(data)
+
+  @pytest.mark.parametrize("n", [10, 100, 1000])
+  def test_extract_all_max_heap(self, n):
+    """Test that all elements can be extracted in reverse sorted order (max-heap)."""
+    heap = []
+    data = generate_integers(n)
+    for val in data:
+      heapx.push(heap, val, max_heap=True)
+    
+    result = []
+    while heap:
+      result.append(heapx.pop(heap, max_heap=True))
+    
+    assert result == sorted(data, reverse=True)
+
+  def test_push_pop_interleaved(self):
+    """Test interleaved push and pop operations."""
+    heap = []
+    heapx.push(heap, 5)
+    heapx.push(heap, 3)
+    assert heapx.pop(heap) == 3
+    heapx.push(heap, 1)
+    heapx.push(heap, 7)
+    assert heapx.pop(heap) == 1
+    assert is_valid_heap(heap)
+
+  def test_push_maintains_heap_property(self):
+    """Test that push always maintains heap property."""
+    heap = []
+    random.seed(42)
+    for i in range(100):
+      heapx.push(heap, random.randint(1, 1000))
+      if i % 10 == 0:  # Check every 10th iteration to speed up
+        assert is_valid_heap(heap)
+    assert is_valid_heap(heap)  # Final check
+
+  def test_push_with_mixed_types_comparable(self):
+    """Test push with mixed but comparable types."""
+    heap = []
+    for val in [1, 2.5, 3, 4.7, 5]:
+      heapx.push(heap, val)
+    assert is_valid_heap(heap)
+
+  def test_push_preserves_existing_elements(self):
+    """Test that push doesn't modify existing elements."""
+    heap = [1, 3, 5, 7, 9]
+    heapx.heapify(heap)
+    original = set(heap)
+    heapx.push(heap, 4)
+    assert original.issubset(set(heap))
+
+  def test_push_to_max_heap_with_negatives(self):
+    """Test push to max-heap with negative numbers."""
+    heap = []
+    for val in [-5, -3, -8, -1, -9]:
+      heapx.push(heap, val, max_heap=True)
+    assert heap[0] == -1
+    assert is_valid_heap(heap, max_heap=True)
+
+
+# ============================================================================
+# Stress Tests
+# ============================================================================
+
+class TestStressTests:
+  """Stress tests with large datasets."""
+
+  def test_very_large_heap(self):
+    """Test push with very large heap."""
+    heap = []
+    for i in range(10000):
+      heapx.push(heap, i)
+    assert is_valid_heap(heap)
+    assert len(heap) == 10000
+
+  @pytest.mark.parametrize("n", [100, 1000, 10000])
+  def test_repeated_push(self, n):
+    """Test repeated push operations."""
+    heap = []
+    data = generate_integers(n)
+    for val in data:
+      heapx.push(heap, val)
+    assert is_valid_heap(heap)
+    assert len(heap) == n
+
+  def test_all_combinations(self):
+    """Test various combinations of parameters."""
+    test_cases = [
+      (False, None, 2),
+      (True, None, 2),
+      (False, None, 3),
+      (True, None, 3),
+      (False, abs, 2),
+      (True, abs, 2),
+      (False, None, 5),
+    ]
+    
+    for max_heap, cmp, arity in test_cases:
+      heap = []
+      data = generate_integers(50)
+      for val in data:
+        heapx.push(heap, val, max_heap=max_heap, cmp=cmp, arity=arity)
+
+# ============================================================================
+# Performance Benchmark Tests
+# ============================================================================
+
+class TestPerformanceBenchmark:
+  """Performance benchmarks against heapq."""
+
+  @pytest.mark.benchmark
+  def test_performance_comparison(self):
+    """Compare push performance: heapx vs heapq."""
+    print("\n" + "=" * 80)
+    print("PERFORMANCE COMPARISON: heapx.push vs heapq.heappush")
+    print("=" * 80)
+    print("Configuration: Random integers, Min-heap, Arity=2")
+    print("=" * 80)
+    print()
+    
+    sizes = [100000, 200000, 300000, 400000, 500000, 
+             600000, 700000, 800000, 900000, 1000000]
+    R = 10  # Number of repetitions
+    
+    print("-" * 65)
+    print(f"{'n':>12} │ {'heapx (s)':>20} │ {'heapq (s)':>20}")
+    print("-" * 65)
+    
+    for n in sizes:
+      random.seed(42)
+      data = [random.randint(1, 1000000) for _ in range(n)]
+      
+      # Benchmark heapx
+      heapx_times = []
+      for _ in range(R):
+        heap = []
+        start = time.perf_counter()
+        for val in data:
+          heapx.push(heap, val)
+        end = time.perf_counter()
+        heapx_times.append(end - start)
+      
+      heapx_mean = mean(heapx_times)
+      heapx_std = stdev(heapx_times) if len(heapx_times) > 1 else 0
+      
+      # Benchmark heapq
+      heapq_times = []
+      for _ in range(R):
+        heap = []
+        start = time.perf_counter()
+        for val in data:
+          heapq.heappush(heap, val)
+        end = time.perf_counter()
+        heapq_times.append(end - start)
+      
+      heapq_mean = mean(heapq_times)
+      heapq_std = stdev(heapq_times) if len(heapq_times) > 1 else 0
+      
+      print(f"{n:>12,} │ {heapx_mean:>8.4f} ± {heapx_std:>8.4f} │ "
+            f"{heapq_mean:>8.4f} ± {heapq_std:>8.4f}")
+    
+    print("-" * 65)
+    print()
+
+  @pytest.mark.benchmark
+  @pytest.mark.parametrize("arity", [2, 3, 4])
+  def test_arity_performance(self, arity):
+    """Compare push performance across different arities."""
+    print(f"\nARITY {arity} PERFORMANCE TEST")
+    print("-" * 40)
+    
+    sizes = [10000, 50000, 100000]
+    R = 10
+    
+    for n in sizes:
+      random.seed(42)
+      data = [random.randint(1, 1000000) for _ in range(n)]
+      
+      times = []
+      for _ in range(R):
+        heap = []
+        start = time.perf_counter()
+        for val in data:
+          heapx.push(heap, val, arity=arity)
+        end = time.perf_counter()
+        times.append(end - start)
+      
+      avg_time = mean(times)
+      std_time = stdev(times) if len(times) > 1 else 0
+      print(f"  n={n:>6,}: {avg_time:.4f} ± {std_time:.4f} seconds")
+
+  @pytest.mark.benchmark
+  def test_key_function_performance(self):
+    """Compare push performance with key function."""
+    print("\nKEY FUNCTION PERFORMANCE TEST")
+    print("-" * 60)
+    print(f"{'Configuration':<30} │ {'Time (s)':>20}")
+    print("-" * 60)
+    
+    n = 100000
+    R = 10
+    random.seed(42)
+    data = [random.randint(-1000000, 1000000) for _ in range(n)]
+    
+    # Without key
+    times = []
+    for _ in range(R):
+      heap = []
+      start = time.perf_counter()
+      for val in data:
+        heapx.push(heap, val)
+      end = time.perf_counter()
+      times.append(end - start)
+    
+    avg = mean(times)
+    std = stdev(times) if len(times) > 1 else 0
+    print(f"{'No key function':<30} │ {avg:>8.4f} ± {std:>8.4f}")
+    
+    # With abs key
+    times = []
+    for _ in range(R):
+      heap = []
+      start = time.perf_counter()
+      for val in data:
+        heapx.push(heap, val, cmp=abs)
+      end = time.perf_counter()
+      times.append(end - start)
+    
+    avg = mean(times)
+    std = stdev(times) if len(times) > 1 else 0
+    print(f"{'With abs key function':<30} │ {avg:>8.4f} ± {std:>8.4f}")
+    print("-" * 60)
+
+  @pytest.mark.benchmark
+  def test_bulk_vs_sequential_performance(self):
+    """Compare bulk push vs sequential push performance."""
+    print("\nBULK VS SEQUENTIAL PUSH PERFORMANCE")
+    print("-" * 60)
+    
+    n = 100000
+    R = 10
+    random.seed(42)
+    data = [random.randint(1, 1000000) for _ in range(n)]
+    
+    # Sequential push
+    times = []
+    for _ in range(R):
+      heap = []
+      start = time.perf_counter()
+      for val in data:
+        heapx.push(heap, val)
+      end = time.perf_counter()
+      times.append(end - start)
+    
+    seq_avg = mean(times)
+    seq_std = stdev(times) if len(times) > 1 else 0
+    
+    # Bulk push
+    times = []
+    for _ in range(R):
+      heap = []
+      start = time.perf_counter()
+      heapx.push(heap, data)
+      end = time.perf_counter()
+      times.append(end - start)
+    
+    bulk_avg = mean(times)
+    bulk_std = stdev(times) if len(times) > 1 else 0
+    
+    print(f"Sequential: {seq_avg:.4f} ± {seq_std:.4f} seconds")
+    print(f"Bulk:       {bulk_avg:.4f} ± {bulk_std:.4f} seconds")
+    print(f"Speedup:    {seq_avg/bulk_avg:.2f}x")
+    print("-" * 60)
+
+# ============================================================================
+# Memory Efficiency Tests
+# ============================================================================
+
+class TestMemoryEfficiency:
+  """Test memory efficiency of push operations."""
+
+  @pytest.mark.benchmark
+  def test_memory_usage(self):
+    """Compare memory usage: heapx vs heapq."""
+    print("\n" + "=" * 80)
+    print("MEMORY EFFICIENCY COMPARISON: heapx.push vs heapq.heappush")
+    print("=" * 80)
+    print("Configuration: Random integers, Min-heap, Arity=2")
+    print("=" * 80)
+    print()
+    
+    sizes = [100000, 200000, 300000, 400000, 500000,
+             600000, 700000, 800000, 900000, 1000000]
+    
+    print("-" * 65)
+    print(f"{'n':>12} │ {'heapx (bytes)':>23} │ {'heapq (bytes)':>23}")
+    print("-" * 65)
+    
+    for n in sizes:
+      random.seed(42)
+      data = [random.randint(1, 1000000) for _ in range(n)]
+      
+      # heapx memory
+      heap = []
+      for val in data:
+        heapx.push(heap, val)
+      heapx_mem = sys.getsizeof(heap) + sum(sys.getsizeof(x) for x in heap)
+      
+      # heapq memory
+      heap = []
+      for val in data:
+        heapq.heappush(heap, val)
+      heapq_mem = sys.getsizeof(heap) + sum(sys.getsizeof(x) for x in heap)
+      
+      print(f"{n:>12,} │ {heapx_mem:>23,} │ {heapq_mem:>23,}")
+    
+    print("-" * 65)
+    print()
+    print("Note: Both implementations use O(1) auxiliary space")
+    print("=" * 80)
+    print()
+
+
