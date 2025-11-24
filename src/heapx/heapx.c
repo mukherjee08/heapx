@@ -1640,10 +1640,12 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
           /* Binary search for insertion position */
           while (left < right) {
             Py_ssize_t mid = (left + right) >> 1;
-            int cmp_res = optimized_compare(arr[mid], item, is_max ? Py_LT : Py_GT);
+            /* For min-heap: find leftmost position where item < arr[mid] */
+            /* For max-heap: find leftmost position where item > arr[mid] */
+            int cmp_res = optimized_compare(item, arr[mid], is_max ? Py_GT : Py_LT);
             if (unlikely(cmp_res < 0)) return NULL;
-            if (cmp_res) left = mid + 1;
-            else right = mid;
+            if (cmp_res) right = mid;  /* item should go before mid */
+            else left = mid + 1;  /* item should go after mid */
           }
           /* Shift elements and insert */
           if (left < i) {
@@ -1889,21 +1891,27 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
 
       if (heap_size > 1) {
         PyObject **items = ((PyListObject *)heap)->ob_item;
+        PyObject *last_item = items[heap_size - 1];
+        Py_INCREF(last_item);  /* Protect from deallocation during resize */
         
-        /* Move last element to root */
-        items[0] = items[heap_size - 1];
-        
-        /* Shrink list */
+        /* Shrink list first (removes last element) */
         if (unlikely(PyList_SetSlice(heap, heap_size - 1, heap_size, NULL) < 0)) {
+          Py_DECREF(last_item);
           Py_DECREF(result);
           return NULL;
         }
+        
+        /* Refresh pointer after list modification */
+        items = ((PyListObject *)heap)->ob_item;
+        Py_ssize_t new_size = heap_size - 1;
+        
+        /* Move last element to root (replacing result) */
+        Py_SETREF(items[0], last_item);  /* Properly handles refcounts */
         
         /* Ultra-optimized sift down */
         if (likely(arity == 2)) {
           /* Binary heap - inline for maximum performance */
           Py_ssize_t pos = 0;
-          Py_ssize_t new_size = heap_size - 1;
           PyObject *item = items[0];
           
           while (1) {
@@ -1933,7 +1941,7 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
           items[pos] = item;
         } else {
           /* General arity */
-          if (unlikely(list_sift_down_ultra_optimized((PyListObject *)heap, 0, heap_size - 1, is_max, arity) < 0)) {
+          if (unlikely(list_sift_down_ultra_optimized((PyListObject *)heap, 0, new_size, is_max, arity) < 0)) {
             Py_DECREF(result);
             return NULL;
           }

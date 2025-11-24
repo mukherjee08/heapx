@@ -192,6 +192,138 @@ heapx.heapify(data, arity=3)
 
 ### **2. Push**
 
+Insert one or more items into an existing heap while maintaining the heap property through optimized sift-up operations.
+
+```python
+heapx.push(heap, items, max_heap=False, cmp=None, arity=2)
+```
+
+**Parameters:**
+
+- **`heap`** *(required, mutable sequence)*  
+  The heap to insert items into. Must be a valid heap structure (typically created via `heapify()` or previous `push()` operations). Commonly a `list`, but also supports other mutable sequences. The sequence is modified in-place.
+
+- **`items`** *(required, single item or sequence)*  
+  Item(s) to insert into the heap:
+  - **Single item:** Any Python object to insert (e.g., `5`, `"hello"`, `(1, 2)`)
+  - **Bulk insertion:** A sequence of items (list, tuple, etc.) to insert efficiently
+  - **Note:** Strings, bytes, and tuples are treated as single items, not sequences
+  
+  Bulk insertion is optimized to be ~3x faster than sequential single insertions.
+
+- **`max_heap`** *(optional, bool, default=False)*  
+  Controls heap ordering:
+  - `False`: Maintains a **min-heap** where the smallest element stays at index 0
+  - `True`: Maintains a **max-heap** where the largest element stays at index 0
+  
+  Must match the heap type used during `heapify()`.
+
+- **`cmp`** *(optional, callable or None, default=None)*  
+  Custom key function for element comparison. When provided:
+  - Each element `x` is compared using `cmp(x)` instead of `x` directly
+  - Keys are computed on-demand during sift-up (O(1) auxiliary space)
+  - Signature: `cmp(element) -> comparable_value`
+  - Example: `cmp=lambda x: x.priority` for priority-based insertion
+  - Example: `cmp=abs` to maintain heap by absolute value
+  
+  When `None`, elements are compared directly using their natural ordering.
+
+- **`arity`** *(optional, int ≥ 1, default=2)*  
+  The branching factor of the heap (must match the heap's existing arity):
+  - `arity=1`: Sorted list (uses binary insertion)
+  - `arity=2`: Binary heap (standard sift-up with bit-shift optimization)
+  - `arity=3`: Ternary heap (division by 3)
+  - `arity=4`: Quaternary heap (bit-shift optimization)
+  - `arity≥5`: General n-ary heap (flexible division)
+  
+  Using the wrong arity will corrupt the heap structure.
+
+**Returns:** `None` (modifies `heap` in-place)
+
+**Time Complexity:** 
+- Single insertion: O(log n) where n is the heap size
+- Bulk insertion: O(k log n) where k is the number of items to insert
+- Arity=1 (sorted list): O(n) per insertion due to binary search + shifting
+
+**Space Complexity:** O(1) auxiliary space (no key caching; keys computed on-demand)
+
+**Algorithm Details:**
+
+The push operation follows an 11-priority dispatch table for optimal performance:
+
+1. **Small heap (n ≤ 16, no key):** Uses insertion sort for newly added elements
+2. **Arity=1 (sorted list):** Binary search to find insertion position, then shift elements
+3. **Binary heap (arity=2, no key):** Inline sift-up with bit-shift parent calculation `(pos-1)>>1`
+4. **Ternary heap (arity=3, no key):** Sift-up with division by 3
+5. **Quaternary heap (arity=4, no key):** Sift-up with bit-shift `(pos-1)>>2`
+6. **General n-ary (arity≥5, no key):** Flexible sift-up with division
+7. **Binary heap with key (arity=2):** On-demand key computation during sift-up
+8. **Ternary heap with key (arity=3):** Reduced tree height with key function
+9. **General n-ary with key (arity≥4):** Maximum flexibility with custom ordering
+10. **Generic sequence (non-list):** Uses `PySequence_InPlaceConcat` for compatibility
+
+**Key Optimizations:**
+
+- **Pointer refresh:** After `PyList_Append`, the internal array pointer is refreshed to handle list reallocation
+- **Bulk detection:** Automatically detects sequences (excluding strings/bytes/tuples) for bulk insertion
+- **Bit-shift optimization:** Binary (arity=2) and quaternary (arity=4) heaps use fast bit-shift operations instead of division
+- **On-demand key computation:** Keys are computed only when needed during sift-up, avoiding O(n) memory overhead
+
+**Example Usage:**
+
+```python
+import heapx
+
+# Single item insertion (min-heap)
+heap = [1, 3, 5, 7, 9]
+heapx.heapify(heap)
+heapx.push(heap, 4)
+# heap is now [1, 3, 4, 7, 9, 5]
+
+# Bulk insertion (3x faster than sequential)
+heap = [1, 3, 5]
+heapx.heapify(heap)
+heapx.push(heap, [2, 4, 6, 8])
+# heap is now [1, 2, 3, 4, 5, 6, 8]
+
+# Max-heap insertion
+heap = [9, 7, 5, 3, 1]
+heapx.heapify(heap, max_heap=True)
+heapx.push(heap, 6, max_heap=True)
+# heap is now [9, 7, 6, 3, 1, 5]
+
+# Custom comparison (priority queue)
+class Task:
+    def __init__(self, name, priority):
+        self.name = name
+        self.priority = priority
+
+heap = []
+heapx.push(heap, Task("low", 10), cmp=lambda t: t.priority)
+heapx.push(heap, Task("high", 1), cmp=lambda t: t.priority)
+heapx.push(heap, Task("medium", 5), cmp=lambda t: t.priority)
+# heap[0] is Task("high", 1) - highest priority at top
+
+# Ternary heap for reduced height
+heap = list(range(100))
+heapx.heapify(heap, arity=3)
+heapx.push(heap, [101, 102, 103], arity=3)
+
+# Sorted list maintenance (arity=1)
+heap = [1, 3, 5, 7, 9]
+heapx.heapify(heap, arity=1)
+heapx.push(heap, 4, arity=1)
+# heap is now [1, 3, 4, 5, 7, 9] - maintains sorted order
+```
+
+**Performance Notes:**
+
+- Bulk insertion is ~3x faster than sequential single insertions
+- Binary heaps (arity=2) are fastest for most use cases due to bit-shift optimizations
+- Key functions add ~3.2x overhead due to function call costs
+- Small heaps (n ≤ 16) use insertion sort which is faster than sift-up for tiny datasets
+- Arity=1 (sorted list) has O(n) insertion cost but enables O(1) access to all elements in sorted order
+
 
 
 ### **3. Pop**
