@@ -1553,6 +1553,57 @@ list_sift_down_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, Py_ssize_t
   return 0;
 }
 
+/* Ultra-optimized sift down with key function for lists */
+HOT_FUNCTION static inline int
+list_sift_down_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, Py_ssize_t n, int is_max, PyObject *keyfunc, Py_ssize_t arity) {
+  PyObject **items = listobj->ob_item;
+  PyObject *item = items[pos];
+  PyObject *key = call_key_function(keyfunc, item);
+  if (unlikely(!key)) return -1;
+  
+  while (1) {
+    Py_ssize_t child = arity * pos + 1;
+    if (unlikely(child >= n)) break;
+    
+    Py_ssize_t best = child;
+    PyObject *best_item = items[child];
+    PyObject *best_key = call_key_function(keyfunc, best_item);
+    if (unlikely(!best_key)) { Py_DECREF(key); return -1; }
+    
+    Py_ssize_t last = child + arity;
+    if (unlikely(last > n)) last = n;
+    
+    for (Py_ssize_t j = child + 1; j < last; j++) {
+      PyObject *cur_key = call_key_function(keyfunc, items[j]);
+      if (unlikely(!cur_key)) { Py_DECREF(key); Py_DECREF(best_key); return -1; }
+      
+      int better = optimized_compare(cur_key, best_key, is_max ? Py_GT : Py_LT);
+      if (unlikely(better < 0)) { Py_DECREF(key); Py_DECREF(best_key); Py_DECREF(cur_key); return -1; }
+      
+      if (better) {
+        Py_DECREF(best_key);
+        best = j;
+        best_item = items[j];
+        best_key = cur_key;
+      } else {
+        Py_DECREF(cur_key);
+      }
+    }
+    
+    int should_swap = optimized_compare(best_key, key, is_max ? Py_GT : Py_LT);
+    Py_DECREF(best_key);
+    if (unlikely(should_swap < 0)) { Py_DECREF(key); return -1; }
+    if (!should_swap) break;
+    
+    items[pos] = best_item;
+    pos = best;
+  }
+  
+  items[pos] = item;
+  Py_DECREF(key);
+  return 0;
+}
+
 /* Ultra-optimized push with comprehensive dispatch following priority table */
 static PyObject *
 py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
@@ -1842,18 +1893,18 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
   Py_RETURN_NONE;
 }
 
-/* Perfect production-ready pop operation */
+/* Ultra-optimized pop with comprehensive 11-priority dispatch table */
 static PyObject *
 py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
   static char *kwlist[] = {"heap", "n", "max_heap", "cmp", "arity", NULL};
   PyObject *heap;
-  Py_ssize_t n = 1;
+  Py_ssize_t n_pop = 1;
   PyObject *max_heap_obj = Py_False;
   PyObject *cmp = Py_None;
   Py_ssize_t arity = 2;
 
   if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|nOOn:pop", kwlist,
-                                   &heap, &n, &max_heap_obj, &cmp, &arity))
+                                   &heap, &n_pop, &max_heap_obj, &cmp, &arity))
     return NULL;
 
   int is_max = PyObject_IsTrue(max_heap_obj);
@@ -1867,7 +1918,7 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyErr_SetString(PyExc_ValueError, "arity must be >= 1");
     return NULL;
   }
-  if (unlikely(n < 1)) {
+  if (unlikely(n_pop < 1)) {
     PyErr_SetString(PyExc_ValueError, "n must be >= 1");
     return NULL;
   }
@@ -1879,38 +1930,72 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
     return NULL;
   }
 
-  if (n > heap_size) n = heap_size;
+  if (n_pop > heap_size) n_pop = heap_size;
 
-  if (n == 1) {
-    /* SINGLE POP - HOT PATH */
-    
-    /* HOT PATH: List without key function */
-    if (likely(PyList_CheckExact(heap) && cmp == Py_None)) {
-      PyObject *result = PyList_GET_ITEM(heap, 0);
+  /* SINGLE POP PATH (n=1) - COMPREHENSIVE DISPATCH */
+  if (n_pop == 1) {
+    if (likely(PyList_CheckExact(heap))) {
+      PyListObject *listobj = (PyListObject *)heap;
+      PyObject **items = listobj->ob_item;
+      Py_ssize_t n = heap_size;
+      
+      PyObject *result = items[0];
       Py_INCREF(result);
-
-      if (heap_size > 1) {
-        PyObject **items = ((PyListObject *)heap)->ob_item;
-        PyObject *last_item = items[heap_size - 1];
-        Py_INCREF(last_item);  /* Protect from deallocation during resize */
-        
-        /* Shrink list first (removes last element) */
-        if (unlikely(PyList_SetSlice(heap, heap_size - 1, heap_size, NULL) < 0)) {
-          Py_DECREF(last_item);
+      
+      if (n == 1) {
+        if (unlikely(PyList_SetSlice(heap, 0, 1, NULL) < 0)) {
           Py_DECREF(result);
           return NULL;
         }
+        return result;
+      }
+      
+      /* Priority 2: Arity=1 (sorted list) - just remove first element */
+      if (unlikely(arity == 1 && cmp == Py_None)) {
+        if (unlikely(PyList_SetSlice(heap, 0, 1, NULL) < 0)) {
+          Py_DECREF(result);
+          return NULL;
+        }
+        return result;
+      }
+      
+      /* Save last item and shrink list */
+      PyObject *last_item = items[n - 1];
+      Py_INCREF(last_item);
+      
+      if (unlikely(PyList_SetSlice(heap, n - 1, n, NULL) < 0)) {
+        Py_DECREF(last_item);
+        Py_DECREF(result);
+        return NULL;
+      }
+      
+      /* Refresh pointer after modification */
+      items = listobj->ob_item;
+      Py_ssize_t new_size = n - 1;
+      Py_SETREF(items[0], last_item);
+      
+      /* DISPATCH TABLE FOR SIFT-DOWN */
+      if (likely(cmp == Py_None)) {
+        /* Priority 1: Small heap (n ≤ 16) */
+        if (unlikely(new_size <= 16)) {
+          /* Inline insertion sort for small heaps */
+          for (Py_ssize_t i = 1; i < new_size; i++) {
+            PyObject *key = items[i];
+            Py_ssize_t j = i - 1;
+            while (j >= 0) {
+              int cmp_res = optimized_compare(key, items[j], is_max ? Py_GT : Py_LT);
+              if (unlikely(cmp_res < 0)) { Py_DECREF(result); return NULL; }
+              if (!cmp_res) break;
+              items[j + 1] = items[j];
+              j--;
+            }
+            items[j + 1] = key;
+          }
+          return result;
+        }
         
-        /* Refresh pointer after list modification */
-        items = ((PyListObject *)heap)->ob_item;
-        Py_ssize_t new_size = heap_size - 1;
-        
-        /* Move last element to root (replacing result) */
-        Py_SETREF(items[0], last_item);  /* Properly handles refcounts */
-        
-        /* Ultra-optimized sift down */
+        /* Priority 3: Binary heap (arity=2) - inline sift-down */
         if (likely(arity == 2)) {
-          /* Binary heap - inline for maximum performance */
           Py_ssize_t pos = 0;
           PyObject *item = items[0];
           
@@ -1923,9 +2008,9 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
             
             Py_ssize_t right = child + 1;
             if (likely(right < new_size)) {
-              int cmp_result = optimized_compare(items[right], best_item, is_max ? Py_GT : Py_LT);
-              if (unlikely(cmp_result < 0)) { Py_DECREF(result); return NULL; }
-              if (cmp_result) {
+              int cmp_res = optimized_compare(items[right], best_item, is_max ? Py_GT : Py_LT);
+              if (unlikely(cmp_res < 0)) { Py_DECREF(result); return NULL; }
+              if (cmp_res) {
                 best = right;
                 best_item = items[right];
               }
@@ -1939,54 +2024,154 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
             pos = best;
           }
           items[pos] = item;
-        } else {
-          /* General arity */
-          if (unlikely(list_sift_down_ultra_optimized((PyListObject *)heap, 0, new_size, is_max, arity) < 0)) {
+          return result;
+        }
+        
+        /* Priority 4: Ternary heap (arity=3) - inline sift-down */
+        if (arity == 3) {
+          Py_ssize_t pos = 0;
+          PyObject *item = items[0];
+          
+          while (1) {
+            Py_ssize_t child = 3 * pos + 1;
+            if (unlikely(child >= new_size)) break;
+            
+            Py_ssize_t best = child;
+            PyObject *best_item = items[child];
+            
+            Py_ssize_t last = child + 3;
+            if (unlikely(last > new_size)) last = new_size;
+            
+            for (Py_ssize_t j = child + 1; j < last; j++) {
+              int cmp_res = optimized_compare(items[j], best_item, is_max ? Py_GT : Py_LT);
+              if (unlikely(cmp_res < 0)) { Py_DECREF(result); return NULL; }
+              if (cmp_res) {
+                best = j;
+                best_item = items[j];
+              }
+            }
+            
+            int should_swap = optimized_compare(best_item, item, is_max ? Py_GT : Py_LT);
+            if (unlikely(should_swap < 0)) { Py_DECREF(result); return NULL; }
+            if (!should_swap) break;
+            
+            items[pos] = best_item;
+            pos = best;
+          }
+          items[pos] = item;
+          return result;
+        }
+        
+        /* Priority 5: Quaternary heap (arity=4) - inline sift-down */
+        if (arity == 4) {
+          Py_ssize_t pos = 0;
+          PyObject *item = items[0];
+          
+          while (1) {
+            Py_ssize_t child = (pos << 2) + 1;
+            if (unlikely(child >= new_size)) break;
+            
+            Py_ssize_t best = child;
+            PyObject *best_item = items[child];
+            
+            Py_ssize_t last = child + 4;
+            if (unlikely(last > new_size)) last = new_size;
+            
+            for (Py_ssize_t j = child + 1; j < last; j++) {
+              int cmp_res = optimized_compare(items[j], best_item, is_max ? Py_GT : Py_LT);
+              if (unlikely(cmp_res < 0)) { Py_DECREF(result); return NULL; }
+              if (cmp_res) {
+                best = j;
+                best_item = items[j];
+              }
+            }
+            
+            int should_swap = optimized_compare(best_item, item, is_max ? Py_GT : Py_LT);
+            if (unlikely(should_swap < 0)) { Py_DECREF(result); return NULL; }
+            if (!should_swap) break;
+            
+            items[pos] = best_item;
+            pos = best;
+          }
+          items[pos] = item;
+          return result;
+        }
+        
+        /* Priority 6 & 7: General n-ary (arity≥5) */
+        if (unlikely(list_sift_down_ultra_optimized(listobj, 0, new_size, is_max, arity) < 0)) {
+          Py_DECREF(result);
+          return NULL;
+        }
+        return result;
+        
+      } else {
+        /* WITH KEY FUNCTION */
+        
+        /* Priority 8: Binary heap with key (arity=2) */
+        if (likely(arity == 2)) {
+          Py_ssize_t pos = 0;
+          PyObject *item = items[0];
+          PyObject *key = call_key_function(cmp, item);
+          if (unlikely(!key)) { Py_DECREF(result); return NULL; }
+          
+          while (1) {
+            Py_ssize_t child = (pos << 1) + 1;
+            if (unlikely(child >= new_size)) break;
+            
+            Py_ssize_t best = child;
+            PyObject *best_item = items[child];
+            PyObject *best_key = call_key_function(cmp, best_item);
+            if (unlikely(!best_key)) { Py_DECREF(key); Py_DECREF(result); return NULL; }
+            
+            Py_ssize_t right = child + 1;
+            if (likely(right < new_size)) {
+              PyObject *right_key = call_key_function(cmp, items[right]);
+              if (unlikely(!right_key)) { Py_DECREF(key); Py_DECREF(best_key); Py_DECREF(result); return NULL; }
+              
+              int cmp_res = optimized_compare(right_key, best_key, is_max ? Py_GT : Py_LT);
+              if (unlikely(cmp_res < 0)) { Py_DECREF(key); Py_DECREF(best_key); Py_DECREF(right_key); Py_DECREF(result); return NULL; }
+              if (cmp_res) {
+                Py_DECREF(best_key);
+                best = right;
+                best_item = items[right];
+                best_key = right_key;
+              } else {
+                Py_DECREF(right_key);
+              }
+            }
+            
+            int should_swap = optimized_compare(best_key, key, is_max ? Py_GT : Py_LT);
+            Py_DECREF(best_key);
+            if (unlikely(should_swap < 0)) { Py_DECREF(key); Py_DECREF(result); return NULL; }
+            if (!should_swap) break;
+            
+            items[pos] = best_item;
+            pos = best;
+          }
+          items[pos] = item;
+          Py_DECREF(key);
+          return result;
+        }
+        
+        /* Priority 9: Ternary heap with key (arity=3) */
+        if (arity == 3) {
+          if (unlikely(list_sift_down_with_key_ultra_optimized(listobj, 0, new_size, is_max, cmp, arity) < 0)) {
             Py_DECREF(result);
             return NULL;
           }
-        }
-      } else {
-        /* Remove the only element */
-        if (unlikely(PyList_SetSlice(heap, 0, 1, NULL) < 0)) {
-          Py_DECREF(result);
-          return NULL;
-        }
-      }
-      
-      return result;
-    }
-    
-    /* HOT PATH: List with key function */
-    if (likely(PyList_CheckExact(heap) && cmp != Py_None)) {
-      PyObject *result = PyList_GET_ITEM(heap, 0);
-      Py_INCREF(result);
-
-      if (heap_size > 1) {
-        PyObject *last = PyList_GET_ITEM(heap, heap_size - 1);
-        Py_INCREF(last);
-        PyList_SET_ITEM(heap, 0, last);
-        
-        if (unlikely(PyList_SetSlice(heap, heap_size - 1, heap_size, NULL) < 0)) {
-          Py_DECREF(result);
-          return NULL;
+          return result;
         }
         
-        if (unlikely(sift_down(heap, 0, heap_size - 1, is_max, cmp, arity) < 0)) {
+        /* Priority 10: General n-ary with key (arity≥4) */
+        if (unlikely(list_sift_down_with_key_ultra_optimized(listobj, 0, new_size, is_max, cmp, arity) < 0)) {
           Py_DECREF(result);
           return NULL;
         }
-      } else {
-        if (unlikely(PyList_SetSlice(heap, 0, 1, NULL) < 0)) {
-          Py_DECREF(result);
-          return NULL;
-        }
+        return result;
       }
-      
-      return result;
     }
     
-    /* FALLBACK: General sequence single pop */
+    /* Priority 11: Generic sequence (non-list) */
     PyObject *result = PySequence_GetItem(heap, 0);
     if (unlikely(!result)) return NULL;
 
@@ -2025,32 +2210,110 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
     }
     
     return result;
+  }
+  
+  /* BULK POP PATH (n>1) */
+  PyObject *results = PyList_New(n_pop);
+  if (unlikely(!results)) return NULL;
+  
+  if (likely(PyList_CheckExact(heap))) {
+    PyListObject *listobj = (PyListObject *)heap;
     
-  } else {
-    /* BULK POP */
-    PyObject *results = PyList_New(n);
-    if (unlikely(!results)) return NULL;
-    
-    /* HOT PATH: Bulk pop from list without key function */
-    if (likely(PyList_CheckExact(heap) && cmp == Py_None)) {
-      for (Py_ssize_t i = 0; i < n; i++) {
+    if (likely(cmp == Py_None)) {
+      /* Optimized bulk pop without key function */
+      for (Py_ssize_t i = 0; i < n_pop; i++) {
         Py_ssize_t current_size = PyList_GET_SIZE(heap);
         if (unlikely(current_size <= 0)) break;
         
-        PyObject *item = PyList_GET_ITEM(heap, 0);
+        PyObject **items = listobj->ob_item;
+        PyObject *item = items[0];
         Py_INCREF(item);
         PyList_SET_ITEM(results, i, item);
         
         if (current_size > 1) {
-          PyObject **items = ((PyListObject *)heap)->ob_item;
-          items[0] = items[current_size - 1];
+          PyObject *last_item = items[current_size - 1];
+          Py_INCREF(last_item);
           
           if (unlikely(PyList_SetSlice(heap, current_size - 1, current_size, NULL) < 0)) {
+            Py_DECREF(last_item);
             Py_DECREF(results);
             return NULL;
           }
           
-          if (unlikely(list_sift_down_ultra_optimized((PyListObject *)heap, 0, current_size - 1, is_max, arity) < 0)) {
+          items = listobj->ob_item;
+          Py_ssize_t new_size = current_size - 1;
+          Py_SETREF(items[0], last_item);
+          
+          /* Use optimized sift-down based on arity */
+          if (likely(arity == 2)) {
+            Py_ssize_t pos = 0;
+            PyObject *sift_item = items[0];
+            
+            while (1) {
+              Py_ssize_t child = (pos << 1) + 1;
+              if (unlikely(child >= new_size)) break;
+              
+              Py_ssize_t best = child;
+              PyObject *best_item = items[child];
+              
+              Py_ssize_t right = child + 1;
+              if (likely(right < new_size)) {
+                int cmp_res = optimized_compare(items[right], best_item, is_max ? Py_GT : Py_LT);
+                if (unlikely(cmp_res < 0)) { Py_DECREF(results); return NULL; }
+                if (cmp_res) {
+                  best = right;
+                  best_item = items[right];
+                }
+              }
+              
+              int should_swap = optimized_compare(best_item, sift_item, is_max ? Py_GT : Py_LT);
+              if (unlikely(should_swap < 0)) { Py_DECREF(results); return NULL; }
+              if (!should_swap) break;
+              
+              items[pos] = best_item;
+              pos = best;
+            }
+            items[pos] = sift_item;
+          } else {
+            if (unlikely(list_sift_down_ultra_optimized(listobj, 0, new_size, is_max, arity) < 0)) {
+              Py_DECREF(results);
+              return NULL;
+            }
+          }
+        } else {
+          if (unlikely(PyList_SetSlice(heap, 0, 1, NULL) < 0)) {
+            Py_DECREF(results);
+            return NULL;
+          }
+        }
+      }
+      return results;
+    } else {
+      /* Bulk pop with key function */
+      for (Py_ssize_t i = 0; i < n_pop; i++) {
+        Py_ssize_t current_size = PyList_GET_SIZE(heap);
+        if (unlikely(current_size <= 0)) break;
+        
+        PyObject **items = listobj->ob_item;
+        PyObject *item = items[0];
+        Py_INCREF(item);
+        PyList_SET_ITEM(results, i, item);
+        
+        if (current_size > 1) {
+          PyObject *last_item = items[current_size - 1];
+          Py_INCREF(last_item);
+          
+          if (unlikely(PyList_SetSlice(heap, current_size - 1, current_size, NULL) < 0)) {
+            Py_DECREF(last_item);
+            Py_DECREF(results);
+            return NULL;
+          }
+          
+          items = listobj->ob_item;
+          Py_ssize_t new_size = current_size - 1;
+          Py_SETREF(items[0], last_item);
+          
+          if (unlikely(list_sift_down_with_key_ultra_optimized(listobj, 0, new_size, is_max, cmp, arity) < 0)) {
             Py_DECREF(results);
             return NULL;
           }
@@ -2061,61 +2324,61 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
           }
         }
       }
-      
       return results;
     }
+  }
+  
+  /* Generic sequence bulk pop */
+  for (Py_ssize_t i = 0; i < n_pop; i++) {
+    Py_ssize_t current_size = PySequence_Size(heap);
+    if (unlikely(current_size <= 0)) break;
     
-    /* FALLBACK: General bulk pop */
-    for (Py_ssize_t i = 0; i < n; i++) {
-      Py_ssize_t current_size = PySequence_Size(heap);
-      if (unlikely(current_size <= 0)) break;
-      
-      PyObject *item = PySequence_GetItem(heap, 0);
-      if (unlikely(!item)) {
+    PyObject *item = PySequence_GetItem(heap, 0);
+    if (unlikely(!item)) {
+      Py_DECREF(results);
+      return NULL;
+    }
+    
+    PyList_SET_ITEM(results, i, item);
+    
+    if (current_size > 1) {
+      PyObject *last = PySequence_GetItem(heap, current_size - 1);
+      if (unlikely(!last)) {
         Py_DECREF(results);
         return NULL;
       }
       
-      PyList_SET_ITEM(results, i, item);
-      
-      if (current_size > 1) {
-        PyObject *last = PySequence_GetItem(heap, current_size - 1);
-        if (unlikely(!last)) {
-          Py_DECREF(results);
-          return NULL;
-        }
-        
-        if (unlikely(PySequence_SetItem(heap, 0, last) < 0)) {
-          Py_DECREF(last);
-          Py_DECREF(results);
-          return NULL;
-        }
+      if (unlikely(PySequence_SetItem(heap, 0, last) < 0)) {
         Py_DECREF(last);
-        
-        if (PyList_CheckExact(heap)) {
-          if (unlikely(PyList_SetSlice(heap, current_size - 1, current_size, NULL) < 0)) {
-            Py_DECREF(results);
-            return NULL;
-          }
-        }
-        
-        if (unlikely(sift_down(heap, 0, current_size - 1, is_max, cmp, arity) < 0)) {
+        Py_DECREF(results);
+        return NULL;
+      }
+      Py_DECREF(last);
+      
+      if (PyList_CheckExact(heap)) {
+        if (unlikely(PyList_SetSlice(heap, current_size - 1, current_size, NULL) < 0)) {
           Py_DECREF(results);
           return NULL;
         }
-      } else {
-        if (PyList_CheckExact(heap)) {
-          if (unlikely(PyList_SetSlice(heap, 0, 1, NULL) < 0)) {
-            Py_DECREF(results);
-            return NULL;
-          }
+      }
+      
+      if (unlikely(sift_down(heap, 0, current_size - 1, is_max, cmp, arity) < 0)) {
+        Py_DECREF(results);
+        return NULL;
+      }
+    } else {
+      if (PyList_CheckExact(heap)) {
+        if (unlikely(PyList_SetSlice(heap, 0, 1, NULL) < 0)) {
+          Py_DECREF(results);
+          return NULL;
         }
       }
     }
-    
-    return results;
   }
+  
+  return results;
 }
+
 
 /* Ultra-optimized heapsort for lists without key function */
 HOT_FUNCTION static int
