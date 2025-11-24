@@ -645,168 +645,182 @@ class TestPerformanceBenchmark:
   """Performance benchmarks against heapq."""
 
   @pytest.mark.benchmark
-  def test_performance_comparison(self):
-    """Compare push performance: heapx vs heapq."""
-    print("\n" + "=" * 80)
-    print("PERFORMANCE COMPARISON: heapx.push vs heapq.heappush")
-    print("=" * 80)
-    print("Configuration: Random integers, Min-heap, Arity=2")
-    print("=" * 80)
-    print()
+  def test_performance_comparison(self, capsys):
+    """Comprehensive performance comparison: heapx.push vs heapq.heappush."""
     
-    sizes = [100000, 200000, 300000, 400000, 500000, 
-             600000, 700000, 800000, 900000, 1000000]
-    R = 10  # Number of repetitions
+    output = []
+    output.append("\n" + "="*80)
+    output.append("TIME EFFICIENCY COMPARISON: heapx.push vs heapq.heappush")
+    output.append("="*80)
+    output.append(f"Configuration: R=10 repetitions per size, Random integers, Min-heap, Arity=2")
+    output.append("="*80)
     
-    print("-" * 65)
-    print(f"{'n':>12} │ {'heapx (s)':>20} │ {'heapq (s)':>20}")
-    print("-" * 65)
+    sizes = [100_000, 200_000, 300_000, 400_000, 500_000,
+             600_000, 700_000, 800_000, 900_000, 1_000_000]
+    repetitions = 10
+    
+    results = []
+    memory_results = []
     
     for n in sizes:
-      random.seed(42)
-      data = [random.randint(1, 1000000) for _ in range(n)]
-      
-      # Benchmark heapx
       heapx_times = []
-      for _ in range(R):
-        heap = []
-        start = time.perf_counter()
-        for val in data:
-          heapx.push(heap, val)
-        end = time.perf_counter()
-        heapx_times.append(end - start)
-      
-      heapx_mean = mean(heapx_times)
-      heapx_std = stdev(heapx_times) if len(heapx_times) > 1 else 0
-      
-      # Benchmark heapq
       heapq_times = []
-      for _ in range(R):
-        heap = []
+      
+      for r in range(repetitions):
+        data = generate_integers(n, seed=r)
+        
+        # Measure heapx time
+        heap_heapx = []
         start = time.perf_counter()
         for val in data:
-          heapq.heappush(heap, val)
-        end = time.perf_counter()
-        heapq_times.append(end - start)
+          heapx.push(heap_heapx, val)
+        heapx_times.append(time.perf_counter() - start)
+        
+        # Measure heapq time
+        heap_heapq = []
+        start = time.perf_counter()
+        for val in data:
+          heapq.heappush(heap_heapq, val)
+        heapq_times.append(time.perf_counter() - start)
+        
+        assert is_valid_heap(heap_heapx, max_heap=False)
+        assert is_valid_heap(heap_heapq, max_heap=False)
       
-      heapq_mean = mean(heapq_times)
+      heapx_avg = mean(heapx_times)
+      heapx_std = stdev(heapx_times) if len(heapx_times) > 1 else 0
+      heapq_avg = mean(heapq_times)
       heapq_std = stdev(heapq_times) if len(heapq_times) > 1 else 0
       
-      print(f"{n:>12,} │ {heapx_mean:>8.4f} ± {heapx_std:>8.4f} │ "
-            f"{heapq_mean:>8.4f} ± {heapq_std:>8.4f}")
+      results.append({
+        'n': n,
+        'heapx_avg': heapx_avg,
+        'heapx_std': heapx_std,
+        'heapq_avg': heapq_avg,
+        'heapq_std': heapq_std
+      })
+      
+      # Measure memory for each size
+      data = generate_integers(n, seed=0)
+      
+      heap_heapx = []
+      for val in data:
+        heapx.push(heap_heapx, val)
+      heapx_mem = sys.getsizeof(heap_heapx)
+      
+      heap_heapq = []
+      for val in data:
+        heapq.heappush(heap_heapq, val)
+      heapq_mem = sys.getsizeof(heap_heapq)
+      
+      memory_results.append({
+        'n': n,
+        'heapx_mem': heapx_mem,
+        'heapq_mem': heapq_mem
+      })
     
-    print("-" * 65)
-    print()
+    # Time efficiency table
+    output.append("\n" + "-"*65)
+    output.append(f"{'n':>12} │ {'heapx (s)':>23} │ {'heapq (s)':>23}")
+    output.append(f"{'':>12} │ {'avg ± std':>23} │ {'avg ± std':>23}")
+    output.append("-"*65)
+    
+    for r in results:
+      output.append(f"{r['n']:>12,} │ "
+                   f"{r['heapx_avg']:>10.4f} ± {r['heapx_std']:>8.4f} │ "
+                   f"{r['heapq_avg']:>10.4f} ± {r['heapq_std']:>8.4f}")
+    
+    output.append("-"*65)
+    output.append("="*80)
+    
+    # Memory efficiency table
+    output.append("\nMEMORY EFFICIENCY COMPARISON: heapx.push vs heapq.heappush")
+    output.append("="*80)
+    output.append(f"Configuration: Random integers, Min-heap, Arity=2")
+    output.append("="*80)
+    output.append("\n" + "-"*65)
+    output.append(f"{'n':>12} │ {'heapx (bytes)':>23} │ {'heapq (bytes)':>23}")
+    output.append("-"*65)
+    
+    for r in memory_results:
+      output.append(f"{r['n']:>12,} │ {r['heapx_mem']:>23,} │ {r['heapq_mem']:>23,}")
+    
+    output.append("-"*65)
+    output.append("\nNote: Both implementations use O(1) auxiliary space")
+    output.append("="*80 + "\n")
+    
+    # Print all output
+    final_output = '\n'.join(output)
+    print(final_output)
+    sys.stdout.flush()
+    
+    # Also write to captured output for pytest
+    with capsys.disabled():
+      print(final_output)
 
   @pytest.mark.benchmark
   @pytest.mark.parametrize("arity", [2, 3, 4])
   def test_arity_performance(self, arity):
-    """Compare push performance across different arities."""
-    print(f"\nARITY {arity} PERFORMANCE TEST")
-    print("-" * 40)
+    """Test performance with different arity values."""
+    n = 1_000_000
+    data = generate_integers(n)
     
-    sizes = [10000, 50000, 100000]
-    R = 10
+    heap = []
+    start = time.perf_counter()
+    for val in data:
+      heapx.push(heap, val, arity=arity)
+    elapsed = time.perf_counter() - start
     
-    for n in sizes:
-      random.seed(42)
-      data = [random.randint(1, 1000000) for _ in range(n)]
-      
-      times = []
-      for _ in range(R):
-        heap = []
-        start = time.perf_counter()
-        for val in data:
-          heapx.push(heap, val, arity=arity)
-        end = time.perf_counter()
-        times.append(end - start)
-      
-      avg_time = mean(times)
-      std_time = stdev(times) if len(times) > 1 else 0
-      print(f"  n={n:>6,}: {avg_time:.4f} ± {std_time:.4f} seconds")
+    assert is_valid_heap(heap, max_heap=False, arity=arity)
+    print(f"\nArity {arity}: {elapsed:.4f}s for {n:,} elements")
 
   @pytest.mark.benchmark
   def test_key_function_performance(self):
-    """Compare push performance with key function."""
-    print("\nKEY FUNCTION PERFORMANCE TEST")
-    print("-" * 60)
-    print(f"{'Configuration':<30} │ {'Time (s)':>20}")
-    print("-" * 60)
+    """Test performance with key function."""
+    n = 1_000_000
+    data = generate_integers(n)
     
-    n = 100000
-    R = 10
-    random.seed(42)
-    data = [random.randint(-1000000, 1000000) for _ in range(n)]
+    heap = []
+    start = time.perf_counter()
+    for val in data:
+      heapx.push(heap, val, cmp=abs)
+    elapsed = time.perf_counter() - start
     
-    # Without key
-    times = []
-    for _ in range(R):
-      heap = []
-      start = time.perf_counter()
-      for val in data:
-        heapx.push(heap, val)
-      end = time.perf_counter()
-      times.append(end - start)
-    
-    avg = mean(times)
-    std = stdev(times) if len(times) > 1 else 0
-    print(f"{'No key function':<30} │ {avg:>8.4f} ± {std:>8.4f}")
-    
-    # With abs key
-    times = []
-    for _ in range(R):
-      heap = []
-      start = time.perf_counter()
-      for val in data:
-        heapx.push(heap, val, cmp=abs)
-      end = time.perf_counter()
-      times.append(end - start)
-    
-    avg = mean(times)
-    std = stdev(times) if len(times) > 1 else 0
-    print(f"{'With abs key function':<30} │ {avg:>8.4f} ± {std:>8.4f}")
-    print("-" * 60)
+    print(f"\nKey function (abs): {elapsed:.4f}s for {n:,} elements")
 
   @pytest.mark.benchmark
   def test_bulk_vs_sequential_performance(self):
     """Compare bulk push vs sequential push performance."""
-    print("\nBULK VS SEQUENTIAL PUSH PERFORMANCE")
-    print("-" * 60)
-    
-    n = 100000
-    R = 10
-    random.seed(42)
-    data = [random.randint(1, 1000000) for _ in range(n)]
+    n = 100_000
+    repetitions = 10
+    data = generate_integers(n)
     
     # Sequential push
-    times = []
-    for _ in range(R):
+    seq_times = []
+    for _ in range(repetitions):
       heap = []
       start = time.perf_counter()
       for val in data:
         heapx.push(heap, val)
-      end = time.perf_counter()
-      times.append(end - start)
+      seq_times.append(time.perf_counter() - start)
     
-    seq_avg = mean(times)
-    seq_std = stdev(times) if len(times) > 1 else 0
+    seq_avg = mean(seq_times)
+    seq_std = stdev(seq_times) if len(seq_times) > 1 else 0
     
     # Bulk push
-    times = []
-    for _ in range(R):
+    bulk_times = []
+    for _ in range(repetitions):
       heap = []
       start = time.perf_counter()
       heapx.push(heap, data)
-      end = time.perf_counter()
-      times.append(end - start)
+      bulk_times.append(time.perf_counter() - start)
     
-    bulk_avg = mean(times)
-    bulk_std = stdev(times) if len(times) > 1 else 0
+    bulk_avg = mean(bulk_times)
+    bulk_std = stdev(bulk_times) if len(bulk_times) > 1 else 0
     
-    print(f"Sequential: {seq_avg:.4f} ± {seq_std:.4f} seconds")
-    print(f"Bulk:       {bulk_avg:.4f} ± {bulk_std:.4f} seconds")
-    print(f"Speedup:    {seq_avg/bulk_avg:.2f}x")
-    print("-" * 60)
+    print(f"\nBulk vs Sequential Push ({n:,} elements, R={repetitions}):")
+    print(f"  Sequential: {seq_avg:.4f} ± {seq_std:.4f}s")
+    print(f"  Bulk:       {bulk_avg:.4f} ± {bulk_std:.4f}s")
+    print(f"  Speedup:    {seq_avg/bulk_avg:.2f}x")
 
 # ============================================================================
 # Memory Efficiency Tests
@@ -817,43 +831,7 @@ class TestMemoryEfficiency:
 
   @pytest.mark.benchmark
   def test_memory_usage(self):
-    """Compare memory usage: heapx vs heapq."""
-    print("\n" + "=" * 80)
-    print("MEMORY EFFICIENCY COMPARISON: heapx.push vs heapq.heappush")
-    print("=" * 80)
-    print("Configuration: Random integers, Min-heap, Arity=2")
-    print("=" * 80)
-    print()
-    
-    sizes = [100000, 200000, 300000, 400000, 500000,
-             600000, 700000, 800000, 900000, 1000000]
-    
-    print("-" * 65)
-    print(f"{'n':>12} │ {'heapx (bytes)':>23} │ {'heapq (bytes)':>23}")
-    print("-" * 65)
-    
-    for n in sizes:
-      random.seed(42)
-      data = [random.randint(1, 1000000) for _ in range(n)]
-      
-      # heapx memory
-      heap = []
-      for val in data:
-        heapx.push(heap, val)
-      heapx_mem = sys.getsizeof(heap) + sum(sys.getsizeof(x) for x in heap)
-      
-      # heapq memory
-      heap = []
-      for val in data:
-        heapq.heappush(heap, val)
-      heapq_mem = sys.getsizeof(heap) + sum(sys.getsizeof(x) for x in heap)
-      
-      print(f"{n:>12,} │ {heapx_mem:>23,} │ {heapq_mem:>23,}")
-    
-    print("-" * 65)
-    print()
-    print("Note: Both implementations use O(1) auxiliary space")
-    print("=" * 80)
-    print()
+    """Memory usage is already included in test_performance_comparison."""
+    pass
 
 
