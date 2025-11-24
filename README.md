@@ -328,6 +328,177 @@ heapx.push(heap, 4, arity=1)
 
 ### **3. Pop**
 
+Remove and return the top element(s) from the heap while maintaining the heap property through optimized sift-down operations.
+
+```python
+heapx.pop(heap, n=1, max_heap=False, cmp=None, arity=2)
+```
+
+**Parameters:**
+
+- **`heap`** *(required, mutable sequence)*  
+  The heap to pop from. Must be a valid heap structure (typically created via `heapify()` or maintained through `push()` operations). Commonly a `list`, but also supports other mutable sequences. The sequence is modified in-place.
+
+- **`n`** *(optional, int ≥ 1, default=1)*  
+  Number of items to pop from the heap:
+  - `n=1`: Returns a single item (the root element)
+  - `n>1`: Returns a list of n items in heap order
+  - If `n` exceeds heap size, pops all available items
+  
+  Bulk pop operations are optimized for efficiency.
+
+- **`max_heap`** *(optional, bool, default=False)*  
+  Controls heap ordering:
+  - `False`: Pops from a **min-heap** (returns smallest element)
+  - `True`: Pops from a **max-heap** (returns largest element)
+  
+  Must match the heap type used during `heapify()`.
+
+- **`cmp`** *(optional, callable or None, default=None)*  
+  Custom key function for element comparison. When provided:
+  - Each element `x` is compared using `cmp(x)` instead of `x` directly
+  - Keys are computed on-demand during sift-down (O(1) auxiliary space)
+  - Signature: `cmp(element) -> comparable_value`
+  - Example: `cmp=lambda x: x.priority` for priority-based extraction
+  - Example: `cmp=abs` to pop by absolute value
+  
+  When `None`, elements are compared directly using their natural ordering.
+
+- **`arity`** *(optional, int ≥ 1, default=2)*  
+  The branching factor of the heap (must match the heap's existing arity):
+  - `arity=1`: Sorted list (O(1) pop from front)
+  - `arity=2`: Binary heap (standard sift-down with bit-shift optimization)
+  - `arity=3`: Ternary heap (division by 3)
+  - `arity=4`: Quaternary heap (bit-shift optimization)
+  - `arity≥5`: General n-ary heap (flexible division)
+  
+  Using the wrong arity will corrupt the heap structure.
+
+**Returns:** 
+- `n=1`: Single element (the root)
+- `n>1`: List of n elements in heap order
+
+**Raises:**
+- `IndexError`: If attempting to pop from an empty heap
+- `ValueError`: If `n < 1` or `arity < 1`
+- `TypeError`: If `cmp` is not callable or None
+
+**Time Complexity:** 
+- Single pop: O(log n) where n is the heap size
+- Bulk pop: O(k log n) where k is the number of items to pop
+- Small heap (n ≤ 16): O(n²) but faster in practice due to better constant factors
+- Arity=1 (sorted list): O(1) per pop (already sorted)
+
+**Space Complexity:** O(1) auxiliary space (no key caching; keys computed on-demand)
+
+**Algorithm Details:**
+
+The pop operation follows an 11-priority dispatch table for optimal performance:
+
+1. **Small heap (n ≤ 16, no key):** Uses insertion sort after removing root element
+2. **Arity=1 (sorted list):** Direct removal from front (O(1) operation)
+3. **Binary heap (arity=2, no key):** Inline sift-down with bit-shift child calculation `(pos<<1)+1`
+4. **Ternary heap (arity=3, no key):** Inline sift-down with 3 children comparison
+5. **Quaternary heap (arity=4, no key):** Inline sift-down with bit-shift `(pos<<2)+1`
+6. **General n-ary (arity≥5, no key):** Helper function for flexible arity
+7. **Binary heap with key (arity=2):** Inline sift-down with on-demand key computation
+8. **Ternary heap with key (arity=3):** Helper function with key computation
+9. **General n-ary with key (arity≥4):** Maximum flexibility with custom ordering
+10. **Generic sequence (non-list):** Uses `PySequence_*` API for compatibility
+
+**Key Optimizations:**
+
+- **Pointer refresh:** After list modification, the internal array pointer is refreshed to handle reallocation
+- **Inline sift-down:** Binary, ternary, and quaternary heaps use inline implementations to eliminate function call overhead
+- **Bit-shift optimization:** Binary (arity=2) and quaternary (arity=4) heaps use fast bit-shift operations for child calculation
+- **On-demand key computation:** Keys are computed only when needed during sift-down, avoiding O(n) memory overhead
+- **Small heap optimization:** Heaps with n ≤ 16 use insertion sort which has better constant factors
+- **Memory safety:** Proper reference counting with `Py_SETREF` and `Py_INCREF` to prevent use-after-free bugs
+
+**Example Usage:**
+
+```python
+import heapx
+
+# Single item pop (min-heap)
+heap = [1, 3, 2, 7, 5, 4, 6]
+heapx.heapify(heap)
+result = heapx.pop(heap)
+# result is 1, heap is now [2, 3, 4, 7, 5, 6]
+
+# Bulk pop (extract top 5 elements)
+heap = list(range(20, 0, -1))
+heapx.heapify(heap)
+results = heapx.pop(heap, n=5)
+# results is [1, 2, 3, 4, 5], heap has 15 elements remaining
+
+# Max-heap pop
+heap = [1, 2, 3, 4, 5]
+heapx.heapify(heap, max_heap=True)
+result = heapx.pop(heap, max_heap=True)
+# result is 5, heap is now [4, 2, 3, 1]
+
+# Pop all elements (heapsort)
+heap = [5, 2, 8, 1, 9, 3, 7]
+heapx.heapify(heap)
+sorted_data = []
+while heap:
+    sorted_data.append(heapx.pop(heap))
+# sorted_data is [1, 2, 3, 5, 7, 8, 9]
+
+# Custom comparison (priority queue)
+class Task:
+    def __init__(self, name, priority):
+        self.name = name
+        self.priority = priority
+    def __repr__(self):
+        return f"Task({self.name}, {self.priority})"
+
+heap = []
+heapx.push(heap, Task("low", 10), cmp=lambda t: t.priority)
+heapx.push(heap, Task("high", 1), cmp=lambda t: t.priority)
+heapx.push(heap, Task("medium", 5), cmp=lambda t: t.priority)
+task = heapx.pop(heap, cmp=lambda t: t.priority)
+# task is Task(high, 1) - highest priority task
+
+# Ternary heap pop
+heap = list(range(100, 0, -1))
+heapx.heapify(heap, arity=3)
+result = heapx.pop(heap, arity=3)
+# result is 1, heap maintains ternary heap property
+
+# Sorted list pop (arity=1)
+heap = [1, 3, 5, 7, 9]
+heapx.heapify(heap, arity=1)
+result = heapx.pop(heap, arity=1)
+# result is 1, heap is now [3, 5, 7, 9] - still sorted
+
+# Bulk pop with key function
+heap = [-5, 2, -8, 1, 9, -3, 7, -4, 6, -2]
+heapx.heapify(heap, cmp=abs)
+results = heapx.pop(heap, n=3, cmp=abs)
+# results contains 3 elements with smallest absolute values
+```
+
+**Performance Notes:**
+
+- Single pop is comparable to `heapq.heappop` for binary heaps
+- Small heaps (n ≤ 16) benefit from insertion sort optimization
+- Binary heaps (arity=2) are fastest due to bit-shift optimizations
+- Key functions add ~3x overhead due to function call costs
+- Bulk pop is more efficient than repeated single pops
+- Arity=1 (sorted list) has O(1) pop cost (already sorted)
+- Ternary and quaternary heaps reduce tree height, improving cache performance for large datasets
+
+**Common Use Cases:**
+
+- **Priority Queue:** Pop highest/lowest priority items
+- **Heapsort:** Extract all elements in sorted order
+- **Top-K Selection:** Pop k smallest/largest elements
+- **Event Scheduling:** Pop next event by timestamp
+- **Median Maintenance:** Pop from min/max heaps alternately
+- **Streaming Algorithms:** Maintain top-k elements in a stream
+
 
 
 ### **4. Remove**
