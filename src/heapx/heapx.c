@@ -2478,67 +2478,221 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
 }
 
 
-/* Ultra-optimized heapsort for lists without key function */
+/* Helper: Inline ternary heapsort without key function */
 HOT_FUNCTION static int
-list_heapsort_ultra_optimized(PyListObject *listobj, int reverse, int is_max, Py_ssize_t arity) {
+list_heapsort_ternary_ultra_optimized(PyListObject *listobj, int sort_is_max) {
   Py_ssize_t n = PyList_GET_SIZE(listobj);
-  if (unlikely(n <= 1)) return 0;
+  PyObject **items = listobj->ob_item;
   
-  PyObject **items = ASSUME_ALIGNED(listobj->ob_item, sizeof(void*));
-  /* For ascending sort: use max-heap. For descending sort: use min-heap */
-  int sort_is_max = reverse ? 0 : 1;
-  
-  /* HOT PATH: Binary heap heapsort */
-  if (likely(arity == 2)) {
-    for (Py_ssize_t i = n - 1; i > 0; i--) {
-      /* Swap root with last element */
-      PyObject *tmp = items[0];
-      items[0] = items[i];
-      items[i] = tmp;
+  for (Py_ssize_t i = n - 1; i > 0; i--) {
+    PyObject *tmp = items[0];
+    items[0] = items[i];
+    items[i] = tmp;
+    
+    Py_ssize_t pos = 0;
+    PyObject *item = items[0];
+    
+    while (1) {
+      Py_ssize_t child = pos * 3 + 1;
+      if (unlikely(child >= i)) break;
       
-      /* Sift down the new root in reduced heap */
-      Py_ssize_t pos = 0;
-      PyObject *item = items[0];
+      Py_ssize_t best = child;
+      PyObject *best_item = items[child];
       
-      while (1) {
-        Py_ssize_t child = (pos << 1) + 1;
-        if (unlikely(child >= i)) break;
-        
-        Py_ssize_t best = child;
-        PyObject *best_item = items[child];
-        
-        Py_ssize_t right = child + 1;
-        if (likely(right < i)) {
-          int cmp_result = optimized_compare(items[right], best_item, sort_is_max ? Py_GT : Py_LT);
-          if (unlikely(cmp_result < 0)) return -1;
-          if (cmp_result) {
-            best = right;
-            best_item = items[right];
-          }
+      for (Py_ssize_t c = child + 1; c < child + 3 && c < i; c++) {
+        int cmp_res = optimized_compare(items[c], best_item, sort_is_max ? Py_GT : Py_LT);
+        if (unlikely(cmp_res < 0)) return -1;
+        if (cmp_res) {
+          best = c;
+          best_item = items[c];
         }
-        
-        int should_swap = optimized_compare(best_item, item, sort_is_max ? Py_GT : Py_LT);
-        if (unlikely(should_swap < 0)) return -1;
-        if (!should_swap) break;
-        
-        items[pos] = best_item;
-        pos = best;
       }
-      items[pos] = item;
-    }
-  } else {
-    /* General arity heapsort */
-    for (Py_ssize_t i = n - 1; i > 0; i--) {
-      /* Swap root with last element */
-      PyObject *tmp = items[0];
-      items[0] = items[i];
-      items[i] = tmp;
       
-      /* Sift down using general algorithm */
-      if (unlikely(list_sift_down_ultra_optimized(listobj, 0, i, sort_is_max, arity) < 0)) return -1;
+      int should_swap = optimized_compare(best_item, item, sort_is_max ? Py_GT : Py_LT);
+      if (unlikely(should_swap < 0)) return -1;
+      if (!should_swap) break;
+      
+      items[pos] = best_item;
+      pos = best;
+    }
+    items[pos] = item;
+  }
+  return 0;
+}
+
+/* Helper: Inline quaternary heapsort without key function */
+HOT_FUNCTION static int
+list_heapsort_quaternary_ultra_optimized(PyListObject *listobj, int sort_is_max) {
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  PyObject **items = listobj->ob_item;
+  
+  for (Py_ssize_t i = n - 1; i > 0; i--) {
+    PyObject *tmp = items[0];
+    items[0] = items[i];
+    items[i] = tmp;
+    
+    Py_ssize_t pos = 0;
+    PyObject *item = items[0];
+    
+    while (1) {
+      Py_ssize_t child = (pos << 2) + 1;
+      if (unlikely(child >= i)) break;
+      
+      Py_ssize_t best = child;
+      PyObject *best_item = items[child];
+      
+      for (Py_ssize_t c = child + 1; c < child + 4 && c < i; c++) {
+        int cmp_res = optimized_compare(items[c], best_item, sort_is_max ? Py_GT : Py_LT);
+        if (unlikely(cmp_res < 0)) return -1;
+        if (cmp_res) {
+          best = c;
+          best_item = items[c];
+        }
+      }
+      
+      int should_swap = optimized_compare(best_item, item, sort_is_max ? Py_GT : Py_LT);
+      if (unlikely(should_swap < 0)) return -1;
+      if (!should_swap) break;
+      
+      items[pos] = best_item;
+      pos = best;
+    }
+    items[pos] = item;
+  }
+  return 0;
+}
+
+/* Helper: Binary heapsort without key function */
+HOT_FUNCTION static int
+list_heapsort_binary_ultra_optimized(PyListObject *listobj, int sort_is_max) {
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  PyObject **items = listobj->ob_item;
+  
+  for (Py_ssize_t i = n - 1; i > 0; i--) {
+    PyObject *tmp = items[0];
+    items[0] = items[i];
+    items[i] = tmp;
+    
+    Py_ssize_t pos = 0;
+    PyObject *item = items[0];
+    
+    while (1) {
+      Py_ssize_t child = (pos << 1) + 1;
+      if (unlikely(child >= i)) break;
+      
+      Py_ssize_t best = child;
+      PyObject *best_item = items[child];
+      
+      Py_ssize_t right = child + 1;
+      if (likely(right < i)) {
+        int cmp_res = optimized_compare(items[right], best_item, sort_is_max ? Py_GT : Py_LT);
+        if (unlikely(cmp_res < 0)) return -1;
+        if (cmp_res) {
+          best = right;
+          best_item = items[right];
+        }
+      }
+      
+      int should_swap = optimized_compare(best_item, item, sort_is_max ? Py_GT : Py_LT);
+      if (unlikely(should_swap < 0)) return -1;
+      if (!should_swap) break;
+      
+      items[pos] = best_item;
+      pos = best;
+    }
+    items[pos] = item;
+  }
+  return 0;
+}
+
+/* Helper: Binary heapsort with key function */
+HOT_FUNCTION static int
+list_heapsort_binary_with_key_ultra_optimized(PyListObject *listobj, int sort_is_max, PyObject *keyfunc) {
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  PyObject **items = listobj->ob_item;
+  
+  for (Py_ssize_t i = n - 1; i > 0; i--) {
+    PyObject *tmp = items[0];
+    items[0] = items[i];
+    items[i] = tmp;
+    
+    Py_ssize_t pos = 0;
+    PyObject *item = items[0];
+    PyObject *item_key = call_key_function(keyfunc, item);
+    if (unlikely(!item_key)) return -1;
+    
+    while (1) {
+      Py_ssize_t child = (pos << 1) + 1;
+      if (unlikely(child >= i)) {
+        Py_DECREF(item_key);
+        break;
+      }
+      
+      Py_ssize_t best = child;
+      PyObject *best_key = call_key_function(keyfunc, items[child]);
+      if (unlikely(!best_key)) {
+        Py_DECREF(item_key);
+        return -1;
+      }
+      
+      Py_ssize_t right = child + 1;
+      if (likely(right < i)) {
+        PyObject *right_key = call_key_function(keyfunc, items[right]);
+        if (unlikely(!right_key)) {
+          Py_DECREF(item_key);
+          Py_DECREF(best_key);
+          return -1;
+        }
+        int cmp_res = optimized_compare(right_key, best_key, sort_is_max ? Py_GT : Py_LT);
+        if (unlikely(cmp_res < 0)) {
+          Py_DECREF(item_key);
+          Py_DECREF(best_key);
+          Py_DECREF(right_key);
+          return -1;
+        }
+        if (cmp_res) {
+          best = right;
+          Py_DECREF(best_key);
+          best_key = right_key;
+        } else {
+          Py_DECREF(right_key);
+        }
+      }
+      
+      int should_swap = optimized_compare(best_key, item_key, sort_is_max ? Py_GT : Py_LT);
+      Py_DECREF(best_key);
+      if (unlikely(should_swap < 0)) {
+        Py_DECREF(item_key);
+        return -1;
+      }
+      if (!should_swap) {
+        Py_DECREF(item_key);
+        break;
+      }
+      
+      items[pos] = items[best];
+      pos = best;
+    }
+    items[pos] = item;
+  }
+  return 0;
+}
+
+/* Helper: Ternary heapsort with key function */
+HOT_FUNCTION static int
+list_heapsort_ternary_with_key_ultra_optimized(PyListObject *listobj, int sort_is_max, PyObject *keyfunc) {
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  PyObject **items = listobj->ob_item;
+  
+  for (Py_ssize_t i = n - 1; i > 0; i--) {
+    PyObject *tmp = items[0];
+    items[0] = items[i];
+    items[i] = tmp;
+    
+    if (unlikely(list_sift_down_with_key_ultra_optimized(listobj, 0, i, sort_is_max, keyfunc, 3) < 0)) {
+      return -1;
     }
   }
-  
   return 0;
 }
 
