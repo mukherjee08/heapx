@@ -970,41 +970,128 @@ class TestStressTests:
 class TestPerformanceBenchmarks:
     """Performance benchmarks for replace function."""
 
-    def test_benchmark_single_replacement_time(self):
-        """Benchmark single item replacement time efficiency."""
-        sizes = [100, 1000, 10000]
+    def test_benchmark_time_efficiency(self, capsys):
+        """Comprehensive time efficiency benchmark for replace function."""
+        
+        output = []
+        output.append("\n" + "="*80)
+        output.append("TIME EFFICIENCY: heapx.replace - Single Item Replacement")
+        output.append("="*80)
+        output.append(f"Configuration: R=10 repetitions per size, Random integers, Min-heap, Arity=2")
+        output.append("="*80)
+        
+        sizes = [100, 500, 1_000, 5_000, 10_000, 50_000, 100_000, 500_000, 1_000_000]
+        repetitions = 10
+        
         results = []
         
-        for size in sizes:
-            heap = list(range(size))
-            random.shuffle(heap)
-            heapx.heapify(heap)
-            
-            iterations = min(100, size // 10)
+        for n in sizes:
             times = []
             
-            for _ in range(10):  # R=10 repetitions
-                test_heap = heap.copy()
+            for r in range(repetitions):
+                # Prepare heap
+                data = list(range(n))
+                random.seed(r)
+                random.shuffle(data)
+                heapx.heapify(data)
+                
+                # Measure replace time (replace 100 random items)
+                num_replacements = min(100, n)
                 start = time.perf_counter()
-                for _ in range(iterations):
-                    if test_heap:
-                        idx = random.randint(0, len(test_heap) - 1)
-                        heapx.replace(test_heap, 99999, indices=idx)
+                for _ in range(num_replacements):
+                    idx = random.randint(0, len(data) - 1)
+                    heapx.replace(data, 999999, indices=idx)
                 elapsed = time.perf_counter() - start
-                times.append(elapsed / iterations * 1000)  # ms per operation
+                times.append(elapsed / num_replacements)  # Time per operation
             
             avg_time = mean(times)
             std_time = stdev(times) if len(times) > 1 else 0
-            results.append((size, avg_time, std_time))
+            
+            results.append({
+                'n': n,
+                'avg': avg_time,
+                'std': std_time
+            })
         
-        print("\n" + "=" * 70)
-        print("Single Item Replacement - Time Efficiency")
-        print("=" * 70)
-        print(f"{'Size':<10} {'Avg Time (ms)':<20} {'Std Dev (ms)':<20}")
-        print("-" * 70)
-        for size, avg, std in results:
-            print(f"{size:<10} {avg:<20.6f} {std:<20.6f}")
-        print("=" * 70)
+        # Time efficiency table
+        output.append("\n" + "-"*65)
+        output.append(f"{'n':>12} │ {'Time per replace (s)':>47}")
+        output.append(f"{'':>12} │ {'avg ± std':>47}")
+        output.append("-"*65)
+        
+        for r in results:
+            output.append(f"{r['n']:>12,} │ {r['avg']:>20.8f} ± {r['std']:>20.8f}")
+        
+        output.append("-"*65)
+        output.append("="*80 + "\n")
+        
+        # Print all output
+        final_output = '\n'.join(output)
+        print(final_output)
+        sys.stdout.flush()
+        
+        # Also write to captured output for pytest
+        with capsys.disabled():
+            print(final_output)
+
+    def test_benchmark_memory_efficiency(self, capsys):
+        """Comprehensive memory efficiency benchmark for replace function."""
+        
+        output = []
+        output.append("\n" + "="*80)
+        output.append("MEMORY EFFICIENCY: heapx.replace")
+        output.append("="*80)
+        output.append(f"Configuration: Random integers, Min-heap, Arity=2")
+        output.append("="*80)
+        
+        sizes = [100, 500, 1_000, 5_000, 10_000, 50_000, 100_000, 500_000, 1_000_000]
+        
+        memory_results = []
+        
+        for n in sizes:
+            # Create heap
+            data = list(range(n))
+            random.seed(0)
+            random.shuffle(data)
+            heapx.heapify(data)
+            
+            # Measure memory
+            mem_before = sys.getsizeof(data)
+            
+            # Replace 10% of items
+            num_replacements = max(1, n // 10)
+            indices = random.sample(range(n), num_replacements)
+            heapx.replace(data, 999999, indices=indices)
+            
+            mem_after = sys.getsizeof(data)
+            
+            memory_results.append({
+                'n': n,
+                'mem_before': mem_before,
+                'mem_after': mem_after,
+                'replaced': num_replacements
+            })
+        
+        # Memory efficiency table
+        output.append("\n" + "-"*80)
+        output.append(f"{'n':>12} │ {'Memory Before':>20} │ {'Memory After':>20} │ {'Items Replaced':>15}")
+        output.append("-"*80)
+        
+        for r in memory_results:
+            output.append(f"{r['n']:>12,} │ {r['mem_before']:>17,} B │ {r['mem_after']:>17,} B │ {r['replaced']:>15,}")
+        
+        output.append("-"*80)
+        output.append("\nNote: Replace maintains O(1) auxiliary space (in-place modification)")
+        output.append("="*80 + "\n")
+        
+        # Print all output
+        final_output = '\n'.join(output)
+        print(final_output)
+        sys.stdout.flush()
+        
+        # Also write to captured output for pytest
+        with capsys.disabled():
+            print(final_output)
 
     def test_benchmark_batch_replacement_time(self):
         """Benchmark batch replacement time efficiency."""
@@ -1177,37 +1264,4 @@ class TestPerformanceBenchmarks:
         print("-" * 70)
         for name, avg in results:
             print(f"{name:<25} {avg:<20.6f}")
-        print("=" * 70)
-
-    def test_benchmark_memory_efficiency(self):
-        """Benchmark memory efficiency of replace."""
-        import sys
-        
-        sizes = [100, 1000, 10000]
-        results = []
-        
-        for size in sizes:
-            heap = list(range(size))
-            heapx.heapify(heap)
-            
-            # Measure memory before
-            mem_before = sys.getsizeof(heap)
-            
-            # Replace half the elements
-            indices = list(range(0, size, 2))
-            values = [10000 + i for i in range(size // 2)]
-            heapx.replace(heap, values, indices=indices)
-            
-            # Measure memory after
-            mem_after = sys.getsizeof(heap)
-            
-            results.append((size, mem_before, mem_after, size // 2, len(heap)))
-        
-        print("\n" + "=" * 70)
-        print("Memory Efficiency")
-        print("=" * 70)
-        print(f"{'Original':<12} {'Mem Before':<15} {'Mem After':<15} {'Replaced':<12} {'Final Size':<12}")
-        print("-" * 70)
-        for orig, before, after, replaced, final in results:
-            print(f"{orig:<12} {before:<15} {after:<15} {replaced:<12} {final:<12}")
         print("=" * 70)
