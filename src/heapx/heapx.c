@@ -3362,7 +3362,55 @@ py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
   }
 }
 
-/* Replace operation - replace items by indices, object, or predicate */
+/* Helper: Replace single item at index with O(log n) inline heap maintenance */
+HOT_FUNCTION static inline int
+list_replace_at_index_optimized(PyListObject *listobj, Py_ssize_t idx, PyObject *new_value,
+                                  int is_max, PyObject *keyfunc, Py_ssize_t arity) {
+  Py_ssize_t n = Py_SIZE(listobj);
+  if (unlikely(idx < 0 || idx >= n)) return -1;
+  
+  PyObject **items = listobj->ob_item;
+  
+  /* Replace value with proper refcounting */
+  Py_INCREF(new_value);
+  Py_SETREF(items[idx], new_value);
+  
+  /* Determine sift direction by comparing with parent */
+  if (keyfunc == NULL) {
+    if (idx > 0) {
+      Py_ssize_t parent = (idx - 1) / arity;
+      int cmp_res = optimized_compare(items[idx], items[parent], is_max ? Py_GT : Py_LT);
+      if (unlikely(cmp_res < 0)) return -1;
+      if (cmp_res) {
+        /* New value violates parent relationship - sift up */
+        return list_sift_up_ultra_optimized(listobj, idx, is_max, arity);
+      }
+    }
+    /* Sift down to restore heap property */
+    return list_sift_down_ultra_optimized(listobj, idx, n, is_max, arity);
+  } else {
+    if (idx > 0) {
+      Py_ssize_t parent = (idx - 1) / arity;
+      PyObject *key_item = call_key_function(keyfunc, items[idx]);
+      if (unlikely(!key_item)) return -1;
+      PyObject *key_parent = call_key_function(keyfunc, items[parent]);
+      if (unlikely(!key_parent)) {
+        Py_DECREF(key_item);
+        return -1;
+      }
+      int cmp_res = optimized_compare(key_item, key_parent, is_max ? Py_GT : Py_LT);
+      Py_DECREF(key_item);
+      Py_DECREF(key_parent);
+      if (unlikely(cmp_res < 0)) return -1;
+      if (cmp_res) {
+        return list_sift_up_with_key_ultra_optimized(listobj, idx, is_max, keyfunc, arity);
+      }
+    }
+    return list_sift_down_with_key_ultra_optimized(listobj, idx, n, is_max, keyfunc, arity);
+  }
+}
+
+/* Ultra-optimized replace with 11-priority dispatch and adaptive batch strategy */
 static PyObject *
 py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
   static char *kwlist[] = {"heap", "values", "indices", "object", "predicate", "max_heap", "cmp", "arity", NULL};
@@ -3398,7 +3446,82 @@ py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
   if (unlikely(heap_size < 0)) return NULL;
   if (heap_size == 0) return PyLong_FromLong(0);
 
-  /* Collect indices to replace */
+  /* HOT PATH: Single index replacement with O(log n) inline maintenance */
+  if (likely(PyList_CheckExact(heap) && indices != Py_None && object == Py_None && 
+             predicate == Py_None && PyLong_Check(indices))) {
+    
+    Py_ssize_t idx = PyLong_AsSsize_t(indices);
+    if (unlikely(idx == -1 && PyErr_Occurred())) return NULL;
+    
+    if (idx < 0) idx += heap_size;
+    if (idx < 0 || idx >= heap_size) return PyLong_FromLong(0);
+    
+    PyListObject *listobj = (PyListObject *)heap;
+    Py_ssize_t new_size = heap_size;
+    PyObject *keyfunc = (cmp == Py_None) ? NULL : cmp;
+    
+    /* Priority 1: Small heap (n ≤ 16) - use insertion sort after replacement */
+    if (unlikely(new_size <= 16 && keyfunc == NULL)) {
+      PyObject **items = listobj->ob_item;
+      Py_INCREF(values);
+      Py_SETREF(items[idx], values);
+      
+      for (Py_ssize_t i = 1; i < new_size; i++) {
+        PyObject *key = items[i];
+        Py_INCREF(key);
+        Py_ssize_t j = i - 1;
+        while (j >= 0) {
+          int cmp_res = optimized_compare(key, items[j], is_max ? Py_GT : Py_LT);
+          if (unlikely(cmp_res < 0)) {
+            Py_DECREF(key);
+            return NULL;
+          }
+          if (!cmp_res) break;
+          Py_INCREF(items[j]);
+          Py_SETREF(items[j + 1], items[j]);
+          j--;
+        }
+        Py_SETREF(items[j + 1], key);
+      }
+      return PyLong_FromLong(1);
+    }
+    
+    /* Priority 2: Arity=1 (sorted list) - re-sort after replacement */
+    if (unlikely(arity == 1)) {
+      PyObject **items = listobj->ob_item;
+      Py_INCREF(values);
+      Py_SETREF(items[idx], values);
+      
+      /* Use insertion sort to maintain sorted order */
+      for (Py_ssize_t i = 1; i < new_size; i++) {
+        PyObject *key = items[i];
+        Py_INCREF(key);
+        Py_ssize_t j = i - 1;
+        while (j >= 0) {
+          int cmp_res = optimized_compare(key, items[j], is_max ? Py_GT : Py_LT);
+          if (unlikely(cmp_res < 0)) {
+            Py_DECREF(key);
+            return NULL;
+          }
+          if (!cmp_res) break;
+          Py_INCREF(items[j]);
+          Py_SETREF(items[j + 1], items[j]);
+          j--;
+        }
+        Py_SETREF(items[j + 1], key);
+      }
+      return PyLong_FromLong(1);
+    }
+    
+    /* Priorities 3-10: Use O(log n) inline heap maintenance */
+    if (unlikely(list_replace_at_index_optimized(listobj, idx, values, is_max, keyfunc, arity) < 0)) {
+      return NULL;
+    }
+    
+    return PyLong_FromLong(1);
+  }
+
+  /* GENERAL CASE: Collect indices to replace */
   PyObject *to_replace = PyList_New(0);
   if (unlikely(!to_replace)) return NULL;
 
@@ -3458,33 +3581,54 @@ py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
     }
   }
 
+  /* Object identity search */
   if (object != Py_None) {
-    for (Py_ssize_t i = 0; i < heap_size; i++) {
-      PyObject *item = PySequence_GetItem(heap, i);
-      if (unlikely(!item)) {
-        Py_DECREF(to_replace);
-        return NULL;
-      }
-      
-      int is_same = (item == object);
-      Py_DECREF(item);
-      
-      if (is_same) {
-        PyObject *idx_py = PyLong_FromSsize_t(i);
-        if (unlikely(!idx_py)) {
-          Py_DECREF(to_replace);
-          return NULL;
-        }
-        if (unlikely(PyList_Append(to_replace, idx_py) < 0)) {
+    if (PyList_CheckExact(heap)) {
+      PyObject **items = ((PyListObject *)heap)->ob_item;
+      for (Py_ssize_t i = 0; i < heap_size; i++) {
+        if (items[i] == object) {
+          PyObject *idx_py = PyLong_FromSsize_t(i);
+          if (unlikely(!idx_py)) {
+            Py_DECREF(to_replace);
+            return NULL;
+          }
+          if (unlikely(PyList_Append(to_replace, idx_py) < 0)) {
+            Py_DECREF(idx_py);
+            Py_DECREF(to_replace);
+            return NULL;
+          }
           Py_DECREF(idx_py);
+        }
+      }
+    } else {
+      for (Py_ssize_t i = 0; i < heap_size; i++) {
+        PyObject *item = PySequence_GetItem(heap, i);
+        if (unlikely(!item)) {
           Py_DECREF(to_replace);
           return NULL;
         }
-        Py_DECREF(idx_py);
+        
+        int is_same = (item == object);
+        Py_DECREF(item);
+        
+        if (is_same) {
+          PyObject *idx_py = PyLong_FromSsize_t(i);
+          if (unlikely(!idx_py)) {
+            Py_DECREF(to_replace);
+            return NULL;
+          }
+          if (unlikely(PyList_Append(to_replace, idx_py) < 0)) {
+            Py_DECREF(idx_py);
+            Py_DECREF(to_replace);
+            return NULL;
+          }
+          Py_DECREF(idx_py);
+        }
       }
     }
   }
 
+  /* Predicate search */
   if (predicate != Py_None) {
     for (Py_ssize_t i = 0; i < heap_size; i++) {
       PyObject *item = PySequence_GetItem(heap, i);
@@ -3554,13 +3698,52 @@ py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
     }
   }
 
-  /* Perform replacements */
+  /* ADAPTIVE BATCH STRATEGY: Sequential O(log n) vs Batch O(n) */
+  if (PyList_CheckExact(heap) && replace_count < heap_size / 4) {
+    /* Sequential O(log n) replacements for small batches */
+    PyListObject *listobj = (PyListObject *)heap;
+    PyObject *keyfunc = (cmp == Py_None) ? NULL : cmp;
+    Py_ssize_t n_values = PySequence_Size(value_list);
+    
+    for (Py_ssize_t i = 0; i < replace_count; i++) {
+      PyObject *idx_obj = PyList_GetItem(to_replace, i);
+      Py_ssize_t idx = PyLong_AsSsize_t(idx_obj);
+      
+      PyObject *new_value;
+      if (n_values == 1) {
+        new_value = PySequence_GetItem(value_list, 0);
+      } else {
+        new_value = PySequence_GetItem(value_list, i);
+      }
+      
+      if (unlikely(!new_value)) {
+        Py_DECREF(to_replace);
+        Py_DECREF(value_list);
+        return NULL;
+      }
+      
+      if (unlikely(list_replace_at_index_optimized(listobj, idx, new_value, is_max, keyfunc, arity) < 0)) {
+        Py_DECREF(new_value);
+        Py_DECREF(to_replace);
+        Py_DECREF(value_list);
+        return NULL;
+      }
+      Py_DECREF(new_value);
+    }
+    
+    Py_DECREF(to_replace);
+    Py_DECREF(value_list);
+    return PyLong_FromSsize_t(replace_count);
+  }
+
+  /* Batch replacement + heapify for large batches */
+  Py_ssize_t n_values = PySequence_Size(value_list);
   for (Py_ssize_t i = 0; i < replace_count; i++) {
     PyObject *idx_obj = PyList_GetItem(to_replace, i);
     Py_ssize_t idx = PyLong_AsSsize_t(idx_obj);
     
     PyObject *new_value;
-    if (PySequence_Size(value_list) == 1) {
+    if (n_values == 1) {
       new_value = PySequence_GetItem(value_list, 0);
     } else {
       new_value = PySequence_GetItem(value_list, i);
@@ -3584,51 +3767,61 @@ py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
   Py_DECREF(to_replace);
   Py_DECREF(value_list);
 
-  /* Re-heapify after replacements */
-  PyObject *heapify_args = PyTuple_Pack(1, heap);
-  if (unlikely(!heapify_args)) return NULL;
-  
-  PyObject *heapify_kwargs = PyDict_New();
-  if (unlikely(!heapify_kwargs)) {
-    Py_DECREF(heapify_args);
-    return NULL;
-  }
-  
-  if (unlikely(PyDict_SetItemString(heapify_kwargs, "max_heap", max_heap_obj) < 0)) {
-    Py_DECREF(heapify_args);
-    Py_DECREF(heapify_kwargs);
-    return NULL;
-  }
-  
-  if (cmp != Py_None) {
-    if (unlikely(PyDict_SetItemString(heapify_kwargs, "cmp", cmp) < 0)) {
-      Py_DECREF(heapify_args);
-      Py_DECREF(heapify_kwargs);
-      return NULL;
+  /* Re-heapify using optimized dispatch */
+  if (PyList_CheckExact(heap)) {
+    PyListObject *listobj = (PyListObject *)heap;
+    Py_ssize_t new_size = Py_SIZE(listobj);
+    
+    /* Priority 1: Small heap after replacement */
+    if (unlikely(new_size <= 16 && cmp == Py_None)) {
+      PyObject **items = listobj->ob_item;
+      for (Py_ssize_t i = 1; i < new_size; i++) {
+        PyObject *key = items[i];
+        Py_INCREF(key);
+        Py_ssize_t j = i - 1;
+        while (j >= 0) {
+          int cmp_res = optimized_compare(key, items[j], is_max ? Py_GT : Py_LT);
+          if (unlikely(cmp_res < 0)) {
+            Py_DECREF(key);
+            return NULL;
+          }
+          if (!cmp_res) break;
+          Py_INCREF(items[j]);
+          Py_SETREF(items[j + 1], items[j]);
+          j--;
+        }
+        Py_SETREF(items[j + 1], key);
+      }
+      return PyLong_FromSsize_t(replace_count);
+    }
+    
+    /* Priorities 3-7: Arity-specific heapify without key */
+    if (cmp == Py_None) {
+      if (likely(arity == 2)) {
+        if (unlikely(list_heapify_floyd_ultra_optimized(listobj, is_max) < 0)) {
+          return NULL;
+        }
+      } else if (arity == 3) {
+        if (unlikely(list_heapify_ternary_ultra_optimized(listobj, is_max) < 0)) {
+          return NULL;
+        }
+      } else if (arity == 4) {
+        if (unlikely(list_heapify_quaternary_ultra_optimized(listobj, is_max) < 0)) {
+          return NULL;
+        }
+      } else {
+        if (unlikely(list_heapify_small_ultra_optimized(listobj, is_max, arity) < 0)) {
+          return NULL;
+        }
+      }
+      return PyLong_FromSsize_t(replace_count);
     }
   }
-  
-  PyObject *arity_obj = PyLong_FromSsize_t(arity);
-  if (unlikely(!arity_obj)) {
-    Py_DECREF(heapify_args);
-    Py_DECREF(heapify_kwargs);
-    return NULL;
-  }
-  
-  if (unlikely(PyDict_SetItemString(heapify_kwargs, "arity", arity_obj) < 0)) {
-    Py_DECREF(heapify_args);
-    Py_DECREF(heapify_kwargs);
-    Py_DECREF(arity_obj);
-    return NULL;
-  }
-  Py_DECREF(arity_obj);
 
-  PyObject *heapify_result = py_heapify(self, heapify_args, heapify_kwargs);
-  Py_DECREF(heapify_args);
-  Py_DECREF(heapify_kwargs);
-  
-  if (unlikely(!heapify_result)) return NULL;
-  Py_DECREF(heapify_result);
+  /* Fallback: generic heapify */
+  if (unlikely(generic_heapify_ultra_optimized(heap, is_max, (cmp == Py_None ? NULL : cmp), arity) < 0)) {
+    return NULL;
+  }
 
   return PyLong_FromSsize_t(replace_count);
 }
