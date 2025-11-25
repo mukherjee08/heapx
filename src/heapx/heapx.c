@@ -2696,7 +2696,7 @@ list_heapsort_ternary_with_key_ultra_optimized(PyListObject *listobj, int sort_i
   return 0;
 }
 
-/* Perfect production-ready sort operation */
+/* Ultra-optimized sort with complete 11-priority dispatch */
 static PyObject *
 py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
   static char *kwlist[] = {"heap", "reverse", "inplace", "max_heap", "cmp", "arity", NULL};
@@ -2707,7 +2707,8 @@ py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
   PyObject *cmp = Py_None;
   Py_ssize_t arity = 2;
 
-  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOOOn:sort", kwlist, &heap, &reverse_obj, &inplace_obj, &max_heap_obj, &cmp, &arity))
+  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOOOn:sort", kwlist, 
+                                   &heap, &reverse_obj, &inplace_obj, &max_heap_obj, &cmp, &arity))
     return NULL;
 
   int reverse = PyObject_IsTrue(reverse_obj);
@@ -2747,229 +2748,319 @@ py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
     if (unlikely(!work_heap)) return NULL;
   }
 
-  /* Determine heap direction for initial heapify */
-  /* For ascending sort: need max-heap. For descending sort: need min-heap */
-  int heapify_is_max = reverse ? 0 : 1;
+  /* For ascending: use max-heap. For descending: use min-heap */
+  int sort_is_max = reverse ? 0 : 1;
+  PyObject *keyfunc = (cmp == Py_None) ? NULL : cmp;
 
-  /* HOT PATH: List without key function */
-  if (likely(PyList_CheckExact(work_heap) && cmp == Py_None)) {
+  /* ========== 11-PRIORITY DISPATCH TABLE ========== */
+  
+  /* Priority 1: Small heap (n ≤ 16, no key) - Direct insertion sort */
+  if (unlikely(n <= 16 && keyfunc == NULL && PyList_CheckExact(work_heap))) {
     PyListObject *listobj = (PyListObject *)work_heap;
+    PyObject **items = listobj->ob_item;
     
-    /* Ensure heap property using optimized heapify */
-    if (likely(arity == 2)) {
-      if (unlikely(list_heapify_floyd_ultra_optimized(listobj, heapify_is_max) < 0)) {
-        Py_DECREF(work_heap);
-        return NULL;
+    for (Py_ssize_t i = 1; i < n; i++) {
+      PyObject *key = items[i];
+      Py_INCREF(key);
+      Py_ssize_t j = i - 1;
+      while (j >= 0) {
+        int cmp_res = optimized_compare(items[j], key, reverse ? Py_LT : Py_GT);
+        if (unlikely(cmp_res < 0)) {
+          Py_DECREF(key);
+          Py_DECREF(work_heap);
+          return NULL;
+        }
+        if (!cmp_res) break;
+        Py_INCREF(items[j]);
+        Py_SETREF(items[j + 1], items[j]);
+        j--;
       }
-    } else if (arity == 3) {
-      if (unlikely(list_heapify_ternary_ultra_optimized(listobj, heapify_is_max) < 0)) {
-        Py_DECREF(work_heap);
-        return NULL;
-      }
-    } else if (arity == 4) {
-      if (unlikely(list_heapify_quaternary_ultra_optimized(listobj, heapify_is_max) < 0)) {
-        Py_DECREF(work_heap);
-        return NULL;
-      }
-    } else if (n <= 16) {
-      if (unlikely(list_heapify_small_ultra_optimized(listobj, heapify_is_max, arity) < 0)) {
-        Py_DECREF(work_heap);
-        return NULL;
-      }
-    } else {
-      /* Use general heapify for other arities */
-      PyObject *heapify_args = PyTuple_Pack(1, work_heap);
-      if (unlikely(!heapify_args)) {
-        Py_DECREF(work_heap);
-        return NULL;
-      }
-      
-      PyObject *heapify_kwargs = PyDict_New();
-      if (unlikely(!heapify_kwargs)) {
-        Py_DECREF(work_heap);
-        Py_DECREF(heapify_args);
-        return NULL;
-      }
-      
-      PyObject *max_heap_val = heapify_is_max ? Py_True : Py_False;
-      if (unlikely(PyDict_SetItemString(heapify_kwargs, "max_heap", max_heap_val) < 0)) {
-        Py_DECREF(work_heap);
-        Py_DECREF(heapify_args);
-        Py_DECREF(heapify_kwargs);
-        return NULL;
-      }
-      
-      PyObject *arity_obj = PyLong_FromSsize_t(arity);
-      if (unlikely(!arity_obj)) {
-        Py_DECREF(work_heap);
-        Py_DECREF(heapify_args);
-        Py_DECREF(heapify_kwargs);
-        return NULL;
-      }
-      
-      if (unlikely(PyDict_SetItemString(heapify_kwargs, "arity", arity_obj) < 0)) {
-        Py_DECREF(work_heap);
-        Py_DECREF(heapify_args);
-        Py_DECREF(heapify_kwargs);
-        Py_DECREF(arity_obj);
-        return NULL;
-      }
-      Py_DECREF(arity_obj);
-
-      PyObject *heapify_result = py_heapify(self, heapify_args, heapify_kwargs);
-      Py_DECREF(heapify_args);
-      Py_DECREF(heapify_kwargs);
-      
-      if (unlikely(!heapify_result)) {
-        Py_DECREF(work_heap);
-        return NULL;
-      }
-      Py_DECREF(heapify_result);
+      Py_SETREF(items[j + 1], key);
     }
     
-    /* Ultra-optimized heapsort */
-    if (unlikely(list_heapsort_ultra_optimized(listobj, reverse, is_max, arity) < 0)) {
+    if (inplace) {
+      Py_DECREF(work_heap);
+      Py_RETURN_NONE;
+    }
+    return work_heap;
+  }
+  
+  /* Priority 2: Arity=1 (sorted list) - Sort first if needed, then reverse if requested */
+  if (unlikely(arity == 1)) {
+    if (PyList_CheckExact(work_heap) && keyfunc == NULL) {
+      /* Use insertion sort to ensure sorted order */
+      PyListObject *listobj = (PyListObject *)work_heap;
+      PyObject **items = listobj->ob_item;
+      
+      for (Py_ssize_t i = 1; i < n; i++) {
+        PyObject *key = items[i];
+        Py_INCREF(key);
+        Py_ssize_t j = i - 1;
+        while (j >= 0) {
+          int cmp_res = optimized_compare(items[j], key, Py_GT);
+          if (unlikely(cmp_res < 0)) {
+            Py_DECREF(key);
+            Py_DECREF(work_heap);
+            return NULL;
+          }
+          if (!cmp_res) break;
+          Py_INCREF(items[j]);
+          Py_SETREF(items[j + 1], items[j]);
+          j--;
+        }
+        Py_SETREF(items[j + 1], key);
+      }
+      
+      /* Now reverse if needed */
+      if (reverse) {
+        if (unlikely(PyList_Reverse(work_heap) < 0)) {
+          Py_DECREF(work_heap);
+          return NULL;
+        }
+      }
+    } else {
+      /* Generic sequence or with key - use heapify approach */
+      if (unlikely(generic_heapify_ultra_optimized(work_heap, reverse ? 0 : 1, keyfunc, 1) < 0)) {
+        Py_DECREF(work_heap);
+        return NULL;
+      }
+    }
+    
+    if (inplace) {
+      Py_DECREF(work_heap);
+      Py_RETURN_NONE;
+    }
+    return work_heap;
+  }
+  
+  /* Priority 3: List + arity=2 + no key */
+  if (likely(PyList_CheckExact(work_heap) && arity == 2 && keyfunc == NULL)) {
+    PyListObject *listobj = (PyListObject *)work_heap;
+    
+    if (unlikely(list_heapify_floyd_ultra_optimized(listobj, sort_is_max) < 0)) {
+      Py_DECREF(work_heap);
+      return NULL;
+    }
+    
+    if (unlikely(list_heapsort_binary_ultra_optimized(listobj, sort_is_max) < 0)) {
       Py_DECREF(work_heap);
       return NULL;
     }
     
     if (inplace) {
-      /* Restore heap property */
-      if (likely(arity == 2)) {
-        if (unlikely(list_heapify_floyd_ultra_optimized(listobj, is_max) < 0)) {
-          Py_DECREF(work_heap);
-          return NULL;
-        }
-      } else if (arity == 3) {
-        if (unlikely(list_heapify_ternary_ultra_optimized(listobj, is_max) < 0)) {
-          Py_DECREF(work_heap);
-          return NULL;
-        }
-      } else if (arity == 4) {
-        if (unlikely(list_heapify_quaternary_ultra_optimized(listobj, is_max) < 0)) {
-          Py_DECREF(work_heap);
-          return NULL;
-        }
-      } else {
-        PyObject *restore_args = PyTuple_Pack(1, work_heap);
-        if (unlikely(!restore_args)) {
-          Py_DECREF(work_heap);
-          return NULL;
-        }
-        
-        PyObject *restore_kwargs = PyDict_New();
-        if (unlikely(!restore_kwargs)) {
-          Py_DECREF(work_heap);
-          Py_DECREF(restore_args);
-          return NULL;
-        }
-        
-        if (unlikely(PyDict_SetItemString(restore_kwargs, "max_heap", max_heap_obj) < 0)) {
-          Py_DECREF(work_heap);
-          Py_DECREF(restore_args);
-          Py_DECREF(restore_kwargs);
-          return NULL;
-        }
-        
-        PyObject *arity_obj = PyLong_FromSsize_t(arity);
-        if (unlikely(!arity_obj)) {
-          Py_DECREF(work_heap);
-          Py_DECREF(restore_args);
-          Py_DECREF(restore_kwargs);
-          return NULL;
-        }
-        
-        if (unlikely(PyDict_SetItemString(restore_kwargs, "arity", arity_obj) < 0)) {
-          Py_DECREF(work_heap);
-          Py_DECREF(restore_args);
-          Py_DECREF(restore_kwargs);
-          Py_DECREF(arity_obj);
-          return NULL;
-        }
-        Py_DECREF(arity_obj);
-
-        PyObject *restore_result = py_heapify(self, restore_args, restore_kwargs);
-        Py_DECREF(restore_args);
-        Py_DECREF(restore_kwargs);
-        
-        if (unlikely(!restore_result)) {
-          Py_DECREF(work_heap);
-          return NULL;
-        }
-        Py_DECREF(restore_result);
+      if (unlikely(list_heapify_floyd_ultra_optimized(listobj, is_max) < 0)) {
+        Py_DECREF(work_heap);
+        return NULL;
       }
-      
       Py_DECREF(work_heap);
       Py_RETURN_NONE;
     }
-
     return work_heap;
   }
-
-  /* FALLBACK: General case with key function or non-list */
-  /* Ensure heap property first */
-  PyObject *heapify_args = PyTuple_Pack(1, work_heap);
-  if (unlikely(!heapify_args)) {
-    Py_DECREF(work_heap);
-    return NULL;
-  }
   
-  PyObject *heapify_kwargs = PyDict_New();
-  if (unlikely(!heapify_kwargs)) {
-    Py_DECREF(work_heap);
-    Py_DECREF(heapify_args);
-    return NULL;
-  }
-  
-  PyObject *heapify_max = heapify_is_max ? Py_True : Py_False;
-  if (unlikely(PyDict_SetItemString(heapify_kwargs, "max_heap", heapify_max) < 0)) {
-    Py_DECREF(work_heap);
-    Py_DECREF(heapify_args);
-    Py_DECREF(heapify_kwargs);
-    return NULL;
-  }
-  
-  if (cmp != Py_None) {
-    if (unlikely(PyDict_SetItemString(heapify_kwargs, "cmp", cmp) < 0)) {
+  /* Priority 4: List + arity=3 + no key */
+  if (unlikely(PyList_CheckExact(work_heap) && arity == 3 && keyfunc == NULL)) {
+    PyListObject *listobj = (PyListObject *)work_heap;
+    
+    if (unlikely(list_heapify_ternary_ultra_optimized(listobj, sort_is_max) < 0)) {
       Py_DECREF(work_heap);
-      Py_DECREF(heapify_args);
-      Py_DECREF(heapify_kwargs);
       return NULL;
     }
+    
+    if (unlikely(list_heapsort_ternary_ultra_optimized(listobj, sort_is_max) < 0)) {
+      Py_DECREF(work_heap);
+      return NULL;
+    }
+    
+    if (inplace) {
+      if (unlikely(list_heapify_ternary_ultra_optimized(listobj, is_max) < 0)) {
+        Py_DECREF(work_heap);
+        return NULL;
+      }
+      Py_DECREF(work_heap);
+      Py_RETURN_NONE;
+    }
+    return work_heap;
   }
   
-  PyObject *arity_obj = PyLong_FromSsize_t(arity);
-  if (unlikely(!arity_obj)) {
-    Py_DECREF(work_heap);
-    Py_DECREF(heapify_args);
-    Py_DECREF(heapify_kwargs);
-    return NULL;
+  /* Priority 5: List + arity=4 + no key */
+  if (unlikely(PyList_CheckExact(work_heap) && arity == 4 && keyfunc == NULL)) {
+    PyListObject *listobj = (PyListObject *)work_heap;
+    
+    if (unlikely(list_heapify_quaternary_ultra_optimized(listobj, sort_is_max) < 0)) {
+      Py_DECREF(work_heap);
+      return NULL;
+    }
+    
+    if (unlikely(list_heapsort_quaternary_ultra_optimized(listobj, sort_is_max) < 0)) {
+      Py_DECREF(work_heap);
+      return NULL;
+    }
+    
+    if (inplace) {
+      if (unlikely(list_heapify_quaternary_ultra_optimized(listobj, is_max) < 0)) {
+        Py_DECREF(work_heap);
+        return NULL;
+      }
+      Py_DECREF(work_heap);
+      Py_RETURN_NONE;
+    }
+    return work_heap;
   }
   
-  if (unlikely(PyDict_SetItemString(heapify_kwargs, "arity", arity_obj) < 0)) {
-    Py_DECREF(work_heap);
-    Py_DECREF(heapify_args);
-    Py_DECREF(heapify_kwargs);
-    Py_DECREF(arity_obj);
-    return NULL;
+  /* Priority 6: List + arity≥5 + no key + n<1000 */
+  if (unlikely(PyList_CheckExact(work_heap) && arity >= 5 && keyfunc == NULL && n < 1000)) {
+    PyListObject *listobj = (PyListObject *)work_heap;
+    
+    if (unlikely(list_heapify_small_ultra_optimized(listobj, sort_is_max, arity) < 0)) {
+      Py_DECREF(work_heap);
+      return NULL;
+    }
+    
+    for (Py_ssize_t i = n - 1; i > 0; i--) {
+      PyObject **items = listobj->ob_item;
+      PyObject *tmp = items[0];
+      items[0] = items[i];
+      items[i] = tmp;
+      
+      if (unlikely(list_sift_down_ultra_optimized(listobj, 0, i, sort_is_max, arity) < 0)) {
+        Py_DECREF(work_heap);
+        return NULL;
+      }
+    }
+    
+    if (inplace) {
+      if (unlikely(list_heapify_small_ultra_optimized(listobj, is_max, arity) < 0)) {
+        Py_DECREF(work_heap);
+        return NULL;
+      }
+      Py_DECREF(work_heap);
+      Py_RETURN_NONE;
+    }
+    return work_heap;
   }
-  Py_DECREF(arity_obj);
-
-  PyObject *heapify_result = py_heapify(self, heapify_args, heapify_kwargs);
-  Py_DECREF(heapify_args);
-  Py_DECREF(heapify_kwargs);
   
-  if (unlikely(!heapify_result)) {
+  /* Priority 7: List + arity≥5 + no key + n≥1000 */
+  if (unlikely(PyList_CheckExact(work_heap) && arity >= 5 && keyfunc == NULL && n >= 1000)) {
+    PyListObject *listobj = (PyListObject *)work_heap;
+    
+    if (unlikely(generic_heapify_ultra_optimized(work_heap, sort_is_max, NULL, arity) < 0)) {
+      Py_DECREF(work_heap);
+      return NULL;
+    }
+    
+    for (Py_ssize_t i = n - 1; i > 0; i--) {
+      PyObject **items = listobj->ob_item;
+      PyObject *tmp = items[0];
+      items[0] = items[i];
+      items[i] = tmp;
+      
+      if (unlikely(list_sift_down_ultra_optimized(listobj, 0, i, sort_is_max, arity) < 0)) {
+        Py_DECREF(work_heap);
+        return NULL;
+      }
+    }
+    
+    if (inplace) {
+      if (unlikely(generic_heapify_ultra_optimized(work_heap, is_max, NULL, arity) < 0)) {
+        Py_DECREF(work_heap);
+        return NULL;
+      }
+      Py_DECREF(work_heap);
+      Py_RETURN_NONE;
+    }
+    return work_heap;
+  }
+  
+  /* Priority 8: List + arity=2 + key */
+  if (likely(PyList_CheckExact(work_heap) && arity == 2 && keyfunc != NULL)) {
+    PyListObject *listobj = (PyListObject *)work_heap;
+    
+    if (unlikely(list_heapify_with_key_ultra_optimized(listobj, keyfunc, sort_is_max) < 0)) {
+      Py_DECREF(work_heap);
+      return NULL;
+    }
+    
+    if (unlikely(list_heapsort_binary_with_key_ultra_optimized(listobj, sort_is_max, keyfunc) < 0)) {
+      Py_DECREF(work_heap);
+      return NULL;
+    }
+    
+    if (inplace) {
+      if (unlikely(list_heapify_with_key_ultra_optimized(listobj, keyfunc, is_max) < 0)) {
+        Py_DECREF(work_heap);
+        return NULL;
+      }
+      Py_DECREF(work_heap);
+      Py_RETURN_NONE;
+    }
+    return work_heap;
+  }
+  
+  /* Priority 9: List + arity=3 + key */
+  if (unlikely(PyList_CheckExact(work_heap) && arity == 3 && keyfunc != NULL)) {
+    PyListObject *listobj = (PyListObject *)work_heap;
+    
+    if (unlikely(list_heapify_ternary_with_key_ultra_optimized(listobj, keyfunc, sort_is_max) < 0)) {
+      Py_DECREF(work_heap);
+      return NULL;
+    }
+    
+    if (unlikely(list_heapsort_ternary_with_key_ultra_optimized(listobj, sort_is_max, keyfunc) < 0)) {
+      Py_DECREF(work_heap);
+      return NULL;
+    }
+    
+    if (inplace) {
+      if (unlikely(list_heapify_ternary_with_key_ultra_optimized(listobj, keyfunc, is_max) < 0)) {
+        Py_DECREF(work_heap);
+        return NULL;
+      }
+      Py_DECREF(work_heap);
+      Py_RETURN_NONE;
+    }
+    return work_heap;
+  }
+  
+  /* Priority 10: List + arity≥4 + key */
+  if (unlikely(PyList_CheckExact(work_heap) && arity >= 4 && keyfunc != NULL)) {
+    PyListObject *listobj = (PyListObject *)work_heap;
+    
+    if (unlikely(generic_heapify_ultra_optimized(work_heap, sort_is_max, keyfunc, arity) < 0)) {
+      Py_DECREF(work_heap);
+      return NULL;
+    }
+    
+    for (Py_ssize_t i = n - 1; i > 0; i--) {
+      PyObject **items = listobj->ob_item;
+      PyObject *tmp = items[0];
+      items[0] = items[i];
+      items[i] = tmp;
+      
+      if (unlikely(list_sift_down_with_key_ultra_optimized(listobj, 0, i, sort_is_max, keyfunc, arity) < 0)) {
+        Py_DECREF(work_heap);
+        return NULL;
+      }
+    }
+    
+    if (inplace) {
+      if (unlikely(generic_heapify_ultra_optimized(work_heap, is_max, keyfunc, arity) < 0)) {
+        Py_DECREF(work_heap);
+        return NULL;
+      }
+      Py_DECREF(work_heap);
+      Py_RETURN_NONE;
+    }
+    return work_heap;
+  }
+  
+  /* Priority 11: Generic sequence (non-list) */
+  if (unlikely(generic_heapify_ultra_optimized(work_heap, sort_is_max, keyfunc, arity) < 0)) {
     Py_DECREF(work_heap);
     return NULL;
   }
-  Py_DECREF(heapify_result);
-
-  /* Heapsort: repeatedly extract root and place at end */
-  int sort_is_max = heapify_is_max;
   
   for (Py_ssize_t i = n - 1; i > 0; i--) {
-    /* Swap root with last element */
     PyObject *root = PySequence_GetItem(work_heap, 0);
     PyObject *last = PySequence_GetItem(work_heap, i);
     if (unlikely(!root || !last)) {
@@ -2990,74 +3081,21 @@ py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
     Py_DECREF(root);
     Py_DECREF(last);
     
-    /* Sift down the new root in reduced heap */
-    if (unlikely(sift_down(work_heap, 0, i, sort_is_max, cmp, arity) < 0)) {
+    if (unlikely(sift_down(work_heap, 0, i, sort_is_max, keyfunc, arity) < 0)) {
       Py_DECREF(work_heap);
       return NULL;
     }
   }
-
+  
   if (inplace) {
-    /* Restore heap property if requested */
-    PyObject *restore_args = PyTuple_Pack(1, work_heap);
-    if (unlikely(!restore_args)) {
+    if (unlikely(generic_heapify_ultra_optimized(work_heap, is_max, keyfunc, arity) < 0)) {
       Py_DECREF(work_heap);
       return NULL;
     }
-    
-    PyObject *restore_kwargs = PyDict_New();
-    if (unlikely(!restore_kwargs)) {
-      Py_DECREF(work_heap);
-      Py_DECREF(restore_args);
-      return NULL;
-    }
-    
-    if (unlikely(PyDict_SetItemString(restore_kwargs, "max_heap", max_heap_obj) < 0)) {
-      Py_DECREF(work_heap);
-      Py_DECREF(restore_args);
-      Py_DECREF(restore_kwargs);
-      return NULL;
-    }
-    
-    if (cmp != Py_None) {
-      if (unlikely(PyDict_SetItemString(restore_kwargs, "cmp", cmp) < 0)) {
-        Py_DECREF(work_heap);
-        Py_DECREF(restore_args);
-        Py_DECREF(restore_kwargs);
-        return NULL;
-      }
-    }
-    
-    PyObject *arity_obj2 = PyLong_FromSsize_t(arity);
-    if (unlikely(!arity_obj2)) {
-      Py_DECREF(work_heap);
-      Py_DECREF(restore_args);
-      Py_DECREF(restore_kwargs);
-      return NULL;
-    }
-    
-    if (unlikely(PyDict_SetItemString(restore_kwargs, "arity", arity_obj2) < 0)) {
-      Py_DECREF(work_heap);
-      Py_DECREF(restore_args);
-      Py_DECREF(restore_kwargs);
-      Py_DECREF(arity_obj2);
-      return NULL;
-    }
-    Py_DECREF(arity_obj2);
-
-    PyObject *restore_result = py_heapify(self, restore_args, restore_kwargs);
-    Py_DECREF(restore_args);
-    Py_DECREF(restore_kwargs);
-    
-    if (unlikely(!restore_result)) {
-      Py_DECREF(work_heap);
-      return NULL;
-    }
-    Py_DECREF(restore_result);
     Py_DECREF(work_heap);
     Py_RETURN_NONE;
   }
-
+  
   return work_heap;
 }
 
