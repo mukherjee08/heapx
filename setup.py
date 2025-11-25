@@ -126,7 +126,7 @@ heapx_extension = Extension(
 setup(
   name='heapx',
   author='Aniruddha Mukherjee',
-  author_email='aniruddhamukherjee2000@gmail.com',
+  author_email='mukher66@purdue.edu',
   description='Ultra-optimized heap operations with comprehensive functionality and superior performance',
   long_description=read_long_description(),
   long_description_content_type='text/markdown',
