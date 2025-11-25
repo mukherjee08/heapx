@@ -499,11 +499,243 @@ results = heapx.pop(heap, n=3, cmp=abs)
 - **Median Maintenance:** Pop from min/max heaps alternately
 - **Streaming Algorithms:** Maintain top-k elements in a stream
 
-
-
 ### **4. Remove**
 
+Remove one or more items from the heap by index, object identity, or predicate while maintaining the heap property through optimized O(log n) inline heap maintenance.
 
+```python
+heapx.remove(heap, indices=None, object=None, predicate=None, n=None, return_items=False, max_heap=False, cmp=None, arity=2)
+```
+
+**Parameters:**
+
+- **`heap`** *(required, mutable sequence)*  
+  The heap to remove items from. Must be a valid heap structure (typically created via `heapify()` or maintained through heap operations). Commonly a `list`, but also supports other mutable sequences. The sequence is modified in-place.
+
+- **`indices`** *(optional, int or sequence of ints, default=None)*  
+  Index or indices of items to remove:
+  - **Single index:** Integer index (e.g., `0` for root, `-1` for last)
+  - **Multiple indices:** Sequence of indices (list, tuple, etc.) for batch removal
+  - **Negative indices:** Supported (e.g., `-1` removes last element)
+  - **Out of bounds:** Silently ignored (no error raised)
+  
+  When `None`, no index-based removal is performed.
+
+- **`object`** *(optional, any Python object, default=None)*  
+  Remove items by object identity (using `is` comparison):
+  - Searches for items that are the exact same object (not just equal)
+  - Useful for removing specific object instances
+  - Can be combined with `n` to limit removals
+  
+  When `None`, no object-based removal is performed.
+
+- **`predicate`** *(optional, callable, default=None)*  
+  Remove items matching a predicate function:
+  - Signature: `predicate(element) -> bool`
+  - Items where `predicate(item)` returns `True` are removed
+  - Can be combined with `n` to limit removals
+  - Example: `lambda x: x > 10` removes all items greater than 10
+  
+  When `None`, no predicate-based removal is performed.
+
+- **`n`** *(optional, int, default=None)*  
+  Maximum number of items to remove:
+  - Limits the number of items removed by `object` or `predicate`
+  - When `None` or `-1`, removes all matching items
+  - Stops after removing `n` items even if more matches exist
+  
+  Does not apply to `indices` (all specified indices are always removed).
+
+- **`return_items`** *(optional, bool, default=False)*  
+  Controls return value format:
+  - `False`: Returns count of removed items (integer)
+  - `True`: Returns tuple `(count, items)` where `items` is a list of removed elements
+  
+  Useful when you need to inspect or process removed items.
+
+- **`max_heap`** *(optional, bool, default=False)*  
+  Controls heap ordering:
+  - `False`: Maintains a **min-heap** where the smallest element stays at index 0
+  - `True`: Maintains a **max-heap** where the largest element stays at index 0
+  
+  Must match the heap type used during `heapify()`.
+
+- **`cmp`** *(optional, callable or None, default=None)*  
+  Custom key function for element comparison. When provided:
+  - Each element `x` is compared using `cmp(x)` instead of `x` directly
+  - Keys are computed on-demand during heap maintenance (O(1) auxiliary space)
+  - Signature: `cmp(element) -> comparable_value`
+  - Example: `cmp=lambda x: x.priority` for priority-based heaps
+  - Example: `cmp=abs` to maintain heap by absolute value
+  
+  When `None`, elements are compared directly using their natural ordering.
+
+- **`arity`** *(optional, int ≥ 1, default=2)*  
+  The branching factor of the heap (must match the heap's existing arity):
+  - `arity=1`: Sorted list (O(n) removal with shift)
+  - `arity=2`: Binary heap (O(log n) sift with bit-shift optimization)
+  - `arity=3`: Ternary heap (O(log₃ n) sift)
+  - `arity=4`: Quaternary heap (O(log₄ n) sift with bit-shift)
+  - `arity≥5`: General n-ary heap (O(log_k n) sift)
+  
+  Using the wrong arity will corrupt the heap structure.
+
+**Returns:** 
+- `return_items=False`: Integer count of removed items
+- `return_items=True`: Tuple `(count, items)` where `items` is a list of removed elements
+
+**Raises:**
+- `TypeError`: If `cmp` or `predicate` is not callable or None
+- `ValueError`: If `arity < 1`
+
+**Time Complexity:** 
+- Single removal: O(log n) where n is the heap size (uses inline sift-up/sift-down)
+- Batch removal: O(k + n) where k is the number of items removed (single heapify at end)
+- Small heap (n ≤ 16): O(n²) insertion sort but faster in practice
+- Arity=1 (sorted list): O(n) per removal due to element shifting
+- Predicate/object search: O(n) to scan + removal cost
+
+**Space Complexity:** O(1) auxiliary space for single removal; O(k) for batch removal to track indices
+
+**Algorithm Details:**
+
+The remove operation follows an 11-priority dispatch table for optimal performance:
+
+1. **Small heap (n ≤ 16, no key):** Uses insertion sort after removal for better constant factors
+2. **Arity=1 (sorted list):** Direct O(n) removal with element shifting
+3. **Binary heap (arity=2, no key):** Inline O(log n) sift-up/sift-down with bit-shift optimization
+4. **Ternary heap (arity=3, no key):** Inline O(log₃ n) sift-up/sift-down
+5. **Quaternary heap (arity=4, no key):** Inline O(log₄ n) sift with bit-shift `(pos-1)>>2`
+6. **General n-ary (arity≥5, no key):** Helper function for flexible arity sift operations
+7. **Binary heap with key (arity=2):** On-demand key computation during sift operations
+8. **Ternary heap with key (arity=3):** Reduced tree height with key function
+9. **General n-ary with key (arity≥4):** Maximum flexibility with custom ordering
+10. **Batch removal (result ≤ 16):** Insertion sort for small result heap
+11. **Batch removal (result > 16):** Full heapify for large result heap
+
+**Key Optimizations:**
+
+- **O(log n) inline maintenance:** Single removals use sift-up/sift-down instead of O(n) heapify (~100x faster for large heaps)
+- **Intelligent sift direction:** Tries sift-up first, then sift-down to minimize operations
+- **Pointer refresh:** After list modification, internal array pointer is refreshed to handle reallocation
+- **Bit-shift optimization:** Binary (arity=2) and quaternary (arity=4) heaps use fast bit-shift operations
+- **On-demand key computation:** Keys computed only when needed, avoiding O(n) memory overhead
+- **Small heap optimization:** Heaps with n ≤ 16 use insertion sort with better constant factors
+- **Batch efficiency:** Multiple removals collect indices, remove in reverse order, then single heapify
+- **Memory safety:** Proper reference counting with `Py_INCREF`/`Py_DECREF` and `Py_SETREF`
+
+**Example Usage:**
+
+```python
+import heapx
+
+# Remove by single index (root)
+heap = [1, 3, 2, 7, 5, 4, 6]
+heapx.heapify(heap)
+count = heapx.remove(heap, indices=0)
+# count is 1, heap is now [2, 3, 4, 7, 5, 6]
+
+# Remove by multiple indices (batch removal)
+heap = list(range(1, 21))
+heapx.heapify(heap)
+count = heapx.remove(heap, indices=[0, 5, 10, 15])
+# count is 4, heap has 16 elements remaining
+
+# Remove by negative index
+heap = [1, 2, 3, 4, 5]
+heapx.heapify(heap)
+count = heapx.remove(heap, indices=-1)
+# count is 1, removes last element
+
+# Remove by object identity
+obj = "target"
+heap = [1, obj, 3, 4, 5]
+heapx.heapify(heap, cmp=lambda x: 0 if x == obj else hash(x))
+count = heapx.remove(heap, object=obj, cmp=lambda x: 0 if x == obj else hash(x))
+# count is 1, obj removed from heap
+
+# Remove by predicate (even numbers)
+heap = list(range(1, 21))
+heapx.heapify(heap)
+count = heapx.remove(heap, predicate=lambda x: x % 2 == 0, n=5)
+# count is 5, removes first 5 even numbers
+
+# Remove with return_items
+heap = [5, 3, 8, 1, 9]
+heapx.heapify(heap)
+count, items = heapx.remove(heap, indices=0, return_items=True)
+# count is 1, items is [1], heap is [3, 5, 8, 9]
+
+# Remove from max heap
+heap = [1, 2, 3, 4, 5]
+heapx.heapify(heap, max_heap=True)
+count = heapx.remove(heap, indices=0, max_heap=True)
+# count is 1, removes largest element (5)
+
+# Remove with custom comparison
+heap = [-5, 2, -8, 1, 9, -3, 7]
+heapx.heapify(heap, cmp=abs)
+count = heapx.remove(heap, indices=0, cmp=abs)
+# count is 1, removes element with smallest absolute value
+
+# Remove from ternary heap
+heap = list(range(100, 0, -1))
+heapx.heapify(heap, arity=3)
+count = heapx.remove(heap, indices=10, arity=3)
+# count is 1, maintains ternary heap property
+
+# Remove from sorted list (arity=1)
+heap = [1, 3, 5, 7, 9]
+heapx.heapify(heap, arity=1)
+count = heapx.remove(heap, indices=2, arity=1)
+# count is 1, heap is [1, 3, 7, 9] - still sorted
+
+# Remove all elements greater than threshold
+heap = list(range(1, 21))
+heapx.heapify(heap)
+count = heapx.remove(heap, predicate=lambda x: x > 15)
+# count is 5, removes all elements > 15
+
+# Remove with predicate and limit
+heap = list(range(1, 21))
+heapx.heapify(heap)
+count = heapx.remove(heap, predicate=lambda x: x < 10, n=3)
+# count is 3, removes only first 3 matches
+
+# Complex removal with custom class
+class Task:
+    def __init__(self, name, priority):
+        self.name = name
+        self.priority = priority
+    def __lt__(self, other):
+        return self.priority < other.priority
+
+heap = [Task("low", 10), Task("high", 1), Task("medium", 5)]
+heapx.heapify(heap)
+count = heapx.remove(heap, predicate=lambda t: t.priority > 5)
+# count is 1, removes low priority task
+```
+
+**Performance Notes:**
+
+- Single removal is ~100x faster than O(n) heapify for large heaps (uses O(log n) sift)
+- Small heaps (n ≤ 16) benefit from insertion sort optimization
+- Binary heaps (arity=2) are fastest due to bit-shift optimizations
+- Key functions add ~3x overhead due to function call costs
+- Batch removal is more efficient than sequential single removals (O(k + n) vs O(k log n))
+- Arity=1 (sorted list) has O(n) removal cost but maintains sorted order
+- Predicate/object search requires O(n) scan but removal is still optimized
+- Ternary and quaternary heaps reduce tree height, improving cache performance
+
+**Common Use Cases:**
+
+- **Priority Queue Management:** Remove completed or cancelled tasks
+- **Dynamic Scheduling:** Remove events that are no longer needed
+- **Heap Maintenance:** Remove duplicate or invalid entries
+- **Conditional Removal:** Remove items matching specific criteria
+- **Batch Operations:** Efficiently remove multiple items at once
+- **Object Tracking:** Remove specific object instances from heap
+- **Filtered Heaps:** Remove items based on complex predicates
 
 ### **5. Replace**
 
