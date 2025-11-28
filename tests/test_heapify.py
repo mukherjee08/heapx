@@ -5,15 +5,10 @@ Tests cover all parameters, data types, edge cases, and performance benchmarks
 against Python's standard heapq module.
 """
 
-import heapq
-import heapx
-import pytest
-import random
-import string
-import time
-import sys
-from typing import List, Any, Callable, Tuple
-from statistics import mean, stdev
+import heapx, heapq, pytest, random, string, time
+from   typing     import List, Any, Tuple
+from   statistics import mean, stdev
+from   shutil     import get_terminal_size
 
 # ============================================================================
 # Test Data Generators
@@ -21,29 +16,23 @@ from statistics import mean, stdev
 
 def generate_integers(n: int, seed: int = 42) -> List[int]:
   """Generate list of random integers."""
-  random.seed(seed)
-  return [random.randint(-1000000, 1000000) for _ in range(n)]
+  random.seed(seed); return [random.randint(-1000000, 1000000) for _ in range(n)]
 
 def generate_floats(n: int, seed: int = 42) -> List[float]:
   """Generate list of random floats."""
-  random.seed(seed)
-  return [random.uniform(-1000.0, 1000.0) for _ in range(n)]
+  random.seed(seed); return [random.uniform(-1000.0, 1000.0) for _ in range(n)]
 
 def generate_strings(n: int, seed: int = 42) -> List[str]:
   """Generate list of random strings."""
-  random.seed(seed)
-  return [''.join(random.choices(string.ascii_letters, k=10)) for _ in range(n)]
+  random.seed(seed); return [''.join(random.choices(string.ascii_letters, k=10)) for _ in range(n)]
 
 def generate_tuples(n: int, seed: int = 42) -> List[Tuple[int, str]]:
   """Generate list of random tuples."""
-  random.seed(seed)
-  return [(random.randint(0, 1000), ''.join(random.choices(string.ascii_letters, k=5))) 
-          for _ in range(n)]
+  random.seed(seed); return [(random.randint(0, 1000), ''.join(random.choices(string.ascii_letters, k=5))) for _ in range(n)]
 
 def generate_mixed(n: int, seed: int = 42) -> List[Any]:
   """Generate list of mixed comparable types."""
-  random.seed(seed)
-  return [random.randint(-100, 100) for _ in range(n)]
+  random.seed(seed); return [random.randint(-100, 100) for _ in range(n)]
 
 def is_valid_heap(arr: List[Any], max_heap: bool = False, arity: int = 2) -> bool:
   """Verify heap property for n-ary heap."""
@@ -70,8 +59,7 @@ class TestBasicHeapify:
 
   def test_empty_list(self):
     """Test heapify on empty list."""
-    data = []
-    heapx.heapify(data)
+    data = []; heapx.heapify(data)
     assert data == []
 
   def test_single_element(self):
@@ -454,6 +442,8 @@ class TestCorrectnessVerification:
     # Verify root is maximum
     assert data[0] == max(generate_integers(n))
 
+    return None
+
 # ============================================================================
 # Performance Benchmark Tests
 # ============================================================================
@@ -575,27 +565,29 @@ class TestPerformanceBenchmark:
   @pytest.mark.parametrize("arity", [2, 3, 4])
   def test_arity_performance(self, arity):
     """Test performance with different arity values."""
-    n = 1_000_000
-    data = generate_integers(n)
-    
+    n = 1_000_000; data = generate_integers(n)
+
     start = time.perf_counter()
     heapx.heapify(data, arity=arity)
     elapsed = time.perf_counter() - start
-    
+
     assert is_valid_heap(data, max_heap=False, arity=arity)
     print(f"\nArity {arity}: {elapsed:.4f}s for {n:,} elements")
+
+    return None
 
   @pytest.mark.benchmark
   def test_key_function_performance(self):
     """Test performance with key function."""
-    n = 1_000_000
-    data = generate_integers(n)
+    n = 1_000_000; data = generate_integers(n)
     
     start = time.perf_counter()
     heapx.heapify(data, cmp=abs)
     elapsed = time.perf_counter() - start
-    
+
     print(f"\nKey function (abs): {elapsed:.4f}s for {n:,} elements")
+
+    return None
 
 # ============================================================================
 # Stress Tests
@@ -606,10 +598,12 @@ class TestStressTests:
 
   def test_very_large_heap(self):
     """Test heapify with very large heap."""
-    n = 100_000
+    n = 100_000_000
     data = generate_integers(n)
     heapx.heapify(data)
     assert is_valid_heap(data, max_heap=False)
+
+    return None
 
   @pytest.mark.parametrize("n", [100, 1000, 10000])
   def test_repeated_heapify(self, n):
@@ -619,14 +613,17 @@ class TestStressTests:
       heapx.heapify(data)
       assert is_valid_heap(data, max_heap=False)
       random.shuffle(data)
+    
+    return None
 
   def test_all_combinations(self):
     """Test various combinations of parameters."""
-    n = 100
-    data = generate_integers(n)
-    
+    n = 100; data = generate_integers(n)
+
     for max_heap in [False, True]:
       for arity in [2, 3, 4]:
         test_data = data.copy()
         heapx.heapify(test_data, max_heap=max_heap, arity=arity)
         assert is_valid_heap(test_data, max_heap=max_heap, arity=arity)
+
+    return None

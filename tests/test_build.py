@@ -28,12 +28,13 @@ Notes (important):
   - Run under pytest (recommended) or directly:
       pytest -q tests/build.py
       python tests/build.py
-"""
 
+TODO: Add the testing for MacOS, Windows, and Linux/Unix systems in the future
+"""
 from   __future__ import annotations
-import json, subprocess, sys, tempfile
 from   pathlib    import Path
 from   typing     import List, Tuple
+import json, subprocess, sys, tempfile
 
 # -------------------- Configuration --------------------
 MODULE_PREFERRED = "heapx" # Try this import first; most packages provide a python wrapper
@@ -150,22 +151,19 @@ sys.exit(0)
 
 def run(cmd: List[str], *, cwd: Path = None, timeout: int = TIMEOUT) -> Tuple[int, str, str]:
   """Run subprocess, return (rc, stdout, stderr). Raise RuntimeError on timeout."""
-  proc = subprocess.Popen(cmd, cwd=str(cwd) if cwd else None,
-              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-  try:
-    out, err = proc.communicate(timeout=timeout)
+  proc = subprocess.Popen(cmd, cwd=str(cwd) if cwd else None, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+  try: out, err = proc.communicate(timeout=timeout)
   except subprocess.TimeoutExpired:
-    proc.kill()
-    out, err = proc.communicate()
+    proc.kill(); out, err = proc.communicate()
     raise RuntimeError(f"Command timed out: {' '.join(cmd)}\nstdout:\n{out}\nstderr:\n{err}")
   return proc.returncode, out, err
 
 def find_unique(pattern: str) -> Path:
   """Find exactly one artifact in DIST_DIR matching pattern or raise helpful error."""
   candidates = sorted(DIST_DIR.glob(pattern))
-  if not candidates:
+  if (not candidates):
     raise FileNotFoundError(f"No files match {pattern} in {DIST_DIR}. Ensure 'python -m build' was run.")
-  if len(candidates) > 1:
+  if (len(candidates) > 1):
     raise FileExistsError(f"Multiple files match {pattern} in {DIST_DIR}: {', '.join(map(str, candidates))}")
   return candidates[0]
 
@@ -209,13 +207,19 @@ def test_install_wheel_and_smoke():
   wheel = find_unique("heapx-*.whl")
   _install_and_test([str(wheel)])
 
+  return None
+
 def test_install_sdist_and_smoke():
   if (not DIST_DIR.exists()): raise AssertionError(f"{DIST_DIR} missing; run 'python -m build' first")
   sdist = find_unique("heapx-*.tar.gz")
   _install_and_test([str(sdist)])
 
+  return None
+
 def test_install_editable_and_smoke():
   _install_and_test(["-e", "."], cwd=PROJECT_ROOT)
+
+  return None
 
 # -------------------- Allow running as a script --------------------
 
