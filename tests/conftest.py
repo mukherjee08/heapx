@@ -1,29 +1,51 @@
-"""Pytest configuration with automatic build and cleanup."""
-import shutil, subprocess, sys, pytest # type: ignore
+'''
+Pytest's configuration & testing (conftest) with automatic build and cleanup.
+This file is automatically discovered by pytest.
+*This is the 'configuration/infrastructure file', and not a test file*.
+
+# Implementation Analysis
+
+(HOOK) def pytest_configure(config):
+  Runs once at 'pytest' startup, before the test collection.
+  Installs heapx in editable mode so the C extension is compiled and importable.
+
+(HOOK) def pytest_collection_finish(session):
+  Runs after all tests are collected but before execution. 
+  Prints a numbered list of all test cases for visibility.
+
+(Session-scoped fixture) def build_distributions():
+  Automatically runs for every test session. 
+  Builds wheel/sdist before tests, cleans up all artifacts after tests complete.
+'''
+
+import shutil, subprocess, sys, pytest
 from   pathlib import Path
 
-PROJECT_ROOT = Path(__file__).parent.parent
-DIST_DIR     = PROJECT_ROOT / "dist"
-BUILD_DIR    = PROJECT_ROOT / "build"
-SRC_DIR      = PROJECT_ROOT / "src"
+PROJECT_ROOT = Path(__file__).parent.parent # Get the root dir
+DIST_DIR     = PROJECT_ROOT / "dist"        # Get the dist distribution dir
+BUILD_DIR    = PROJECT_ROOT / "build"       # Get the build distribution dir
+SRC_DIR      = PROJECT_ROOT / "src"         # Get the src distribution dir
 
 def pytest_configure(config):
   """Build and install package before test collection."""
   subprocess.run(
     [sys.executable, "-m", "pip", "install", "-e", ".", "--force-reinstall", "--no-deps", "-q"],
-    cwd=PROJECT_ROOT,
-    check=True
+    cwd=PROJECT_ROOT, check=True
   )
+
+  return None
 
 def pytest_collection_finish(session):
   """Print test cases after collection, before execution."""
-  window_size = 66
+  window_size = shutil.get_terminal_size().columns
   print("\n" + "="*window_size)
   print("COLLECTED TEST CASES:")
   print("="*window_size)
   for i, item in enumerate(session.items, 1):
     print(f"  {i}. {item.nodeid}")
   print("="*window_size + "\n")
+
+  return None
 
 @pytest.fixture(scope="session", autouse=True)
 def build_distributions():
@@ -53,3 +75,5 @@ def build_distributions():
   # Cleanup __pycache__ directories
   for pycache in PROJECT_ROOT.glob("**/__pycache__"): 
     shutil.rmtree(pycache, ignore_errors=True)
+
+  return None
