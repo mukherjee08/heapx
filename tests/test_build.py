@@ -174,6 +174,7 @@ def create_venv(directory: Path) -> Path:
   if (sys.platform == "win32"): py = directory / "Scripts" / "python.exe"
   else: py = directory / "bin" / "python"
   if (not py.exists()): raise FileNotFoundError(f"Created venv but python executable not found at {py}")
+
   return py
 
 def venv_pip_install(python: Path, specs: List[str], cwd: Path = None) -> None:
@@ -184,11 +185,15 @@ def venv_pip_install(python: Path, specs: List[str], cwd: Path = None) -> None:
   rc, out, err = run(cmd, cwd=cwd)
   if (rc != 0): raise RuntimeError(f"pip install failed for {specs}: rc={rc}\nstdout:\n{out}\nstderr:\n{err}")
 
+  return None
+
 def run_smoke(python: Path) -> None:
   """Run the SMOKE_TEST code inside the venv's python; validate output contains SMOKE-OK."""
   rc, out, err = run([str(python), "-c", SMOKE_TEST])
   if (rc != 0): raise RuntimeError(f"Smoke test failed: rc={rc}\nstdout:\n{out}\nstderr:\n{err}")
   if ("SMOKE-OK" not in out): raise RuntimeError(f"Smoke test did not print SMOKE-OK. stdout:\n{out}\nstderr:\n{err}")
+
+  return None
 
 # -------------------- Test helpers --------------------
 
@@ -199,6 +204,8 @@ def _install_and_test(specs: List[str], cwd: Path = None) -> None:
     python = create_venv(venv_dir)
     venv_pip_install(python, specs, cwd=cwd)
     run_smoke(python)
+
+  return None
 
 # -------------------- Pytest-compatible tests --------------------
 
