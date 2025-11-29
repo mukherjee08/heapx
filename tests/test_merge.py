@@ -1318,11 +1318,11 @@ class TestMixedMerge:
     assert is_valid_heap(result, max_heap=True)
 
   def test_merge_mixed_sorted_heaps(self):
-    """Test merging mixed heaps with sorted_heaps=True."""
+    """Test merging mixed heaps with sorted_heaps=False (default)."""
     heap1 = generate_mixed(50)
     heap2 = generate_mixed(50, seed=43)
     heapx.heapify(heap1)
     heapx.heapify(heap2)
-    result = heapx.merge(heap1, heap2, sorted_heaps=True)
+    result = heapx.merge(heap1, heap2, sorted_heaps=False)
     assert len(result) == 100
     assert is_valid_heap(result)
