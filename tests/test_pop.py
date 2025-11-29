@@ -806,6 +806,129 @@ class TestStressTests:
 
 
 # ============================================================================
+# Boolean Tests
+# ============================================================================
+
+class TestBooleanPop:
+  """Test pop with boolean data."""
+
+  def test_pop_booleans(self):
+    """Test popping from boolean heap."""
+    heap = generate_booleans(50)
+    heapx.heapify(heap)
+    result = heapx.pop(heap)
+    assert isinstance(result, bool)
+    assert is_valid_heap(heap)
+
+  def test_bulk_pop_booleans(self):
+    """Test bulk pop from boolean heap."""
+    heap = generate_booleans(50)
+    heapx.heapify(heap)
+    results = heapx.pop(heap, n=10)
+    assert len(results) == 10
+    assert is_valid_heap(heap)
+
+# ============================================================================
+# Bytes Tests
+# ============================================================================
+
+class TestBytesPop:
+  """Test pop with bytes data."""
+
+  def test_pop_bytes(self):
+    """Test popping from bytes heap."""
+    heap = generate_bytes(30)
+    heapx.heapify(heap)
+    result = heapx.pop(heap)
+    assert isinstance(result, bytes)
+    assert is_valid_heap(heap)
+
+  def test_bulk_pop_bytes(self):
+    """Test bulk pop from bytes heap."""
+    heap = generate_bytes(30)
+    heapx.heapify(heap)
+    results = heapx.pop(heap, n=10)
+    assert len(results) == 10
+    assert is_valid_heap(heap)
+
+# ============================================================================
+# Bytearray Tests
+# ============================================================================
+
+class TestBytearrayPop:
+  """Test pop with bytearray data."""
+
+  def test_pop_bytearrays(self):
+    """Test popping from bytearray heap."""
+    heap = generate_bytearrays(30)
+    heapx.heapify(heap)
+    result = heapx.pop(heap)
+    assert isinstance(result, bytearray)
+    assert is_valid_heap(heap)
+
+  def test_bulk_pop_bytearrays(self):
+    """Test bulk pop from bytearray heap."""
+    heap = generate_bytearrays(30)
+    heapx.heapify(heap)
+    results = heapx.pop(heap, n=10)
+    assert len(results) == 10
+    assert is_valid_heap(heap)
+
+# ============================================================================
+# List Tests
+# ============================================================================
+
+class TestListPop:
+  """Test pop with list data."""
+
+  def test_pop_lists(self):
+    """Test popping from list heap."""
+    heap = generate_lists(30)
+    heapx.heapify(heap)
+    result = heapx.pop(heap)
+    assert isinstance(result, list)
+    assert is_valid_heap(heap)
+
+  def test_bulk_pop_lists(self):
+    """Test bulk pop from list heap."""
+    heap = generate_lists(30)
+    heapx.heapify(heap)
+    results = heapx.pop(heap, n=10)
+    assert len(results) == 10
+    assert is_valid_heap(heap)
+
+# ============================================================================
+# Mixed Type Tests
+# ============================================================================
+
+class TestMixedPop:
+  """Test pop with mixed comparable types."""
+
+  def test_pop_mixed(self):
+    """Test popping from mixed int/float heap."""
+    heap = generate_mixed(100)
+    heapx.heapify(heap)
+    result = heapx.pop(heap)
+    assert isinstance(result, (int, float))
+    assert is_valid_heap(heap)
+
+  def test_bulk_pop_mixed(self):
+    """Test bulk pop from mixed heap."""
+    heap = generate_mixed(100)
+    heapx.heapify(heap)
+    results = heapx.pop(heap, n=20)
+    assert len(results) == 20
+    assert is_valid_heap(heap)
+
+  def test_pop_mixed_max_heap(self):
+    """Test popping from mixed max-heap."""
+    heap = generate_mixed(100)
+    heapx.heapify(heap, max_heap=True)
+    result = heapx.pop(heap, max_heap=True)
+    assert isinstance(result, (int, float))
+    assert is_valid_heap(heap, max_heap=True)
+
+# ============================================================================
 # Performance Benchmark Tests
 # ============================================================================
 

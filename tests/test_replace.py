@@ -1295,3 +1295,86 @@ class TestPerformanceBenchmarks:
         for name, avg in results:
             print(f"{name:<25} {avg:<20.6f}")
         print("=" * 70)
+
+
+# ============================================================================
+# Boolean Tests
+# ============================================================================
+
+class TestBooleanReplace:
+  """Test replace with boolean data."""
+
+  def test_replace_booleans(self):
+    """Test replacing in boolean heap."""
+    heap = generate_booleans(50)
+    heapx.heapify(heap)
+    count = heapx.replace(heap, True, indices=0)
+    assert count == 1
+    assert is_valid_heap(heap)
+
+# ============================================================================
+# Bytes Tests
+# ============================================================================
+
+class TestBytesReplace:
+  """Test replace with bytes data."""
+
+  def test_replace_bytes(self):
+    """Test replacing in bytes heap."""
+    heap = generate_bytes(30)
+    heapx.heapify(heap)
+    count = heapx.replace(heap, b'test', indices=0)
+    assert count == 1
+    assert is_valid_heap(heap)
+
+# ============================================================================
+# Bytearray Tests
+# ============================================================================
+
+class TestBytearrayReplace:
+  """Test replace with bytearray data."""
+
+  def test_replace_bytearrays(self):
+    """Test replacing in bytearray heap."""
+    heap = generate_bytearrays(30)
+    heapx.heapify(heap)
+    count = heapx.replace(heap, bytearray(b'test'), indices=0)
+    assert count == 1
+    assert is_valid_heap(heap)
+
+# ============================================================================
+# List Tests
+# ============================================================================
+
+class TestListReplace:
+  """Test replace with list data."""
+
+  def test_replace_lists(self):
+    """Test replacing in list heap."""
+    heap = generate_lists(30)
+    heapx.heapify(heap)
+    count = heapx.replace(heap, [99, 99, 99], indices=0)
+    assert count == 1
+    assert is_valid_heap(heap)
+
+# ============================================================================
+# Mixed Type Tests
+# ============================================================================
+
+class TestMixedReplace:
+  """Test replace with mixed comparable types."""
+
+  def test_replace_mixed(self):
+    """Test replacing in mixed int/float heap."""
+    heap = generate_mixed(100)
+    heapx.heapify(heap)
+    count = heapx.replace(heap, 999, indices=0)
+    assert count == 1
+    assert is_valid_heap(heap)
+
+  def test_replace_mixed_predicate(self):
+    """Test replacing in mixed heap with predicate."""
+    heap = generate_mixed(100)
+    heapx.heapify(heap)
+    count = heapx.replace(heap, 0, predicate=lambda x: x > 50)
+    assert is_valid_heap(heap)

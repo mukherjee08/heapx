@@ -1232,3 +1232,86 @@ class TestPerformanceBenchmarks:
             print(f"{orig:<12} {before:<15} {after:<15} {removed:<12} {final:<12}")
         print("=" * 70)
 
+
+
+# ============================================================================
+# Boolean Tests
+# ============================================================================
+
+class TestBooleanRemove:
+  """Test remove with boolean data."""
+
+  def test_remove_booleans(self):
+    """Test removing from boolean heap."""
+    heap = generate_booleans(50)
+    heapx.heapify(heap)
+    count = heapx.remove(heap, indices=0)
+    assert count == 1
+    assert is_valid_heap(heap)
+
+# ============================================================================
+# Bytes Tests
+# ============================================================================
+
+class TestBytesRemove:
+  """Test remove with bytes data."""
+
+  def test_remove_bytes(self):
+    """Test removing from bytes heap."""
+    heap = generate_bytes(30)
+    heapx.heapify(heap)
+    count = heapx.remove(heap, indices=0)
+    assert count == 1
+    assert is_valid_heap(heap)
+
+# ============================================================================
+# Bytearray Tests
+# ============================================================================
+
+class TestBytearrayRemove:
+  """Test remove with bytearray data."""
+
+  def test_remove_bytearrays(self):
+    """Test removing from bytearray heap."""
+    heap = generate_bytearrays(30)
+    heapx.heapify(heap)
+    count = heapx.remove(heap, indices=0)
+    assert count == 1
+    assert is_valid_heap(heap)
+
+# ============================================================================
+# List Tests
+# ============================================================================
+
+class TestListRemove:
+  """Test remove with list data."""
+
+  def test_remove_lists(self):
+    """Test removing from list heap."""
+    heap = generate_lists(30)
+    heapx.heapify(heap)
+    count = heapx.remove(heap, indices=0)
+    assert count == 1
+    assert is_valid_heap(heap)
+
+# ============================================================================
+# Mixed Type Tests
+# ============================================================================
+
+class TestMixedRemove:
+  """Test remove with mixed comparable types."""
+
+  def test_remove_mixed(self):
+    """Test removing from mixed int/float heap."""
+    heap = generate_mixed(100)
+    heapx.heapify(heap)
+    count = heapx.remove(heap, indices=0)
+    assert count == 1
+    assert is_valid_heap(heap)
+
+  def test_remove_mixed_predicate(self):
+    """Test removing from mixed heap with predicate."""
+    heap = generate_mixed(100)
+    heapx.heapify(heap)
+    count = heapx.remove(heap, predicate=lambda x: x > 50)
+    assert is_valid_heap(heap)

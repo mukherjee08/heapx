@@ -476,6 +476,166 @@ class TestCorrectnessVerification:
     return None
 
 # ============================================================================
+# Boolean Tests
+# ============================================================================
+
+class TestBooleanHeapify:
+  """Test heapify with boolean data."""
+
+  def test_booleans_min(self):
+    """Test min-heap with booleans."""
+    data = generate_booleans(100)
+    heapx.heapify(data)
+    assert is_valid_heap(data, max_heap=False)
+
+  def test_booleans_max(self):
+    """Test max-heap with booleans."""
+    data = generate_booleans(100)
+    heapx.heapify(data, max_heap=True)
+    assert is_valid_heap(data, max_heap=True)
+
+  def test_all_true(self):
+    """Test heapify with all True values."""
+    data = [True] * 50
+    heapx.heapify(data)
+    assert is_valid_heap(data, max_heap=False)
+
+  def test_all_false(self):
+    """Test heapify with all False values."""
+    data = [False] * 50
+    heapx.heapify(data)
+    assert is_valid_heap(data, max_heap=False)
+
+# ============================================================================
+# Bytes Tests
+# ============================================================================
+
+class TestBytesHeapify:
+  """Test heapify with bytes data."""
+
+  @pytest.mark.parametrize("n", [50, 100, 500])
+  def test_bytes_min(self, n):
+    """Test min-heap with bytes objects."""
+    data = generate_bytes(n)
+    heapx.heapify(data)
+    assert is_valid_heap(data, max_heap=False)
+
+  @pytest.mark.parametrize("n", [50, 100, 500])
+  def test_bytes_max(self, n):
+    """Test max-heap with bytes objects."""
+    data = generate_bytes(n)
+    heapx.heapify(data, max_heap=True)
+    assert is_valid_heap(data, max_heap=True)
+
+  def test_empty_bytes(self):
+    """Test heapify with empty bytes."""
+    data = [b'', b'a', b'', b'b']
+    heapx.heapify(data)
+    assert is_valid_heap(data, max_heap=False)
+
+# ============================================================================
+# Bytearray Tests
+# ============================================================================
+
+class TestBytearrayHeapify:
+  """Test heapify with bytearray data."""
+
+  @pytest.mark.parametrize("n", [50, 100, 500])
+  def test_bytearrays_min(self, n):
+    """Test min-heap with bytearray objects."""
+    data = generate_bytearrays(n)
+    heapx.heapify(data)
+    assert is_valid_heap(data, max_heap=False)
+
+  @pytest.mark.parametrize("n", [50, 100, 500])
+  def test_bytearrays_max(self, n):
+    """Test max-heap with bytearray objects."""
+    data = generate_bytearrays(n)
+    heapx.heapify(data, max_heap=True)
+    assert is_valid_heap(data, max_heap=True)
+
+# ============================================================================
+# List Tests
+# ============================================================================
+
+class TestListHeapify:
+  """Test heapify with list data (lexicographic comparison)."""
+
+  @pytest.mark.parametrize("n", [50, 100, 500])
+  def test_lists_min(self, n):
+    """Test min-heap with list objects."""
+    data = generate_lists(n)
+    heapx.heapify(data)
+    assert is_valid_heap(data, max_heap=False)
+
+  @pytest.mark.parametrize("n", [50, 100, 500])
+  def test_lists_max(self, n):
+    """Test max-heap with list objects."""
+    data = generate_lists(n)
+    heapx.heapify(data, max_heap=True)
+    assert is_valid_heap(data, max_heap=True)
+
+  def test_empty_lists(self):
+    """Test heapify with empty lists."""
+    data = [[], [1], [], [2]]
+    heapx.heapify(data)
+    assert is_valid_heap(data, max_heap=False)
+
+  def test_nested_lists(self):
+    """Test heapify with nested lists."""
+    data = [[1, 2], [1, 1], [2, 1], [1, 3]]
+    heapx.heapify(data)
+    assert is_valid_heap(data, max_heap=False)
+    assert data[0] == [1, 1]
+
+# ============================================================================
+# Mixed Type Tests
+# ============================================================================
+
+class TestMixedHeapify:
+  """Test heapify with mixed comparable types."""
+
+  @pytest.mark.parametrize("n", [100, 500, 1000])
+  def test_mixed_int_float_min(self, n):
+    """Test min-heap with mixed integers and floats."""
+    data = generate_mixed(n)
+    heapx.heapify(data)
+    assert is_valid_heap(data, max_heap=False)
+
+  @pytest.mark.parametrize("n", [100, 500, 1000])
+  def test_mixed_int_float_max(self, n):
+    """Test max-heap with mixed integers and floats."""
+    data = generate_mixed(n)
+    heapx.heapify(data, max_heap=True)
+    assert is_valid_heap(data, max_heap=True)
+
+  def test_mixed_with_zero(self):
+    """Test heapify with mixed types including zero."""
+    data = [0, 0.0, 1, 1.0, -1, -1.0]
+    heapx.heapify(data)
+    assert is_valid_heap(data, max_heap=False)
+
+# ============================================================================
+# Range Tests
+# ============================================================================
+
+class TestRangeHeapify:
+  """Test heapify with range objects."""
+
+  def test_range_as_list(self):
+    """Test heapify with range converted to list."""
+    data = list(generate_range(100))
+    heapx.heapify(data)
+    assert is_valid_heap(data, max_heap=False)
+
+  def test_reverse_range(self):
+    """Test heapify with reverse range."""
+    data = list(range(100, 0, -1))
+    heapx.heapify(data)
+    assert is_valid_heap(data, max_heap=False)
+    assert data[0] == 1
+
+# ============================================================================
 # Performance Benchmark Tests
 # ============================================================================
 

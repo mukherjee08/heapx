@@ -1017,3 +1017,100 @@ class TestPerformanceBenchmarks:
         for size, copy, inplace in results:
             print(f"{size:<15} {copy:<20.6f} {inplace:<20.6f}")
         print("=" * 70)
+
+
+# ============================================================================
+# Boolean Tests
+# ============================================================================
+
+class TestBooleanSort:
+  """Test sort with boolean data."""
+
+  def test_sort_booleans(self):
+    """Test sorting booleans."""
+    data = generate_booleans(50)
+    result = heapx.sort(data)
+    assert result == sorted(generate_booleans(50))
+
+  def test_sort_booleans_reverse(self):
+    """Test sorting booleans in reverse."""
+    data = generate_booleans(50)
+    result = heapx.sort(data, reverse=True)
+    assert result == sorted(generate_booleans(50), reverse=True)
+
+# ============================================================================
+# Bytes Tests
+# ============================================================================
+
+class TestBytesSort:
+  """Test sort with bytes data."""
+
+  def test_sort_bytes(self):
+    """Test sorting bytes."""
+    data = generate_bytes(30)
+    result = heapx.sort(data)
+    assert result == sorted(generate_bytes(30))
+
+  def test_sort_bytes_reverse(self):
+    """Test sorting bytes in reverse."""
+    data = generate_bytes(30)
+    result = heapx.sort(data, reverse=True)
+    assert result == sorted(generate_bytes(30), reverse=True)
+
+# ============================================================================
+# Bytearray Tests
+# ============================================================================
+
+class TestBytearraySort:
+  """Test sort with bytearray data."""
+
+  def test_sort_bytearrays(self):
+    """Test sorting bytearrays."""
+    data = generate_bytearrays(30)
+    result = heapx.sort(data)
+    assert result == sorted(generate_bytearrays(30))
+
+# ============================================================================
+# List Tests
+# ============================================================================
+
+class TestListSort:
+  """Test sort with list data."""
+
+  def test_sort_lists(self):
+    """Test sorting lists."""
+    data = generate_lists(30)
+    result = heapx.sort(data)
+    assert result == sorted(generate_lists(30))
+
+  def test_sort_lists_reverse(self):
+    """Test sorting lists in reverse."""
+    data = generate_lists(30)
+    result = heapx.sort(data, reverse=True)
+    assert result == sorted(generate_lists(30), reverse=True)
+
+# ============================================================================
+# Mixed Type Tests
+# ============================================================================
+
+class TestMixedSort:
+  """Test sort with mixed comparable types."""
+
+  def test_sort_mixed(self):
+    """Test sorting mixed int/float."""
+    data = generate_mixed(100)
+    result = heapx.sort(data)
+    assert result == sorted(generate_mixed(100))
+
+  def test_sort_mixed_reverse(self):
+    """Test sorting mixed types in reverse."""
+    data = generate_mixed(100)
+    result = heapx.sort(data, reverse=True)
+    assert result == sorted(generate_mixed(100), reverse=True)
+
+  def test_sort_mixed_inplace(self):
+    """Test in-place sorting of mixed types."""
+    data = generate_mixed(100)
+    expected = sorted(data)
+    heapx.sort(data, inplace=True)
+    assert data == expected

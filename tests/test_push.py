@@ -853,6 +853,113 @@ class TestPerformanceBenchmark:
     print(f"  Speedup:    {seq_avg/bulk_avg:.2f}x")
 
 # ============================================================================
+# Boolean Tests
+# ============================================================================
+
+class TestBooleanPush:
+  """Test push with boolean data."""
+
+  def test_push_booleans(self):
+    """Test pushing booleans to heap."""
+    heap = []
+    for val in generate_booleans(50):
+      heapx.push(heap, val)
+    assert is_valid_heap(heap)
+
+  def test_bulk_push_booleans(self):
+    """Test bulk push with booleans."""
+    heap = []
+    heapx.push(heap, generate_booleans(50))
+    assert is_valid_heap(heap)
+
+# ============================================================================
+# Bytes Tests
+# ============================================================================
+
+class TestBytesPush:
+  """Test push with bytes data."""
+
+  def test_push_bytes(self):
+    """Test pushing bytes to heap."""
+    heap = []
+    for val in generate_bytes(30):
+      heapx.push(heap, val)
+    assert is_valid_heap(heap)
+
+  def test_bulk_push_bytes(self):
+    """Test bulk push with bytes."""
+    heap = []
+    heapx.push(heap, generate_bytes(30))
+    assert is_valid_heap(heap)
+
+# ============================================================================
+# Bytearray Tests
+# ============================================================================
+
+class TestBytearrayPush:
+  """Test push with bytearray data."""
+
+  def test_push_bytearrays(self):
+    """Test pushing bytearrays to heap."""
+    heap = []
+    for val in generate_bytearrays(30):
+      heapx.push(heap, val)
+    assert is_valid_heap(heap)
+
+  def test_bulk_push_bytearrays(self):
+    """Test bulk push with bytearrays."""
+    heap = []
+    heapx.push(heap, generate_bytearrays(30))
+    assert is_valid_heap(heap)
+
+# ============================================================================
+# List Tests
+# ============================================================================
+
+class TestListPush:
+  """Test push with list data."""
+
+  def test_push_lists(self):
+    """Test pushing lists to heap."""
+    heap = []
+    for val in generate_lists(30):
+      heapx.push(heap, val)
+    assert is_valid_heap(heap)
+
+  def test_bulk_push_lists(self):
+    """Test bulk push with lists."""
+    heap = []
+    heapx.push(heap, generate_lists(30))
+    assert is_valid_heap(heap)
+
+# ============================================================================
+# Mixed Type Tests
+# ============================================================================
+
+class TestMixedPush:
+  """Test push with mixed comparable types."""
+
+  def test_push_mixed(self):
+    """Test pushing mixed int/float to heap."""
+    heap = []
+    for val in generate_mixed(100):
+      heapx.push(heap, val)
+    assert is_valid_heap(heap)
+
+  def test_bulk_push_mixed(self):
+    """Test bulk push with mixed types."""
+    heap = []
+    heapx.push(heap, generate_mixed(100))
+    assert is_valid_heap(heap)
+
+  def test_push_mixed_max_heap(self):
+    """Test pushing mixed types to max-heap."""
+    heap = []
+    for val in generate_mixed(100):
+      heapx.push(heap, val, max_heap=True)
+    assert is_valid_heap(heap, max_heap=True)
+
+# ============================================================================
 # Memory Efficiency Tests
 # ============================================================================
 

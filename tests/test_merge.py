@@ -1220,3 +1220,109 @@ class TestPerformanceBenchmarks:
             print(f"{n_heaps:<15} {avg:<20.6f}")
         print("=" * 70)
 
+
+
+# ============================================================================
+# Boolean Tests
+# ============================================================================
+
+class TestBooleanMerge:
+  """Test merge with boolean data."""
+
+  def test_merge_booleans(self):
+    """Test merging boolean heaps."""
+    heap1 = generate_booleans(25)
+    heap2 = generate_booleans(25, seed=43)
+    heapx.heapify(heap1)
+    heapx.heapify(heap2)
+    result = heapx.merge(heap1, heap2)
+    assert len(result) == 50
+    assert is_valid_heap(result)
+
+# ============================================================================
+# Bytes Tests
+# ============================================================================
+
+class TestBytesMerge:
+  """Test merge with bytes data."""
+
+  def test_merge_bytes(self):
+    """Test merging bytes heaps."""
+    heap1 = generate_bytes(15)
+    heap2 = generate_bytes(15, seed=43)
+    heapx.heapify(heap1)
+    heapx.heapify(heap2)
+    result = heapx.merge(heap1, heap2)
+    assert len(result) == 30
+    assert is_valid_heap(result)
+
+# ============================================================================
+# Bytearray Tests
+# ============================================================================
+
+class TestBytearrayMerge:
+  """Test merge with bytearray data."""
+
+  def test_merge_bytearrays(self):
+    """Test merging bytearray heaps."""
+    heap1 = generate_bytearrays(15)
+    heap2 = generate_bytearrays(15, seed=43)
+    heapx.heapify(heap1)
+    heapx.heapify(heap2)
+    result = heapx.merge(heap1, heap2)
+    assert len(result) == 30
+    assert is_valid_heap(result)
+
+# ============================================================================
+# List Tests
+# ============================================================================
+
+class TestListMerge:
+  """Test merge with list data."""
+
+  def test_merge_lists(self):
+    """Test merging list heaps."""
+    heap1 = generate_lists(15)
+    heap2 = generate_lists(15, seed=43)
+    heapx.heapify(heap1)
+    heapx.heapify(heap2)
+    result = heapx.merge(heap1, heap2)
+    assert len(result) == 30
+    assert is_valid_heap(result)
+
+# ============================================================================
+# Mixed Type Tests
+# ============================================================================
+
+class TestMixedMerge:
+  """Test merge with mixed comparable types."""
+
+  def test_merge_mixed(self):
+    """Test merging mixed int/float heaps."""
+    heap1 = generate_mixed(50)
+    heap2 = generate_mixed(50, seed=43)
+    heapx.heapify(heap1)
+    heapx.heapify(heap2)
+    result = heapx.merge(heap1, heap2)
+    assert len(result) == 100
+    assert is_valid_heap(result)
+
+  def test_merge_mixed_max_heap(self):
+    """Test merging mixed max-heaps."""
+    heap1 = generate_mixed(50)
+    heap2 = generate_mixed(50, seed=43)
+    heapx.heapify(heap1, max_heap=True)
+    heapx.heapify(heap2, max_heap=True)
+    result = heapx.merge(heap1, heap2, max_heap=True)
+    assert len(result) == 100
+    assert is_valid_heap(result, max_heap=True)
+
+  def test_merge_mixed_sorted_heaps(self):
+    """Test merging mixed heaps with sorted_heaps=True."""
+    heap1 = generate_mixed(50)
+    heap2 = generate_mixed(50, seed=43)
+    heapx.heapify(heap1)
+    heapx.heapify(heap2)
+    result = heapx.merge(heap1, heap2, sorted_heaps=True)
+    assert len(result) == 100
+    assert is_valid_heap(result)
