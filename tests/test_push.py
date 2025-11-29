@@ -21,24 +21,54 @@ from statistics import mean, stdev
 
 def generate_integers(n: int, seed: int = 42) -> List[int]:
   """Generate list of random integers."""
-  random.seed(seed)
-  return [random.randint(-1000000, 1000000) for _ in range(n)]
+  random.seed(seed); return [random.randint(-1000000, 1000000) for _ in range(n)]
 
 def generate_floats(n: int, seed: int = 42) -> List[float]:
   """Generate list of random floats."""
-  random.seed(seed)
-  return [random.uniform(-1000.0, 1000.0) for _ in range(n)]
+  random.seed(seed); return [random.uniform(-1000.0, 1000.0) for _ in range(n)]
+
+def generate_complex(n: int, seed: int = 42) -> List[complex]:
+  """Generate list of random complex numbers (not directly comparable)."""
+  random.seed(seed); return [complex(random.uniform(-100, 100), random.uniform(-100, 100)) for _ in range(n)]
 
 def generate_strings(n: int, seed: int = 42) -> List[str]:
   """Generate list of random strings."""
-  random.seed(seed)
-  return [''.join(random.choices(string.ascii_letters, k=10)) for _ in range(n)]
+  random.seed(seed); return [''.join(random.choices(string.ascii_letters, k=10)) for _ in range(n)]
+
+def generate_lists(n: int, seed: int = 42) -> List[List[int]]:
+  """Generate list of random lists (comparable lexicographically)."""
+  random.seed(seed); return [[random.randint(0, 100) for _ in range(3)] for _ in range(n)]
 
 def generate_tuples(n: int, seed: int = 42) -> List[Tuple[int, str]]:
   """Generate list of random tuples."""
+  random.seed(seed); return [(random.randint(0, 1000), ''.join(random.choices(string.ascii_letters, k=5))) for _ in range(n)]
+
+def generate_range(n: int) -> range:
+  """Generate range object."""
+  return range(n)
+
+def generate_booleans(n: int, seed: int = 42) -> List[bool]:
+  """Generate list of random booleans."""
+  random.seed(seed); return [random.choice([True, False]) for _ in range(n)]
+
+def generate_bytes(n: int, seed: int = 42) -> List[bytes]:
+  """Generate list of random bytes objects."""
+  random.seed(seed); return [bytes([random.randint(0, 255) for _ in range(5)]) for _ in range(n)]
+
+def generate_bytearrays(n: int, seed: int = 42) -> List[bytearray]:
+  """Generate list of random bytearray objects."""
+  random.seed(seed); return [bytearray([random.randint(0, 255) for _ in range(5)]) for _ in range(n)]
+
+def generate_mixed(n: int, seed: int = 42) -> List[Any]:
+  """Generate list of mixed comparable types (integers and floats)."""
   random.seed(seed)
-  return [(random.randint(0, 1000), ''.join(random.choices(string.ascii_letters, k=5))) 
-          for _ in range(n)]
+  result = []
+  for _ in range(n):
+    if random.random() < 0.5:
+      result.append(random.randint(-100, 100))
+    else:
+      result.append(random.uniform(-100.0, 100.0))
+  return result
 
 def is_valid_heap(arr: List[Any], max_heap: bool = False, arity: int = 2) -> bool:
   """Verify heap property for n-ary heap."""
