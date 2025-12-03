@@ -124,6 +124,49 @@ python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtu
   } \
 } while(0)
 
+/* Step 11: Simple memory pool for key arrays to reduce malloc/free overhead */
+#define KEY_POOL_SIZE 8
+#define KEY_POOL_MAX_ARRAY 4096
+
+static struct {
+  PyObject **arrays[KEY_POOL_SIZE];
+  size_t sizes[KEY_POOL_SIZE];
+  int count;
+} key_pool = {.count = 0};
+
+/* Get array from pool or allocate new */
+static PyObject **
+key_pool_alloc(size_t n) {
+  /* Try to find suitable array in pool */
+  for (int i = 0; i < key_pool.count; i++) {
+    if (key_pool.sizes[i] >= n) {
+      PyObject **arr = key_pool.arrays[i];
+      /* Remove from pool (swap with last) */
+      key_pool.count--;
+      if (i < key_pool.count) {
+        key_pool.arrays[i] = key_pool.arrays[key_pool.count];
+        key_pool.sizes[i] = key_pool.sizes[key_pool.count];
+      }
+      return arr;
+    }
+  }
+  /* Allocate new */
+  return PyMem_Malloc(sizeof(PyObject *) * n);
+}
+
+/* Return array to pool or free */
+static void
+key_pool_free(PyObject **arr, size_t n) {
+  /* Only pool small-ish arrays */
+  if (n <= KEY_POOL_MAX_ARRAY && key_pool.count < KEY_POOL_SIZE) {
+    key_pool.arrays[key_pool.count] = arr;
+    key_pool.sizes[key_pool.count] = n;
+    key_pool.count++;
+  } else {
+    PyMem_Free(arr);
+  }
+}
+
 /* Enhanced fast comparison for comprehensive Python type coverage */
 static FORCE_INLINE int
 fast_compare(PyObject *a, PyObject *b, int op, int *result) {
@@ -158,12 +201,36 @@ fast_compare(PyObject *a, PyObject *b, int op, int *result) {
     PyErr_Clear();
   }
   
-  /* OPTIMIZATION 2: Fast path for floats */
+  /* OPTIMIZATION 2: Fast path for floats with proper NaN handling */
   if (likely(PyFloat_CheckExact(a) && PyFloat_CheckExact(b))) {
     double val_a = PyFloat_AS_DOUBLE(a);
     double val_b = PyFloat_AS_DOUBLE(b);
-    /* Handle NaN cases properly */
-    if (unlikely(val_a != val_a || val_b != val_b)) return 0;
+    
+    /* Check for NaN using standard idiom */
+    int a_is_nan = (val_a != val_a);
+    int b_is_nan = (val_b != val_b);
+    
+    if (unlikely(a_is_nan || b_is_nan)) {
+      /* NaN handling: NaN is considered "largest" for comparison
+       * This ensures NaN sinks to bottom of min-heap */
+      if (a_is_nan && b_is_nan) {
+        switch(op) {
+          case Py_LT: case Py_GT: *result = 0; return 1;
+          case Py_LE: case Py_GE: *result = 1; return 1;
+        }
+      }
+      if (a_is_nan) {
+        switch(op) {
+          case Py_LT: case Py_LE: *result = 0; return 1;
+          case Py_GT: case Py_GE: *result = 1; return 1;
+        }
+      }
+      switch(op) {
+        case Py_LT: case Py_LE: *result = 1; return 1;
+        case Py_GT: case Py_GE: *result = 0; return 1;
+      }
+    }
+    
     switch(op) {
       case Py_LT: *result = val_a < val_b; return 1;
       case Py_GT: *result = val_a > val_b; return 1;
@@ -355,6 +422,78 @@ detect_homogeneous_type(PyObject **items, Py_ssize_t n) {
   return all_long ? 1 : 2; /* 1=integers, 2=floats */
 }
 
+/* Step 2: Specialized heapify for homogeneous integer arrays */
+HOT_FUNCTION static int
+list_heapify_homogeneous_int(PyListObject *listobj, int is_max)
+{
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  if (unlikely(n <= 1)) return 0;
+
+  PyObject **items = listobj->ob_item;
+  
+  /* Extract integer values into C array for fast comparison */
+  long *values = PyMem_Malloc(sizeof(long) * (size_t)n);
+  if (unlikely(!values)) {
+    PyErr_NoMemory();
+    return -1;
+  }
+  
+  /* Convert Python ints to C longs */
+  for (Py_ssize_t i = 0; i < n; i++) {
+    values[i] = PyLong_AsLong(items[i]);
+    if (unlikely(values[i] == -1 && PyErr_Occurred())) {
+      PyMem_Free(values);
+      return -1;
+    }
+  }
+  
+  /* Floyd's algorithm with direct C integer comparison */
+  for (Py_ssize_t i = (n - 2) >> 1; i >= 0; i--) {
+    Py_ssize_t pos = i;
+    PyObject *newitem = items[pos];
+    long newval = values[pos];
+    
+    /* Sift down */
+    while (1) {
+      Py_ssize_t child = (pos << 1) + 1;
+      if (unlikely(child >= n)) break;
+      
+      Py_ssize_t best = child;
+      long bestval = values[child];
+      
+      Py_ssize_t right = child + 1;
+      if (likely(right < n)) {
+        /* Direct C comparison - no Python API overhead */
+        int cmp = is_max ? (values[right] > bestval) : (values[right] < bestval);
+        if (cmp) {
+          best = right;
+          bestval = values[right];
+        }
+      }
+      
+      items[pos] = items[best];
+      values[pos] = values[best];
+      pos = best;
+    }
+    
+    /* Sift up */
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) >> 1;
+      int cmp = is_max ? (newval > values[parent]) : (newval < values[parent]);
+      if (!cmp) break;
+      items[pos] = items[parent];
+      values[pos] = values[parent];
+      pos = parent;
+    }
+    
+    items[pos] = newitem;
+    values[pos] = newval;
+  }
+  
+  PyMem_Free(values);
+  return 0;
+}
+
 /* ---------- Ultra-optimized Floyd's heapify: binary min/max heap with fast comparisons ---------- */
 static int
 list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
@@ -430,8 +569,8 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
 
   PyObject **items = listobj->ob_item;
   
-  /* Enhanced key caching with fast comparisons */
-  PyObject **keys = PyMem_Malloc(sizeof(PyObject *) * (size_t)n);
+  /* Enhanced key caching with fast comparisons - using memory pool */
+  PyObject **keys = key_pool_alloc((size_t)n);
   if (unlikely(!keys)) {
     PyErr_NoMemory();
     return -1;
@@ -725,6 +864,86 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
   return 0;
 }
 
+/* Step 1: Ultra-optimized quaternary heap with key function */
+HOT_FUNCTION static int
+list_heapify_quaternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, int is_max)
+{
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  if (unlikely(n <= 1)) return 0;
+
+  PyObject **items = listobj->ob_item;
+  
+  /* Allocate key cache - O(n) space for O(n) key calls instead of O(n log n) */
+  PyObject **keys = PyMem_Malloc(sizeof(PyObject *) * (size_t)n);
+  if (unlikely(!keys)) {
+    PyErr_NoMemory();
+    return -1;
+  }
+
+  /* Pre-compute all keys once */
+  for (Py_ssize_t i = 0; i < n; i++) {
+    PyObject *k = call_key_function(keyfunc, items[i]);
+    if (unlikely(!k)) {
+      for (Py_ssize_t j = 0; j < i; j++) Py_DECREF(keys[j]);
+      PyMem_Free(keys);
+      return -1;
+    }
+    keys[i] = k;
+  }
+
+  /* Floyd's heapify: start from last non-leaf, work backwards */
+  for (Py_ssize_t i = (n - 2) >> 2; i >= 0; i--) {
+    Py_ssize_t pos = i;
+    PyObject *newitem = items[pos];
+    PyObject *newkey = keys[pos];
+    
+    /* Sift down phase */
+    while (1) {
+      Py_ssize_t child = (pos << 2) + 1;
+      if (unlikely(child >= n)) break;
+      
+      Py_ssize_t best = child;
+      PyObject *bestkey = keys[child];
+      
+      /* Unrolled loop for 4 children */
+      for (Py_ssize_t j = 1; j < 4 && child + j < n; j++) {
+        int cmp = optimized_compare(keys[child + j], bestkey, is_max ? Py_GT : Py_LT);
+        if (unlikely(cmp < 0)) {
+          for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
+          PyMem_Free(keys);
+          return -1;
+        }
+        if (cmp) {
+          best = child + j;
+          bestkey = keys[child + j];
+        }
+      }
+      
+      /* Check if heap property satisfied */
+      int need_swap = optimized_compare(bestkey, newkey, is_max ? Py_GT : Py_LT);
+      if (unlikely(need_swap < 0)) {
+        for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
+        PyMem_Free(keys);
+        return -1;
+      }
+      if (!need_swap) break;
+      
+      /* Move best child up */
+      items[pos] = items[best];
+      keys[pos] = keys[best];
+      pos = best;
+    }
+    
+    items[pos] = newitem;
+    keys[pos] = newkey;
+  }
+
+  /* Cleanup */
+  for (Py_ssize_t i = 0; i < n; i++) Py_DECREF(keys[i]);
+  PyMem_Free(keys);
+  return 0;
+}
+
 /* Ultra-optimized small heap specialization (n <= 16) */
 HOT_FUNCTION static int
 list_heapify_small_ultra_optimized(PyListObject *listobj, int is_max, Py_ssize_t arity)
@@ -956,20 +1175,28 @@ generic_heapify_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp, Py_ss
         break; 
       }
 
-      PyObject *tmp_parent = PySequence_GetItem(heap, pos);
-      PyObject *tmp_child = PySequence_GetItem(heap, best);
-      if (unlikely(!tmp_parent || !tmp_child)) { 
-        Py_XDECREF(tmp_parent); Py_XDECREF(tmp_child); 
-        return -1; 
-      }
-      
-      if (unlikely(PySequence_SetItem(heap, pos, tmp_child) < 0 || 
-                   PySequence_SetItem(heap, best, tmp_parent) < 0)) {
-        Py_DECREF(tmp_parent); Py_DECREF(tmp_child);
+      /* Step 5: Fixed swap - use already-fetched references properly */
+      /* PySequence_SetItem steals a reference, so we need to incref first */
+      Py_INCREF(bestobj);
+      Py_INCREF(parent);
+
+      if (unlikely(PySequence_SetItem(heap, pos, bestobj) < 0)) {
+        Py_DECREF(bestobj);
+        Py_DECREF(parent);
+        Py_DECREF(bestkey);
         return -1;
       }
-      
-      Py_DECREF(tmp_parent); Py_DECREF(tmp_child);
+
+      if (unlikely(PySequence_SetItem(heap, best, parent) < 0)) {
+        Py_DECREF(parent);
+        Py_DECREF(bestkey);
+        return -1;
+      }
+
+      /* Clean up the references we're done with */
+      Py_DECREF(parent);
+      Py_DECREF(bestobj);
+      Py_DECREF(bestkey);
       pos = best;
     }
   }
@@ -1010,6 +1237,17 @@ py_heapify(PyObject *self, PyObject *args, PyObject *kwargs)
   
   if (likely(PyList_CheckExact(heap))) {
     PyListObject *listobj = (PyListObject *)heap;
+    
+    /* Step 2: Check for homogeneous integer array optimization */
+    if (likely(cmp == Py_None && arity == 2 && n >= 8)) {
+      int homogeneous = detect_homogeneous_type(listobj->ob_item, n);
+      if (homogeneous == 1) {  /* 1 = all integers */
+        rc = list_heapify_homogeneous_int(listobj, is_max);
+        if (rc == 0) Py_RETURN_NONE;
+        /* Fall through to generic path on error */
+        PyErr_Clear();
+      }
+    }
     
     /* Small heap optimization (only for no key function) */
     if (unlikely(n <= 16 && cmp == Py_None)) {
@@ -1066,6 +1304,11 @@ py_heapify(PyObject *self, PyObject *args, PyObject *kwargs)
         case 3:
           /* Ternary heap with key function */
           rc = list_heapify_ternary_with_key_ultra_optimized(listobj, cmp, is_max);
+          break;
+          
+        case 4:
+          /* Quaternary heap with key function */
+          rc = list_heapify_quaternary_with_key_ultra_optimized(listobj, cmp, is_max);
           break;
           
         default:
@@ -2564,45 +2807,48 @@ list_heapsort_quaternary_ultra_optimized(PyListObject *listobj, int sort_is_max)
   return 0;
 }
 
-/* Helper: Binary heapsort without key function */
+/* Step 4: Bottom-up heapsort - reduces comparisons by ~50% */
 HOT_FUNCTION static int
 list_heapsort_binary_ultra_optimized(PyListObject *listobj, int sort_is_max) {
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   PyObject **items = listobj->ob_item;
   
-  for (Py_ssize_t i = n - 1; i > 0; i--) {
-    PyObject *tmp = items[0];
-    items[0] = items[i];
-    items[i] = tmp;
+  for (Py_ssize_t heap_size = n - 1; heap_size > 0; heap_size--) {
+    /* Swap root (max/min) with last element in heap portion */
+    PyObject *last = items[heap_size];
+    items[heap_size] = items[0];
     
+    /* Phase 1: Descend to leaf, always following better child */
+    /* This uses only 1 comparison per level (child vs child) */
     Py_ssize_t pos = 0;
-    PyObject *item = items[0];
+    Py_ssize_t child;
     
-    while (1) {
-      Py_ssize_t child = (pos << 1) + 1;
-      if (unlikely(child >= i)) break;
-      
-      Py_ssize_t best = child;
-      PyObject *best_item = items[child];
-      
+    while ((child = (pos << 1) + 1) < heap_size) {
+      /* Find better child */
       Py_ssize_t right = child + 1;
-      if (likely(right < i)) {
-        int cmp_res = optimized_compare(items[right], best_item, sort_is_max ? Py_GT : Py_LT);
-        if (unlikely(cmp_res < 0)) return -1;
-        if (cmp_res) {
-          best = right;
-          best_item = items[right];
-        }
+      if (right < heap_size) {
+        int cmp = optimized_compare(items[right], items[child], sort_is_max ? Py_GT : Py_LT);
+        if (unlikely(cmp < 0)) return -1;
+        if (cmp) child = right;
       }
       
-      int should_swap = optimized_compare(best_item, item, sort_is_max ? Py_GT : Py_LT);
-      if (unlikely(should_swap < 0)) return -1;
-      if (!should_swap) break;
-      
-      items[pos] = best_item;
-      pos = best;
+      /* Move down - no comparison with item being placed yet */
+      items[pos] = items[child];
+      pos = child;
     }
-    items[pos] = item;
+    
+    /* Phase 2: Bubble up from leaf position */
+    /* The item we're placing often belongs near the bottom, so this is fast */
+    while (pos > 0) {
+      Py_ssize_t parent = (pos - 1) >> 1;
+      int cmp = optimized_compare(last, items[parent], sort_is_max ? Py_GT : Py_LT);
+      if (unlikely(cmp < 0)) return -1;
+      if (!cmp) break;  /* Found correct position */
+      
+      items[pos] = items[parent];
+      pos = parent;
+    }
+    items[pos] = last;
   }
   return 0;
 }
@@ -2695,6 +2941,94 @@ list_heapsort_ternary_with_key_ultra_optimized(PyListObject *listobj, int sort_i
       return -1;
     }
   }
+  return 0;
+}
+
+/* Step 7: Heapsort with pre-computed keys - O(n) key calls instead of O(n log n) */
+HOT_FUNCTION static int
+list_heapsort_with_cached_keys(PyListObject *listobj, int sort_is_max, PyObject *keyfunc, Py_ssize_t arity) {
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  if (n <= 1) return 0;
+  
+  PyObject **items = listobj->ob_item;
+  
+  /* Pre-compute all keys once: O(n) key calls */
+  PyObject **keys = PyMem_Malloc(sizeof(PyObject *) * (size_t)n);
+  if (unlikely(!keys)) {
+    PyErr_NoMemory();
+    return -1;
+  }
+  
+  for (Py_ssize_t i = 0; i < n; i++) {
+    keys[i] = call_key_function(keyfunc, items[i]);
+    if (unlikely(!keys[i])) {
+      for (Py_ssize_t j = 0; j < i; j++) Py_DECREF(keys[j]);
+      PyMem_Free(keys);
+      return -1;
+    }
+  }
+  
+  /* Heapsort using cached keys */
+  for (Py_ssize_t heap_size = n - 1; heap_size > 0; heap_size--) {
+    /* Swap root with last element */
+    PyObject *tmp_item = items[0];
+    PyObject *tmp_key = keys[0];
+    items[0] = items[heap_size];
+    keys[0] = keys[heap_size];
+    items[heap_size] = tmp_item;
+    keys[heap_size] = tmp_key;
+    
+    /* Sift down using cached keys */
+    Py_ssize_t pos = 0;
+    PyObject *item = items[0];
+    PyObject *key = keys[0];
+    
+    while (1) {
+      Py_ssize_t child = arity * pos + 1;
+      if (child >= heap_size) break;
+      
+      /* Find best child */
+      Py_ssize_t best = child;
+      PyObject *best_key = keys[child];
+      
+      Py_ssize_t last_child = child + arity;
+      if (last_child > heap_size) last_child = heap_size;
+      
+      for (Py_ssize_t j = child + 1; j < last_child; j++) {
+        int cmp = optimized_compare(keys[j], best_key, sort_is_max ? Py_GT : Py_LT);
+        if (unlikely(cmp < 0)) {
+          for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
+          PyMem_Free(keys);
+          return -1;
+        }
+        if (cmp) {
+          best = j;
+          best_key = keys[j];
+        }
+      }
+      
+      /* Check if heap property satisfied */
+      int should_swap = optimized_compare(best_key, key, sort_is_max ? Py_GT : Py_LT);
+      if (unlikely(should_swap < 0)) {
+        for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
+        PyMem_Free(keys);
+        return -1;
+      }
+      if (!should_swap) break;
+      
+      /* Move best child up */
+      items[pos] = items[best];
+      keys[pos] = keys[best];
+      pos = best;
+    }
+    
+    items[pos] = item;
+    keys[pos] = key;
+  }
+  
+  /* Cleanup */
+  for (Py_ssize_t i = 0; i < n; i++) Py_DECREF(keys[i]);
+  PyMem_Free(keys);
   return 0;
 }
 
