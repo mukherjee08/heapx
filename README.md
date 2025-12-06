@@ -4,7 +4,31 @@
 [![Python Support](https://img.shields.io/pypi/pyversions/heapx.svg)](https://pypi.org/project/heapx/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**heapx** is a production-ready, high-performance C extension module that provides comprehensive heap operations with superior performance and flexibility compared to Python's standard `heapq` module and other third-party heap implementations.
+`heapx` is a compact, C‑level Python extension engineered to deliver faster execution and memory‑efficient heap operations through deliberate, performance‑driven implementation choices. These include specialized arities, SIMD/homogeneity detection, precomputed key caching, advanced prefetching, and a small‑object key pool. Each choice is designed to eliminate Python‑level overhead, ensuring predictable, production‑grade performance across critical domains such as scheduling, graph algorithms, streaming analytics, and real‑time systems.
+
+## Introduction
+
+Data structures are the foundation of reliable, high-performance software: they determine how quickly programs respond, how much data can be processed, and how predictable resource use will be in production systems. `heapx` is a C extension for Python that implements the heap with explicit, performance-oriented design choices: **Floyd’s and arity‑specialized heapify (binary, ternary, quaternary)** for fewer comparisons and faster sifts; **precomputed key caching with vectorcall** to eliminate repeated Python call overhead; **homogeneity detection and SIMD‑friendly paths** to accelerate numeric workloads; **advanced prefetching and assume‑aligned hints** to maximize cache utilization; and a **small memory pool for key arrays** to reduce malloc/free churn. These choices are implemented to be safe, reference‑count correct, and to preserve Python semantics while delivering C‑level throughput.
+
+## `heapx` implementation benefits & why each is necessary
+
+1. **Faster heapify and sift operations** reduce $O(n)$ and $O(\log(n))$ constants so large datasets and latency‑sensitive systems complete operations with lower CPU time and jitter.
+
+2. **Arity specialization** enables for fewer tree levels for the same element count means fewer comparisons and memory accesses, directly improving throughput for bulk heap construction.
+
+3. **Precomputed keys with vectorcall** avoids repeated Python function call overhead for key extraction, which is the dominant cost when keys are expensive or when n is large.
+
+4. **Homogeneity detection and numeric fast paths** enables for tight C numeric comparisons and potential SIMD acceleration, essential for analytics and numeric streaming where element types are uniform.
+
+5. **Advanced prefetching and alignment hints** reduces cache misses and memory latency, which is the primary bottleneck on modern CPUs for pointer‑heavy data structures.
+
+6. **Key memory pool** minimizes allocator overhead and fragmentation in workloads that repeatedly build and tear down heaps, improving latency and memory stability. 
+
+7. **Small‑heap specializations and insertion sort fallback** optimizes the common case of small heaps found in many real systems, delivering better real‑world performance than a one‑size‑fits‑all approach.
+
+## `heapx` useability benefits & why each is necessary
+
+<!-- HERE -->
 
 ## Table of Contents
 
