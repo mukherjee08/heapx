@@ -4,11 +4,13 @@
 [![Python Support](https://img.shields.io/pypi/pyversions/heapx.svg)](https://pypi.org/project/heapx/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-`heapx` is a compact, C‑level Python extension engineered to deliver faster execution and memory‑efficient heap operations through deliberate, performance‑driven implementation choices. These include specialized arities, SIMD/homogeneity detection, precomputed key caching, advanced prefetching, and a small‑object key pool. Each choice is designed to eliminate Python‑level overhead, ensuring predictable, production‑grade performance across critical domains such as scheduling, graph algorithms, streaming analytics, and real‑time systems.
+`heapx` is a compact C‑level Python extension engineered to deliver faster execution and memory‑efficient heap operations through deliberate, performance‑driven implementation choices. These include **specialized arities**, **SIMD/homogeneity detection**, **precomputed key caching**, **advanced prefetching**, and a **small‑object key pool**. Each choice eliminates Python‑level overhead and ensures predictable, production‑grade performance across critical domains such as scheduling, graph algorithms, streaming analytics, and real‑time systems.
 
 ## Introduction
 
-Data structures are the foundation of reliable, high-performance software: they determine how quickly programs respond, how much data can be processed, and how predictable resource use will be in production systems. `heapx` is a C extension for Python that implements the heap with explicit, performance-oriented design choices: **Floyd’s and arity‑specialized heapify (binary, ternary, quaternary)** for fewer comparisons and faster sifts; **precomputed key caching with vectorcall** to eliminate repeated Python call overhead; **homogeneity detection and SIMD‑friendly paths** to accelerate numeric workloads; **advanced prefetching and assume‑aligned hints** to maximize cache utilization; and a **small memory pool for key arrays** to reduce malloc/free churn. These choices are implemented to be safe, reference‑count correct, and to preserve Python semantics while delivering C‑level throughput.
+Data structures are the foundation of reliable, high‑performance software: they determine how quickly programs respond, how much data can be processed, and how predictable resource use will be in production systems. `heapx` is a C extension for Python that implements the heap with explicit, performance‑oriented design choices: **Floyd’s and arity‑specialized heapify (binary, ternary, quaternary)** for fewer comparisons and faster sifts; **precomputed key caching with vectorcall** to eliminate repeated Python call overhead; **homogeneity detection and SIMD‑friendly paths** to accelerate numeric workloads; **advanced prefetching and assume‑aligned hints** to maximize cache utilization; and a **small memory pool for key arrays** to reduce malloc/free churn. These choices are implemented to be safe, reference‑count correct, and to preserve Python semantics while delivering C‑level throughput.
+
+---
 
 ## `heapx` implementation benefits & why each is necessary
 
@@ -26,9 +28,43 @@ Data structures are the foundation of reliable, high-performance software: they 
 
 7. **Small‑heap specializations and insertion sort fallback** optimizes the common case of small heaps found in many real systems, delivering better real‑world performance than a one‑size‑fits‑all approach.
 
+---
+
 ## `heapx` useability benefits & why each is necessary
 
-<!-- HERE -->
+1. **Complete Heap Ecosystem in One Module**
+
+2. **Native Min/Max Heap Support Without Data Transformation**
+
+3. **Configurable N-ary Heap Arity for Performance Tuning**
+
+4. **Intelligent Key Function Caching with Vectorcall Optimization**
+
+5. **Bulk Operations with Optimized Batch Processing**
+
+6. **Flexible Element Selection via Multiple Identification Methods**
+
+7. **In-Place and Copy Modes for Memory Control**
+
+8. **Efficient Multi-Heap Merging with Sorted Heap Optimization**
+
+9. **Automatic Algorithm Selection via $11$-Priority Dispatch Table**
+
+10. **Small-Heap Specialization with Insertion Sort Fallback**
+
+11. **Homogeneous Type Detection with SIMD-Optimized Paths**
+
+12. **Production-Grade Error Handling and Memory Safety**
+
+13. **Comprehensive Fast Comparison Paths for Python Types**
+
+14. **Advanced Prefetching and Cache Optimization Hints**
+
+15. **Unified API with Consistent Parameter Semantics**
+
+16. **Detailed Documentation and Type-Safe Interface**
+
+---
 
 ## Table of Contents
 
@@ -176,11 +212,6 @@ Beyond basic heap operations, `heapx` provides:
 ```bash
 # Install from PyPI
 pip install heapx
-
-# Install from source
-git clone https://github.com/ivan121500/heapx.git
-cd heapx
-pip install -e .
 ```
 
 **Requirements:**
