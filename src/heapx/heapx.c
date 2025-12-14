@@ -499,64 +499,92 @@ static int
 list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
 {
   Py_ssize_t n = PyList_GET_SIZE(listobj);
-  if (unlikely(n <= 1)) return 0;
+  if (n <= 1) return 0;
 
-  PyObject **items = listobj->ob_item;
-  
-  /* OPTIMIZATION: Detect homogeneous arrays for potential SIMD acceleration */
-  int homogeneous_type = detect_homogeneous_type(items, n);
-  
-  /* Enhanced Floyd's algorithm with fast comparisons */
+  /* We do NOT cache 'items' here permanently. 
+     We fetch it locally when needed. */
+
   for (Py_ssize_t i = (n - 2) >> 1; i >= 0; i--) {
     Py_ssize_t pos = i;
+    /* Refetch items at start of every major iteration */
+    PyObject **items = listobj->ob_item; 
     PyObject *newitem = items[pos];
-    
-    /* PHASE 1: OPTIMIZED SIFT DOWN WITH FAST COMPARISONS */
+    Py_INCREF(newitem); /* Protect newitem from deletion during mutation */
+
     while (1) {
       Py_ssize_t child = (pos << 1) + 1;
-      if (unlikely(child >= n)) break;
-      
+      if (child >= n) break;
+
       Py_ssize_t best = child;
+      
+      /* RELOAD items because previous iteration might have called Python code */
+      items = listobj->ob_item;
       PyObject *bestobj = items[child];
       
-      /* ADVANCED PREFETCHING: Load multiple cache lines ahead */
-      PREFETCH_MULTIPLE(items, (child << 1) + 1, PREFETCH_DISTANCE, n);
-      
       Py_ssize_t right = child + 1;
-      if (likely(right < n)) {
+      if (right < n) {
         PyObject *rightobj = items[right];
         
-        /* FAST COMPARISON: Bypass Python dispatch for common types */
+        /* EXECUTING PYTHON CODE */
         int cmp = optimized_compare(rightobj, bestobj, is_max ? Py_GT : Py_LT);
-        if (unlikely(cmp < 0)) return -1;
+        
+        /* SAFETY CHECK: Did list change size? */
+        if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+          PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+          Py_DECREF(newitem);
+          return -1;
+        }
+        /* REFRESH POINTER */
+        items = listobj->ob_item;
+
+        if (unlikely(cmp < 0)) {
+          Py_DECREF(newitem);
+          return -1;
+        }
         if (cmp) {
           best = right;
-          bestobj = rightobj;
+          bestobj = items[right]; /* Re-read valid object */
         }
       }
-      
-      /* Direct pointer assignment - no reference counting overhead */
+
+      /* Move hole down - purely C operation, safe if items is fresh */
       items[pos] = bestobj;
       pos = best;
     }
-    
-    /* PHASE 2: OPTIMIZED SIFT UP WITH FAST COMPARISONS */
+
+    /* Sift up phase */
     while (pos > i) {
       Py_ssize_t parent = (pos - 1) >> 1;
+      /* REFRESH POINTER */
+      items = listobj->ob_item;
       PyObject *parentobj = items[parent];
-      
-      /* Fast comparison for sift-up operation */
+
+      /* EXECUTING PYTHON CODE */
       int cmp = optimized_compare(newitem, parentobj, is_max ? Py_GT : Py_LT);
-      if (unlikely(cmp < 0)) return -1;
+
+      /* SAFETY CHECK */
+      if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+        PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+        Py_DECREF(newitem);
+        return -1;
+      }
+      /* REFRESH POINTER */
+      items = listobj->ob_item;
+
+      if (unlikely(cmp < 0)) {
+        Py_DECREF(newitem);
+        return -1;
+      }
       if (!cmp) break;
-      
+
       items[pos] = parentobj;
       pos = parent;
     }
-    
+
+    /* Final placement */
     items[pos] = newitem;
+    Py_DECREF(newitem);
   }
-  
   return 0;
 }
 
