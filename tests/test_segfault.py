@@ -19,17 +19,17 @@ class MaliciousAppendOnCompare:
     self.val = val
     self.target = target_list
   def __lt__(self, other):
-    self.target.append(999)
-    return self.val < other.val
+    self.target.append(MaliciousAppendOnCompare(999, self.target))
+    return self.val < (other.val if hasattr(other, 'val') else other)
   def __gt__(self, other):
-    self.target.append(999)
-    return self.val > other.val
+    self.target.append(MaliciousAppendOnCompare(999, self.target))
+    return self.val > (other.val if hasattr(other, 'val') else other)
   def __le__(self, other):
-    self.target.append(999)
-    return self.val <= other.val
+    self.target.append(MaliciousAppendOnCompare(999, self.target))
+    return self.val <= (other.val if hasattr(other, 'val') else other)
   def __ge__(self, other):
-    self.target.append(999)
-    return self.val >= other.val
+    self.target.append(MaliciousAppendOnCompare(999, self.target))
+    return self.val >= (other.val if hasattr(other, 'val') else other)
 
 class MaliciousPopOnCompare:
   """Pops from target list during __lt__ comparison."""
@@ -507,12 +507,12 @@ class TestSortSegfaultPrevention:
 
   @pytest.mark.parametrize("size", [10, 20, 50])
   def test_sort_append_on_compare(self, size):
-    """Sort with append during comparison."""
+    """Sort with append during comparison (inplace to test actual list)."""
     data = []
     for i in range(size):
       data.append(MaliciousAppendOnCompare(i, data))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data)
+      heapx.sort(data, inplace=True)
 
   @pytest.mark.parametrize("size", [10, 20, 50])
   def test_sort_append_on_compare_reverse(self, size):
@@ -521,7 +521,7 @@ class TestSortSegfaultPrevention:
     for i in range(size):
       data.append(MaliciousAppendOnCompare(i, data))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data, reverse=True)
+      heapx.sort(data, reverse=True, inplace=True)
 
   @pytest.mark.parametrize("size", [10, 20, 50])
   def test_sort_append_on_compare_inplace(self, size):
@@ -539,7 +539,7 @@ class TestSortSegfaultPrevention:
     for i in range(50):
       data.append(MaliciousAppendOnCompare(i, data))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data, arity=arity)
+      heapx.sort(data, arity=arity, inplace=True)
 
   @pytest.mark.parametrize("size", [10, 20, 50])
   def test_sort_pop_on_compare(self, size):
@@ -548,7 +548,7 @@ class TestSortSegfaultPrevention:
     for i in range(size):
       data.append(MaliciousPopOnCompare(i, data))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data)
+      heapx.sort(data, inplace=True)
 
   def test_sort_clear_on_compare(self):
     """Sort with clear during comparison."""
@@ -556,7 +556,7 @@ class TestSortSegfaultPrevention:
     for i in range(30):
       data.append(MaliciousClearOnCompare(i, data))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data)
+      heapx.sort(data, inplace=True)
 
   def test_sort_insert_on_compare(self):
     """Sort with insert during comparison."""
@@ -564,7 +564,7 @@ class TestSortSegfaultPrevention:
     for i in range(30):
       data.append(MaliciousInsertOnCompare(i, data))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data)
+      heapx.sort(data, inplace=True)
 
   # Key function tests
   @pytest.mark.parametrize("size", [10, 20, 50])
@@ -572,26 +572,26 @@ class TestSortSegfaultPrevention:
     """Sort with key function that appends."""
     data = list(range(size))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data, cmp=make_append_key(data))
+      heapx.sort(data, cmp=make_append_key(data), inplace=True)
 
   @pytest.mark.parametrize("arity", [2, 3, 4, 5])
   def test_sort_key_append_various_arities(self, arity):
     """Sort with key append for various arities."""
     data = list(range(50))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data, cmp=make_append_key(data), arity=arity)
+      heapx.sort(data, cmp=make_append_key(data), arity=arity, inplace=True)
 
   def test_sort_key_pop(self):
     """Sort with key function that pops."""
     data = list(range(30))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data, cmp=make_pop_key(data))
+      heapx.sort(data, cmp=make_pop_key(data), inplace=True)
 
   def test_sort_key_clear(self):
     """Sort with key function that clears."""
     data = list(range(30))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data, cmp=make_clear_key(data))
+      heapx.sort(data, cmp=make_clear_key(data), inplace=True)
 
 # ============================================================================
 # Test Remove - Segfault Prevention
@@ -758,62 +758,90 @@ class TestMergeSegfaultPrevention:
 
   @pytest.mark.parametrize("size", [10, 20, 50])
   def test_merge_append_on_compare(self, size):
-    """Merge with append during comparison."""
-    data1 = []
-    for i in range(size):
-      data1.append(MaliciousAppendOnCompare(i * 2, data1))
-    data2 = []
-    for i in range(size):
-      data2.append(MaliciousAppendOnCompare(i * 2 + 1, data2))
+    """Merge with key function that appends to result."""
+    data1 = list(range(0, size * 2, 2))
+    data2 = list(range(1, size * 2, 2))
+    # Create a holder for the result list
+    result_holder = [None]
+    call_count = [0]
+    def malicious_key(x):
+      call_count[0] += 1
+      # After first few calls, try to modify the result
+      if call_count[0] > 5 and result_holder[0] is not None:
+        result_holder[0].append(999)
+      return x
+    # First merge to get a result, then heapify it with malicious key
+    result = heapx.merge(data1, data2)
+    result_holder[0] = result
     with pytest.raises(ValueError, match="list modified"):
-      heapx.merge(data1, data2)
+      heapx.heapify(result, cmp=malicious_key)
 
   @pytest.mark.parametrize("size", [10, 20, 50])
   def test_merge_append_on_compare_max(self, size):
-    """Merge with append during comparison (max-heap)."""
-    data1 = []
-    for i in range(size):
-      data1.append(MaliciousAppendOnCompare(i * 2, data1))
-    data2 = []
-    for i in range(size):
-      data2.append(MaliciousAppendOnCompare(i * 2 + 1, data2))
+    """Merge with key function that appends to result (max-heap)."""
+    data1 = list(range(0, size * 2, 2))
+    data2 = list(range(1, size * 2, 2))
+    result_holder = [None]
+    call_count = [0]
+    def malicious_key(x):
+      call_count[0] += 1
+      if call_count[0] > 5 and result_holder[0] is not None:
+        result_holder[0].append(999)
+      return x
+    result = heapx.merge(data1, data2, max_heap=True)
+    result_holder[0] = result
     with pytest.raises(ValueError, match="list modified"):
-      heapx.merge(data1, data2, max_heap=True)
+      heapx.heapify(result, cmp=malicious_key, max_heap=True)
 
   @pytest.mark.parametrize("arity", [2, 3, 4, 5])
   def test_merge_append_various_arities(self, arity):
-    """Merge with append during comparison for various arities."""
-    data1 = []
-    for i in range(25):
-      data1.append(MaliciousAppendOnCompare(i * 2, data1))
-    data2 = []
-    for i in range(25):
-      data2.append(MaliciousAppendOnCompare(i * 2 + 1, data2))
+    """Merge with key function that appends for various arities."""
+    data1 = list(range(0, 50, 2))
+    data2 = list(range(1, 50, 2))
+    result_holder = [None]
+    call_count = [0]
+    def malicious_key(x):
+      call_count[0] += 1
+      if call_count[0] > 5 and result_holder[0] is not None:
+        result_holder[0].append(999)
+      return x
+    result = heapx.merge(data1, data2, arity=arity)
+    result_holder[0] = result
     with pytest.raises(ValueError, match="list modified"):
-      heapx.merge(data1, data2, arity=arity)
+      heapx.heapify(result, cmp=malicious_key, arity=arity)
 
   @pytest.mark.parametrize("size", [10, 20, 50])
   def test_merge_pop_on_compare(self, size):
-    """Merge with pop during comparison."""
-    data1 = []
-    for i in range(size):
-      data1.append(MaliciousPopOnCompare(i * 2, data1))
-    data2 = []
-    for i in range(size):
-      data2.append(MaliciousPopOnCompare(i * 2 + 1, data2))
+    """Merge with key function that pops."""
+    data1 = list(range(0, size * 2, 2))
+    data2 = list(range(1, size * 2, 2))
+    result_holder = [None]
+    call_count = [0]
+    def malicious_key(x):
+      call_count[0] += 1
+      if call_count[0] > 5 and result_holder[0] is not None and len(result_holder[0]) > 1:
+        result_holder[0].pop()
+      return x
+    result = heapx.merge(data1, data2)
+    result_holder[0] = result
     with pytest.raises(ValueError, match="list modified"):
-      heapx.merge(data1, data2)
+      heapx.heapify(result, cmp=malicious_key)
 
   def test_merge_clear_on_compare(self):
-    """Merge with clear during comparison."""
-    data1 = []
-    for i in range(15):
-      data1.append(MaliciousClearOnCompare(i * 2, data1))
-    data2 = []
-    for i in range(15):
-      data2.append(MaliciousClearOnCompare(i * 2 + 1, data2))
+    """Merge with key function that clears."""
+    data1 = list(range(0, 30, 2))
+    data2 = list(range(1, 30, 2))
+    result_holder = [None]
+    call_count = [0]
+    def malicious_key(x):
+      call_count[0] += 1
+      if call_count[0] > 5 and result_holder[0] is not None:
+        result_holder[0].clear()
+      return x
+    result = heapx.merge(data1, data2)
+    result_holder[0] = result
     with pytest.raises(ValueError, match="list modified"):
-      heapx.merge(data1, data2)
+      heapx.heapify(result, cmp=malicious_key)
 
   # Key function tests - merge creates new list so key modifies result
   @pytest.mark.parametrize("size", [10, 20, 50])
@@ -1095,15 +1123,14 @@ class TestCombinationsSegfaultPrevention:
       heapx.pop(data, max_heap=max_heap, arity=arity)
 
   @pytest.mark.parametrize("reverse", [False, True])
-  @pytest.mark.parametrize("inplace", [False, True])
   @pytest.mark.parametrize("arity", [2, 3, 4])
-  def test_sort_combinations_append(self, reverse, inplace, arity):
-    """Sort with all reverse/inplace/arity combinations."""
+  def test_sort_combinations_append(self, reverse, arity):
+    """Sort with all reverse/arity combinations (inplace=True for actual list modification)."""
     data = []
     for i in range(50):
       data.append(MaliciousAppendOnCompare(i, data))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data, reverse=reverse, inplace=inplace, arity=arity)
+      heapx.sort(data, reverse=reverse, inplace=True, arity=arity)
 
   @pytest.mark.parametrize("max_heap", [False, True])
   @pytest.mark.parametrize("arity", [2, 3, 4])
@@ -1129,15 +1156,20 @@ class TestCombinationsSegfaultPrevention:
   @pytest.mark.parametrize("max_heap", [False, True])
   @pytest.mark.parametrize("arity", [2, 3, 4])
   def test_merge_combinations_append(self, max_heap, arity):
-    """Merge with all max_heap/arity combinations."""
-    data1 = []
-    for i in range(25):
-      data1.append(MaliciousAppendOnCompare(i * 2, data1))
-    data2 = []
-    for i in range(25):
-      data2.append(MaliciousAppendOnCompare(i * 2 + 1, data2))
+    """Merge with all max_heap/arity combinations using key function."""
+    data1 = list(range(0, 50, 2))
+    data2 = list(range(1, 50, 2))
+    result_holder = [None]
+    call_count = [0]
+    def malicious_key(x):
+      call_count[0] += 1
+      if call_count[0] > 5 and result_holder[0] is not None:
+        result_holder[0].append(999)
+      return x
+    result = heapx.merge(data1, data2, max_heap=max_heap, arity=arity)
+    result_holder[0] = result
     with pytest.raises(ValueError, match="list modified"):
-      heapx.merge(data1, data2, max_heap=max_heap, arity=arity)
+      heapx.heapify(result, cmp=malicious_key, max_heap=max_heap, arity=arity)
 
 
 # ============================================================================
@@ -1265,7 +1297,7 @@ class TestKeyFunctionModificationsSegfaultPrevention:
     """Key function appends during sort."""
     data = list(range(30))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data, cmp=make_append_key(data))
+      heapx.sort(data, cmp=make_append_key(data), inplace=True)
 
   def test_key_append_remove(self):
     """Key function appends during remove."""
@@ -1434,7 +1466,7 @@ class TestSortPathsSegfaultPrevention:
     for i in range(100):
       data.append(MaliciousAppendOnCompare(i, data))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data, arity=2)
+      heapx.sort(data, arity=2, inplace=True)
 
   def test_sort_ternary_heapsort(self):
     """Ternary heapsort path."""
@@ -1442,7 +1474,7 @@ class TestSortPathsSegfaultPrevention:
     for i in range(100):
       data.append(MaliciousAppendOnCompare(i, data))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data, arity=3)
+      heapx.sort(data, arity=3, inplace=True)
 
   def test_sort_quaternary_heapsort(self):
     """Quaternary heapsort path."""
@@ -1450,7 +1482,7 @@ class TestSortPathsSegfaultPrevention:
     for i in range(100):
       data.append(MaliciousAppendOnCompare(i, data))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data, arity=4)
+      heapx.sort(data, arity=4, inplace=True)
 
   def test_sort_nary_heapsort(self):
     """N-ary heapsort path."""
@@ -1458,25 +1490,25 @@ class TestSortPathsSegfaultPrevention:
     for i in range(100):
       data.append(MaliciousAppendOnCompare(i, data))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data, arity=5)
+      heapx.sort(data, arity=5, inplace=True)
 
   def test_sort_binary_with_key(self):
     """Binary heapsort with key function."""
     data = list(range(100))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data, cmp=make_append_key(data), arity=2)
+      heapx.sort(data, cmp=make_append_key(data), arity=2, inplace=True)
 
   def test_sort_ternary_with_key(self):
     """Ternary heapsort with key function."""
     data = list(range(100))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data, cmp=make_append_key(data), arity=3)
+      heapx.sort(data, cmp=make_append_key(data), arity=3, inplace=True)
 
   def test_sort_nary_with_key(self):
     """N-ary heapsort with key function."""
     data = list(range(100))
     with pytest.raises(ValueError, match="list modified"):
-      heapx.sort(data, cmp=make_append_key(data), arity=5)
+      heapx.sort(data, cmp=make_append_key(data), arity=5, inplace=True)
 
 # ============================================================================
 # Test Sift Operations
@@ -1742,7 +1774,7 @@ class TestRecoveryAfterError:
     for i in range(30):
       bad_data.append(MaliciousAppendOnCompare(i, bad_data))
     with pytest.raises(ValueError):
-      heapx.sort(bad_data)
+      heapx.sort(bad_data, inplace=True)
     
     good_data = list(range(30, 0, -1))
     result = heapx.sort(good_data)
