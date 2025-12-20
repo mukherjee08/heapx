@@ -124,48 +124,8 @@ python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtu
   } \
 } while(0)
 
-/* Step 11: Simple memory pool for key arrays to reduce malloc/free overhead */
-#define KEY_POOL_SIZE 8
-#define KEY_POOL_MAX_ARRAY 4096
-
-static struct {
-  PyObject **arrays[KEY_POOL_SIZE];
-  size_t sizes[KEY_POOL_SIZE];
-  int count;
-} key_pool = {.count = 0};
-
-/* Get array from pool or allocate new */
-static PyObject **
-key_pool_alloc(size_t n) {
-  /* Try to find suitable array in pool */
-  for (int i = 0; i < key_pool.count; i++) {
-    if (key_pool.sizes[i] >= n) {
-      PyObject **arr = key_pool.arrays[i];
-      /* Remove from pool (swap with last) */
-      key_pool.count--;
-      if (i < key_pool.count) {
-        key_pool.arrays[i] = key_pool.arrays[key_pool.count];
-        key_pool.sizes[i] = key_pool.sizes[key_pool.count];
-      }
-      return arr;
-    }
-  }
-  /* Allocate new */
-  return PyMem_Malloc(sizeof(PyObject *) * n);
-}
-
-/* Return array to pool or free */
-static void
-key_pool_free(PyObject **arr, size_t n) {
-  /* Only pool small-ish arrays */
-  if (n <= KEY_POOL_MAX_ARRAY && key_pool.count < KEY_POOL_SIZE) {
-    key_pool.arrays[key_pool.count] = arr;
-    key_pool.sizes[key_pool.count] = n;
-    key_pool.count++;
-  } else {
-    PyMem_Free(arr);
-  }
-}
+/* Thread-safe stack buffer size for key arrays */
+#define KEY_STACK_SIZE 128
 
 /* Enhanced fast comparison for comprehensive Python type coverage */
 static FORCE_INLINE int
@@ -606,11 +566,20 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   if (unlikely(n <= 1)) return 0;
 
-  /* Enhanced key caching with fast comparisons - using memory pool */
-  PyObject **keys = key_pool_alloc((size_t)n);
-  if (unlikely(!keys)) {
-    PyErr_NoMemory();
-    return -1;
+  /* Thread-safe stack-first allocation pattern */
+  PyObject *stack_keys[KEY_STACK_SIZE];
+  PyObject **keys = NULL;
+  int keys_on_heap = 0;
+
+  if (n <= KEY_STACK_SIZE) {
+    keys = stack_keys;
+  } else {
+    keys = (PyObject **)PyMem_Malloc(sizeof(PyObject *) * (size_t)n);
+    if (unlikely(!keys)) {
+      PyErr_NoMemory();
+      return -1;
+    }
+    keys_on_heap = 1;
   }
 
   /* PHASE 1: PRECOMPUTE ALL KEYS */
@@ -620,14 +589,14 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
     PyObject *k = call_key_function(keyfunc, items[i]);
     if (unlikely(!k)) {
       for (Py_ssize_t j = 0; j < i; j++) Py_DECREF(keys[j]);
-      key_pool_free(keys, (size_t)n);
+      if (keys_on_heap) PyMem_Free(keys);
       return -1;
     }
     /* SAFETY CHECK */
     if (unlikely(PyList_GET_SIZE(listobj) != n)) {
       Py_DECREF(k);
       for (Py_ssize_t j = 0; j < i; j++) Py_DECREF(keys[j]);
-      key_pool_free(keys, (size_t)n);
+      if (keys_on_heap) PyMem_Free(keys);
       PyErr_SetString(PyExc_ValueError, "list modified during heapify");
       return -1;
     }
@@ -664,7 +633,7 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
           Py_DECREF(newitem);
           Py_DECREF(newkey);
           for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-          key_pool_free(keys, (size_t)n);
+          if (keys_on_heap) PyMem_Free(keys);
           PyErr_SetString(PyExc_ValueError, "list modified during heapify");
           return -1;
         }
@@ -672,7 +641,7 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
           Py_DECREF(newitem);
           Py_DECREF(newkey);
           for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-          key_pool_free(keys, (size_t)n);
+          if (keys_on_heap) PyMem_Free(keys);
           return -1;
         }
         if (cmp) {
@@ -687,7 +656,7 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
         Py_DECREF(newitem);
         Py_DECREF(newkey);
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-        key_pool_free(keys, (size_t)n);
+        if (keys_on_heap) PyMem_Free(keys);
         PyErr_SetString(PyExc_ValueError, "list modified during heapify");
         return -1;
       }
@@ -695,7 +664,7 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
         Py_DECREF(newitem);
         Py_DECREF(newkey);
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-        key_pool_free(keys, (size_t)n);
+        if (keys_on_heap) PyMem_Free(keys);
         return -1;
       }
       if (!need_swap) break;
@@ -717,7 +686,7 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
 
   /* PHASE 3: CLEANUP */
   for (Py_ssize_t i = 0; i < n; i++) Py_DECREF(keys[i]);
-  key_pool_free(keys, (size_t)n);
+  if (keys_on_heap) PyMem_Free(keys);
   return 0;
 }
 
@@ -4005,11 +3974,20 @@ list_heapsort_with_cached_keys(PyListObject *listobj, int sort_is_max, PyObject 
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   if (n <= 1) return 0;
   
-  /* Pre-compute all keys once: O(n) key calls */
-  PyObject **keys = PyMem_Malloc(sizeof(PyObject *) * (size_t)n);
-  if (unlikely(!keys)) {
-    PyErr_NoMemory();
-    return -1;
+  /* Thread-safe stack-first allocation pattern */
+  PyObject *stack_keys[KEY_STACK_SIZE];
+  PyObject **keys = NULL;
+  int keys_on_heap = 0;
+
+  if (n <= KEY_STACK_SIZE) {
+    keys = stack_keys;
+  } else {
+    keys = (PyObject **)PyMem_Malloc(sizeof(PyObject *) * (size_t)n);
+    if (unlikely(!keys)) {
+      PyErr_NoMemory();
+      return -1;
+    }
+    keys_on_heap = 1;
   }
   
   for (Py_ssize_t i = 0; i < n; i++) {
@@ -4018,14 +3996,14 @@ list_heapsort_with_cached_keys(PyListObject *listobj, int sort_is_max, PyObject 
     keys[i] = call_key_function(keyfunc, items[i]);
     if (unlikely(!keys[i])) {
       for (Py_ssize_t j = 0; j < i; j++) Py_DECREF(keys[j]);
-      PyMem_Free(keys);
+      if (keys_on_heap) PyMem_Free(keys);
       return -1;
     }
     /* SAFETY CHECK */
     if (unlikely(PyList_GET_SIZE(listobj) != n)) {
       Py_DECREF(keys[i]);
       for (Py_ssize_t j = 0; j < i; j++) Py_DECREF(keys[j]);
-      PyMem_Free(keys);
+      if (keys_on_heap) PyMem_Free(keys);
       PyErr_SetString(PyExc_ValueError, "list modified during sort");
       return -1;
     }
@@ -4068,7 +4046,7 @@ list_heapsort_with_cached_keys(PyListObject *listobj, int sort_is_max, PyObject 
           Py_DECREF(item);
           Py_DECREF(key);
           for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-          PyMem_Free(keys);
+          if (keys_on_heap) PyMem_Free(keys);
           PyErr_SetString(PyExc_ValueError, "list modified during sort");
           return -1;
         }
@@ -4076,7 +4054,7 @@ list_heapsort_with_cached_keys(PyListObject *listobj, int sort_is_max, PyObject 
           Py_DECREF(item);
           Py_DECREF(key);
           for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-          PyMem_Free(keys);
+          if (keys_on_heap) PyMem_Free(keys);
           return -1;
         }
         if (cmp) {
@@ -4092,7 +4070,7 @@ list_heapsort_with_cached_keys(PyListObject *listobj, int sort_is_max, PyObject 
         Py_DECREF(item);
         Py_DECREF(key);
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-        PyMem_Free(keys);
+        if (keys_on_heap) PyMem_Free(keys);
         PyErr_SetString(PyExc_ValueError, "list modified during sort");
         return -1;
       }
@@ -4100,7 +4078,7 @@ list_heapsort_with_cached_keys(PyListObject *listobj, int sort_is_max, PyObject 
         Py_DECREF(item);
         Py_DECREF(key);
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-        PyMem_Free(keys);
+        if (keys_on_heap) PyMem_Free(keys);
         return -1;
       }
       if (!should_swap) break;
@@ -4122,7 +4100,7 @@ list_heapsort_with_cached_keys(PyListObject *listobj, int sort_is_max, PyObject 
   
   /* Cleanup */
   for (Py_ssize_t i = 0; i < n; i++) Py_DECREF(keys[i]);
-  PyMem_Free(keys);
+  if (keys_on_heap) PyMem_Free(keys);
   return 0;
 }
 
