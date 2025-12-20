@@ -2053,6 +2053,7 @@ list_sift_up_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, int
 /* Ultra-optimized sift down for lists without key functions */
 HOT_FUNCTION static inline int
 list_sift_down_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, Py_ssize_t n, int is_max, Py_ssize_t arity) {
+  Py_ssize_t list_size = PyList_GET_SIZE(listobj);
   /* REFRESH POINTER */
   PyObject **items = listobj->ob_item;
   PyObject *item = items[pos];
@@ -2075,7 +2076,7 @@ list_sift_down_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, Py_ssize_t
     for (Py_ssize_t j = child + 1; j < last; j++) {
       int better = optimized_compare(items[j], best_item, is_max ? Py_GT : Py_LT);
       /* SAFETY CHECK */
-      if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+      if (unlikely(PyList_GET_SIZE(listobj) != list_size)) {
         PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
         Py_DECREF(item);
         return -1;
@@ -2091,7 +2092,7 @@ list_sift_down_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, Py_ssize_t
     
     int should_swap = optimized_compare(best_item, item, is_max ? Py_GT : Py_LT);
     /* SAFETY CHECK */
-    if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+    if (unlikely(PyList_GET_SIZE(listobj) != list_size)) {
       PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
       Py_DECREF(item);
       return -1;
@@ -2115,6 +2116,7 @@ list_sift_down_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, Py_ssize_t
 /* Ultra-optimized sift down with key function for lists */
 HOT_FUNCTION static inline int
 list_sift_down_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, Py_ssize_t n, int is_max, PyObject *keyfunc, Py_ssize_t arity) {
+  Py_ssize_t list_size = PyList_GET_SIZE(listobj);
   /* REFRESH POINTER */
   PyObject **items = listobj->ob_item;
   PyObject *item = items[pos];
@@ -2122,7 +2124,7 @@ list_sift_down_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, P
   PyObject *key = call_key_function(keyfunc, item);
   if (unlikely(!key)) { Py_DECREF(item); return -1; }
   /* SAFETY CHECK */
-  if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+  if (unlikely(PyList_GET_SIZE(listobj) != list_size)) {
     PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
     Py_DECREF(item);
     Py_DECREF(key);
@@ -2140,7 +2142,7 @@ list_sift_down_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, P
     PyObject *best_key = call_key_function(keyfunc, best_item);
     if (unlikely(!best_key)) { Py_DECREF(item); Py_DECREF(key); return -1; }
     /* SAFETY CHECK */
-    if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+    if (unlikely(PyList_GET_SIZE(listobj) != list_size)) {
       PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
       Py_DECREF(item);
       Py_DECREF(key);
@@ -2157,7 +2159,7 @@ list_sift_down_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, P
       PyObject *cur_key = call_key_function(keyfunc, items[j]);
       if (unlikely(!cur_key)) { Py_DECREF(item); Py_DECREF(key); Py_DECREF(best_key); return -1; }
       /* SAFETY CHECK */
-      if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+      if (unlikely(PyList_GET_SIZE(listobj) != list_size)) {
         PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
         Py_DECREF(item);
         Py_DECREF(key);
@@ -2168,7 +2170,7 @@ list_sift_down_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, P
       
       int better = optimized_compare(cur_key, best_key, is_max ? Py_GT : Py_LT);
       /* SAFETY CHECK */
-      if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+      if (unlikely(PyList_GET_SIZE(listobj) != list_size)) {
         PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
         Py_DECREF(item);
         Py_DECREF(key);
@@ -2193,7 +2195,7 @@ list_sift_down_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, P
     int should_swap = optimized_compare(best_key, key, is_max ? Py_GT : Py_LT);
     Py_DECREF(best_key);
     /* SAFETY CHECK */
-    if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+    if (unlikely(PyList_GET_SIZE(listobj) != list_size)) {
       PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
       Py_DECREF(item);
       Py_DECREF(key);
