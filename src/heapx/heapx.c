@@ -543,6 +543,7 @@ list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
         
         int cmp = optimized_compare(rightobj, bestobj, is_max ? Py_GT : Py_LT);
         
+        /* SAFETY CHECK - must check BEFORE any further access */
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
           PyErr_SetString(PyExc_ValueError, "list modified during heapify");
           Py_DECREF(rightobj);
@@ -550,7 +551,6 @@ list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
           Py_DECREF(newitem);
           return -1;
         }
-        items = listobj->ob_item;
 
         if (unlikely(cmp < 0)) {
           Py_DECREF(rightobj);
@@ -570,13 +570,13 @@ list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
       /* Check if we need to swap */
       int need_swap = optimized_compare(bestobj, newitem, is_max ? Py_GT : Py_LT);
       
+      /* SAFETY CHECK - must check BEFORE any further access */
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         PyErr_SetString(PyExc_ValueError, "list modified during heapify");
         Py_DECREF(bestobj);
         Py_DECREF(newitem);
         return -1;
       }
-      items = listobj->ob_item;
       
       if (unlikely(need_swap < 0)) {
         Py_DECREF(bestobj);
@@ -589,7 +589,12 @@ list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
         break;
       }
 
-      items[pos] = items[best];
+      /* REFRESH pointer after comparisons and move element */
+      items = listobj->ob_item;
+      PyObject *moved = items[best];
+      Py_INCREF(moved);
+      Py_DECREF(items[pos]);
+      items[pos] = moved;
       pos = best;
       Py_DECREF(bestobj);
     }
@@ -601,8 +606,8 @@ list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
       return -1;
     }
     items = listobj->ob_item;
+    Py_DECREF(items[pos]);
     items[pos] = newitem;
-    Py_DECREF(newitem);
   }
   return 0;
 }
@@ -1347,54 +1352,96 @@ list_heapify_small_ultra_optimized(PyListObject *listobj, int is_max, Py_ssize_t
   return 0;
 }
 
-/* Arity-1 heapify: O(N log N) using Python's Timsort instead of O(N²) bubble sort */
+/* Arity-1 heapify: O(N log N) using decorate-sort-undecorate pattern */
 static int
 heapify_arity_one_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp)
 {
   Py_ssize_t n = PySequence_Size(heap);
   if (unlikely(n <= 1)) return 0;
 
-  /* For lists, use PyList_Sort which is O(N log N) Timsort */
+  /* For lists, use O(N log N) sort */
   if (likely(PyList_CheckExact(heap))) {
-    int rc;
     if (cmp && cmp != Py_None) {
-      /* Sort with key function */
-      rc = PyList_Sort(heap);
-      if (unlikely(rc < 0)) return -1;
+      /* Decorate-sort-undecorate pattern to detect modification during key computation */
       
-      /* PyList_Sort doesn't support key directly, so we need a different approach:
-       * Use the decorate-sort-undecorate pattern or call sorted() with key */
-      /* Actually, we need to re-sort with key. Use Python's sorted() builtin */
-      PyObject *sorted_func = PyObject_GetAttrString((PyObject *)&PyList_Type, "sort");
-      if (unlikely(!sorted_func)) return -1;
+      /* Phase 1: Compute all keys, checking for modification after each */
+      PyObject *decorated = PyList_New(n);
+      if (unlikely(!decorated)) return -1;
       
-      PyObject *kwargs = PyDict_New();
-      if (unlikely(!kwargs)) { Py_DECREF(sorted_func); return -1; }
+      for (Py_ssize_t i = 0; i < n; i++) {
+        /* SAFETY CHECK */
+        if (unlikely(PyList_GET_SIZE(heap) != n)) {
+          Py_DECREF(decorated);
+          PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+          return -1;
+        }
+        
+        PyObject *item = PyList_GET_ITEM(heap, i);
+        PyObject *key = call_key_function(cmp, item);
+        if (unlikely(!key)) {
+          Py_DECREF(decorated);
+          return -1;
+        }
+        
+        /* SAFETY CHECK after key function call */
+        if (unlikely(PyList_GET_SIZE(heap) != n)) {
+          Py_DECREF(key);
+          Py_DECREF(decorated);
+          PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+          return -1;
+        }
+        
+        /* Create (key, index, item) tuple for stable sort */
+        PyObject *idx = PyLong_FromSsize_t(i);
+        if (unlikely(!idx)) {
+          Py_DECREF(key);
+          Py_DECREF(decorated);
+          return -1;
+        }
+        
+        Py_INCREF(item);
+        PyObject *tuple = PyTuple_Pack(3, key, idx, item);
+        Py_DECREF(key);
+        Py_DECREF(idx);
+        if (unlikely(!tuple)) {
+          Py_DECREF(item);
+          Py_DECREF(decorated);
+          return -1;
+        }
+        
+        PyList_SET_ITEM(decorated, i, tuple);
+      }
       
-      if (unlikely(PyDict_SetItemString(kwargs, "key", cmp) < 0)) {
-        Py_DECREF(kwargs); Py_DECREF(sorted_func);
+      /* Phase 2: Sort decorated list by key (O(N log N)) */
+      int rc = PyList_Sort(decorated);
+      if (unlikely(rc < 0)) {
+        Py_DECREF(decorated);
         return -1;
       }
+      
+      /* Reverse if max-heap */
       if (is_max) {
-        if (unlikely(PyDict_SetItemString(kwargs, "reverse", Py_True) < 0)) {
-          Py_DECREF(kwargs); Py_DECREF(sorted_func);
+        rc = PyList_Reverse(decorated);
+        if (unlikely(rc < 0)) {
+          Py_DECREF(decorated);
           return -1;
         }
       }
       
-      PyObject *args = PyTuple_New(0);
-      if (unlikely(!args)) { Py_DECREF(kwargs); Py_DECREF(sorted_func); return -1; }
+      /* Phase 3: Undecorate - extract items back to heap */
+      for (Py_ssize_t i = 0; i < n; i++) {
+        PyObject *tuple = PyList_GET_ITEM(decorated, i);
+        PyObject *item = PyTuple_GET_ITEM(tuple, 2);
+        Py_INCREF(item);
+        PyObject *old = PyList_GET_ITEM(heap, i);
+        PyList_SET_ITEM(heap, i, item);
+        Py_DECREF(old);
+      }
       
-      PyObject *result = PyObject_Call(PyObject_GetAttrString(heap, "sort"), args, kwargs);
-      Py_DECREF(args);
-      Py_DECREF(kwargs);
-      Py_DECREF(sorted_func);
-      
-      if (unlikely(!result)) return -1;
-      Py_DECREF(result);
+      Py_DECREF(decorated);
     } else {
       /* No key function - direct sort */
-      rc = PyList_Sort(heap);
+      int rc = PyList_Sort(heap);
       if (unlikely(rc < 0)) return -1;
       
       /* Reverse if max-heap (sorted list for max-heap is descending) */
