@@ -382,7 +382,49 @@ detect_homogeneous_type(PyObject **items, Py_ssize_t n) {
   return all_long ? 1 : 2; /* 1=integers, 2=floats */
 }
 
-/* Step 2: Specialized heapify for homogeneous integer arrays */
+/* Step 2: Specialized heapify for homogeneous float arrays */
+HOT_FUNCTION static int
+list_heapify_homogeneous_float(PyListObject *listobj, int is_max)
+{
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  if (unlikely(n <= 1)) return 0;
+
+  PyObject **items = listobj->ob_item;
+  double *values = (double *)PyMem_Malloc(sizeof(double) * (size_t)n);
+  if (unlikely(!values)) {
+    PyErr_NoMemory();
+    return -1;
+  }
+
+  for (Py_ssize_t i = 0; i < n; i++) {
+    values[i] = PyFloat_AS_DOUBLE(items[i]);
+  }
+
+  for (Py_ssize_t i = (n - 2) >> 1; i >= 0; i--) {
+    Py_ssize_t pos = i;
+    double val = values[pos];
+    PyObject *obj = items[pos];
+    while (1) {
+      Py_ssize_t child = (pos << 1) + 1;
+      if (child >= n) break;
+      if (child + 1 < n) {
+        if (is_max ? (values[child + 1] > values[child]) : (values[child + 1] < values[child]))
+          child++;
+      }
+      if (is_max ? (val >= values[child]) : (val <= values[child])) break;
+      values[pos] = values[child];
+      items[pos] = items[child];
+      pos = child;
+    }
+    values[pos] = val;
+    items[pos] = obj;
+  }
+  PyMem_Free(values);
+  return 0;
+}
+
+/* Step 3: Specialized heapify for homogeneous integer arrays */
+/* Returns: 0 = success, -1 = error, 2 = overflow (fallback to generic) */
 HOT_FUNCTION static int
 list_heapify_homogeneous_int(PyListObject *listobj, int is_max)
 {
@@ -398,9 +440,15 @@ list_heapify_homogeneous_int(PyListObject *listobj, int is_max)
     return -1;
   }
   
-  /* Convert Python ints to C longs */
+  /* Convert Python ints to C longs with overflow check */
   for (Py_ssize_t i = 0; i < n; i++) {
-    values[i] = PyLong_AsLong(items[i]);
+    int overflow = 0;
+    values[i] = PyLong_AsLongAndOverflow(items[i], &overflow);
+    if (unlikely(overflow != 0)) {
+      /* Large integer detected - fallback to generic path */
+      PyMem_Free(values);
+      return 2;
+    }
     if (unlikely(values[i] == -1 && PyErr_Occurred())) {
       PyMem_Free(values);
       return -1;
@@ -1582,11 +1630,17 @@ py_heapify(PyObject *self, PyObject *args, PyObject *kwargs)
   if (likely(PyList_CheckExact(heap))) {
     PyListObject *listobj = (PyListObject *)heap;
     
-    /* Step 2: Check for homogeneous integer array optimization */
+    /* Check for homogeneous array optimization (integers or floats) */
     if (likely(cmp == Py_None && arity == 2 && n >= 8)) {
       int homogeneous = detect_homogeneous_type(listobj->ob_item, n);
       if (homogeneous == 1) {  /* 1 = all integers */
         rc = list_heapify_homogeneous_int(listobj, is_max);
+        if (rc == 0) Py_RETURN_NONE;
+        /* rc == 2 means overflow, fall through to generic path */
+        /* rc == -1 means error, also fall through */
+        if (rc == -1) PyErr_Clear();
+      } else if (homogeneous == 2) {  /* 2 = all floats */
+        rc = list_heapify_homogeneous_float(listobj, is_max);
         if (rc == 0) Py_RETURN_NONE;
         /* Fall through to generic path on error */
         PyErr_Clear();
