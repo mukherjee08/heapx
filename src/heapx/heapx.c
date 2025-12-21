@@ -1347,86 +1347,88 @@ list_heapify_small_ultra_optimized(PyListObject *listobj, int is_max, Py_ssize_t
   return 0;
 }
 
+/* Arity-1 heapify: O(N log N) using Python's Timsort instead of O(N²) bubble sort */
 static int
 heapify_arity_one_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp)
 {
   Py_ssize_t n = PySequence_Size(heap);
   if (unlikely(n <= 1)) return 0;
 
-  for (Py_ssize_t i = n - 2; i >= 0; i--) {
-    /* SAFETY CHECK */
-    if (unlikely(PySequence_Size(heap) != n)) {
-      PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+  /* For lists, use PyList_Sort which is O(N log N) Timsort */
+  if (likely(PyList_CheckExact(heap))) {
+    int rc;
+    if (cmp && cmp != Py_None) {
+      /* Sort with key function */
+      rc = PyList_Sort(heap);
+      if (unlikely(rc < 0)) return -1;
+      
+      /* PyList_Sort doesn't support key directly, so we need a different approach:
+       * Use the decorate-sort-undecorate pattern or call sorted() with key */
+      /* Actually, we need to re-sort with key. Use Python's sorted() builtin */
+      PyObject *sorted_func = PyObject_GetAttrString((PyObject *)&PyList_Type, "sort");
+      if (unlikely(!sorted_func)) return -1;
+      
+      PyObject *kwargs = PyDict_New();
+      if (unlikely(!kwargs)) { Py_DECREF(sorted_func); return -1; }
+      
+      if (unlikely(PyDict_SetItemString(kwargs, "key", cmp) < 0)) {
+        Py_DECREF(kwargs); Py_DECREF(sorted_func);
+        return -1;
+      }
+      if (is_max) {
+        if (unlikely(PyDict_SetItemString(kwargs, "reverse", Py_True) < 0)) {
+          Py_DECREF(kwargs); Py_DECREF(sorted_func);
+          return -1;
+        }
+      }
+      
+      PyObject *args = PyTuple_New(0);
+      if (unlikely(!args)) { Py_DECREF(kwargs); Py_DECREF(sorted_func); return -1; }
+      
+      PyObject *result = PyObject_Call(PyObject_GetAttrString(heap, "sort"), args, kwargs);
+      Py_DECREF(args);
+      Py_DECREF(kwargs);
+      Py_DECREF(sorted_func);
+      
+      if (unlikely(!result)) return -1;
+      Py_DECREF(result);
+    } else {
+      /* No key function - direct sort */
+      rc = PyList_Sort(heap);
+      if (unlikely(rc < 0)) return -1;
+      
+      /* Reverse if max-heap (sorted list for max-heap is descending) */
+      if (is_max) {
+        rc = PyList_Reverse(heap);
+        if (unlikely(rc < 0)) return -1;
+      }
+    }
+    return 0;
+  }
+  
+  /* For non-list sequences, convert to list, sort, copy back */
+  PyObject *list_copy = PySequence_List(heap);
+  if (unlikely(!list_copy)) return -1;
+  
+  int rc = heapify_arity_one_ultra_optimized(list_copy, is_max, cmp);
+  if (unlikely(rc < 0)) {
+    Py_DECREF(list_copy);
+    return -1;
+  }
+  
+  /* Copy sorted elements back */
+  Py_ssize_t len = PyList_GET_SIZE(list_copy);
+  for (Py_ssize_t i = 0; i < len; i++) {
+    PyObject *item = PyList_GET_ITEM(list_copy, i);
+    Py_INCREF(item);
+    if (unlikely(PySequence_SetItem(heap, i, item) < 0)) {
+      Py_DECREF(item);
+      Py_DECREF(list_copy);
       return -1;
     }
-    
-    Py_ssize_t pos = i;
-    
-    while (1) {
-      Py_ssize_t child = pos + 1;
-      if (unlikely(child >= n)) break;
-
-      /* SAFETY CHECK */
-      if (unlikely(PySequence_Size(heap) != n)) {
-        PyErr_SetString(PyExc_ValueError, "list modified during heapify");
-        return -1;
-      }
-
-      PyObject *parent = PySequence_GetItem(heap, pos);
-      if (unlikely(!parent)) return -1;
-      
-      PyObject *childobj = PySequence_GetItem(heap, child);
-      if (unlikely(!childobj)) { Py_DECREF(parent); return -1; }
-
-      PyObject *parentkey, *childkey;
-      if (likely(cmp)) {
-        parentkey = call_key_function(cmp, parent);
-        if (unlikely(!parentkey)) { Py_DECREF(parent); Py_DECREF(childobj); return -1; }
-        /* SAFETY CHECK */
-        if (unlikely(PySequence_Size(heap) != n)) {
-          PyErr_SetString(PyExc_ValueError, "list modified during heapify");
-          Py_DECREF(parent); Py_DECREF(childobj); Py_DECREF(parentkey);
-          return -1;
-        }
-        childkey = call_key_function(cmp, childobj);
-        if (unlikely(!childkey)) { Py_DECREF(parent); Py_DECREF(childobj); Py_DECREF(parentkey); return -1; }
-        /* SAFETY CHECK */
-        if (unlikely(PySequence_Size(heap) != n)) {
-          PyErr_SetString(PyExc_ValueError, "list modified during heapify");
-          Py_DECREF(parent); Py_DECREF(childobj); Py_DECREF(parentkey); Py_DECREF(childkey);
-          return -1;
-        }
-      } else {
-        parentkey = parent;
-        childkey = childobj;
-        Py_INCREF(parentkey);
-        Py_INCREF(childkey);
-      }
-
-      int done = optimized_compare(parentkey, childkey, is_max ? Py_GE : Py_LE);
-      /* SAFETY CHECK */
-      if (unlikely(PySequence_Size(heap) != n)) {
-        PyErr_SetString(PyExc_ValueError, "list modified during heapify");
-        Py_DECREF(parentkey); Py_DECREF(childkey); Py_DECREF(parent); Py_DECREF(childobj);
-        return -1;
-      }
-      Py_DECREF(parentkey);
-      Py_DECREF(childkey);
-      
-      if (unlikely(done < 0)) { Py_DECREF(parent); Py_DECREF(childobj); return -1; }
-      if (done) { Py_DECREF(parent); Py_DECREF(childobj); break; }
-
-      if (unlikely(PySequence_SetItem(heap, pos, childobj) < 0 || 
-                   PySequence_SetItem(heap, child, parent) < 0)) {
-        Py_DECREF(parent); Py_DECREF(childobj);
-        return -1;
-      }
-      
-      Py_DECREF(parent);
-      Py_DECREF(childobj);
-      pos = child;
-    }
   }
+  
+  Py_DECREF(list_copy);
   return 0;
 }
 
@@ -4271,41 +4273,76 @@ py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
     return work_heap;
   }
   
-  /* Priority 2: Arity=1 (sorted list) - Sort first if needed, then reverse if requested */
+  /* Priority 2: Arity=1 (sorted list) - Use O(N log N) Timsort */
   if (unlikely(arity == 1)) {
-    if (PyList_CheckExact(work_heap) && keyfunc == NULL) {
-      /* Use insertion sort to ensure sorted order */
-      PyListObject *listobj = (PyListObject *)work_heap;
-      PyObject **items = listobj->ob_item;
-      
-      for (Py_ssize_t i = 1; i < n; i++) {
-        PyObject *key = items[i];
-        Py_INCREF(key);
-        Py_ssize_t j = i - 1;
-        while (j >= 0) {
-          int cmp_res = optimized_compare(items[j], key, Py_GT);
-          if (unlikely(cmp_res < 0)) {
-            Py_DECREF(key);
-            Py_DECREF(work_heap);
-            return NULL;
-          }
-          if (!cmp_res) break;
-          Py_INCREF(items[j]);
-          Py_SETREF(items[j + 1], items[j]);
-          j--;
-        }
-        Py_SETREF(items[j + 1], key);
-      }
-      
-      /* Now reverse if needed */
-      if (reverse) {
-        if (unlikely(PyList_Reverse(work_heap) < 0)) {
+    if (PyList_CheckExact(work_heap)) {
+      /* Use PyList_Sort for O(N log N) performance */
+      if (keyfunc != NULL) {
+        /* Sort with key function using list.sort(key=..., reverse=...) */
+        PyObject *sort_method = PyObject_GetAttrString(work_heap, "sort");
+        if (unlikely(!sort_method)) {
           Py_DECREF(work_heap);
           return NULL;
         }
+        
+        PyObject *kwargs = PyDict_New();
+        if (unlikely(!kwargs)) {
+          Py_DECREF(sort_method);
+          Py_DECREF(work_heap);
+          return NULL;
+        }
+        
+        if (unlikely(PyDict_SetItemString(kwargs, "key", keyfunc) < 0)) {
+          Py_DECREF(kwargs);
+          Py_DECREF(sort_method);
+          Py_DECREF(work_heap);
+          return NULL;
+        }
+        
+        if (reverse) {
+          if (unlikely(PyDict_SetItemString(kwargs, "reverse", Py_True) < 0)) {
+            Py_DECREF(kwargs);
+            Py_DECREF(sort_method);
+            Py_DECREF(work_heap);
+            return NULL;
+          }
+        }
+        
+        PyObject *args = PyTuple_New(0);
+        if (unlikely(!args)) {
+          Py_DECREF(kwargs);
+          Py_DECREF(sort_method);
+          Py_DECREF(work_heap);
+          return NULL;
+        }
+        
+        PyObject *result = PyObject_Call(sort_method, args, kwargs);
+        Py_DECREF(args);
+        Py_DECREF(kwargs);
+        Py_DECREF(sort_method);
+        
+        if (unlikely(!result)) {
+          Py_DECREF(work_heap);
+          return NULL;
+        }
+        Py_DECREF(result);
+      } else {
+        /* No key function - direct sort */
+        if (unlikely(PyList_Sort(work_heap) < 0)) {
+          Py_DECREF(work_heap);
+          return NULL;
+        }
+        
+        /* Reverse if needed */
+        if (reverse) {
+          if (unlikely(PyList_Reverse(work_heap) < 0)) {
+            Py_DECREF(work_heap);
+            return NULL;
+          }
+        }
       }
     } else {
-      /* Generic sequence or with key - use heapify approach */
+      /* Generic sequence - use heapify approach (now O(N log N)) */
       if (unlikely(generic_heapify_ultra_optimized(work_heap, reverse ? 0 : 1, keyfunc, 1) < 0)) {
         Py_DECREF(work_heap);
         return NULL;
@@ -5698,10 +5735,11 @@ py_merge(PyObject *self, PyObject *args, PyObject *kwargs) {
     }
   }
 
-  /* If sorted_heaps=True, result is already a valid heap, return immediately */
-  if (sorted_heaps) {
-    return result;
-  }
+  /* NOTE: sorted_heaps parameter is deprecated and ignored.
+   * Concatenating valid heaps does NOT produce a valid heap.
+   * e.g., [2, 10] + [1, 20] = [2, 10, 1, 20] where root 2 > child 1 violates heap property.
+   * We must always heapify the concatenated result. */
+  (void)sorted_heaps;  /* Suppress unused variable warning */
 
   /* ========== 11-PRIORITY HEAPIFY DISPATCH ========== */
   
@@ -5731,59 +5769,71 @@ py_merge(PyObject *self, PyObject *args, PyObject *kwargs) {
     return result;
   }
   
-  /* Priority 2: Arity=1 (sorted list) */
+  /* Priority 2: Arity=1 (sorted list) - Use O(N log N) Timsort */
   if (unlikely(arity == 1)) {
-    PyObject **items = result_list->ob_item;
-    for (Py_ssize_t i = 1; i < total_size; i++) {
-      PyObject *key = items[i];
-      Py_INCREF(key);
-      Py_ssize_t j = i - 1;
+    if (keyfunc) {
+      /* Sort with key function using list.sort(key=..., reverse=...) */
+      PyObject *sort_method = PyObject_GetAttrString(result, "sort");
+      if (unlikely(!sort_method)) {
+        Py_DECREF(result);
+        return NULL;
+      }
       
-      if (keyfunc) {
-        PyObject *key_val = call_key_function(keyfunc, key);
-        if (unlikely(!key_val)) {
-          Py_DECREF(key);
+      PyObject *kwargs = PyDict_New();
+      if (unlikely(!kwargs)) {
+        Py_DECREF(sort_method);
+        Py_DECREF(result);
+        return NULL;
+      }
+      
+      if (unlikely(PyDict_SetItemString(kwargs, "key", keyfunc) < 0)) {
+        Py_DECREF(kwargs);
+        Py_DECREF(sort_method);
+        Py_DECREF(result);
+        return NULL;
+      }
+      
+      if (is_max) {
+        if (unlikely(PyDict_SetItemString(kwargs, "reverse", Py_True) < 0)) {
+          Py_DECREF(kwargs);
+          Py_DECREF(sort_method);
           Py_DECREF(result);
           return NULL;
         }
-        
-        while (j >= 0) {
-          PyObject *j_key = call_key_function(keyfunc, items[j]);
-          if (unlikely(!j_key)) {
-            Py_DECREF(key);
-            Py_DECREF(key_val);
-            Py_DECREF(result);
-            return NULL;
-          }
-          int cmp_res = optimized_compare(key_val, j_key, is_max ? Py_GT : Py_LT);
-          Py_DECREF(j_key);
-          if (unlikely(cmp_res < 0)) {
-            Py_DECREF(key);
-            Py_DECREF(key_val);
-            Py_DECREF(result);
-            return NULL;
-          }
-          if (!cmp_res) break;
-          Py_INCREF(items[j]);
-          Py_SETREF(items[j + 1], items[j]);
-          j--;
-        }
-        Py_DECREF(key_val);
-      } else {
-        while (j >= 0) {
-          int cmp_res = optimized_compare(key, items[j], is_max ? Py_GT : Py_LT);
-          if (unlikely(cmp_res < 0)) {
-            Py_DECREF(key);
-            Py_DECREF(result);
-            return NULL;
-          }
-          if (!cmp_res) break;
-          Py_INCREF(items[j]);
-          Py_SETREF(items[j + 1], items[j]);
-          j--;
+      }
+      
+      PyObject *args = PyTuple_New(0);
+      if (unlikely(!args)) {
+        Py_DECREF(kwargs);
+        Py_DECREF(sort_method);
+        Py_DECREF(result);
+        return NULL;
+      }
+      
+      PyObject *sort_result = PyObject_Call(sort_method, args, kwargs);
+      Py_DECREF(args);
+      Py_DECREF(kwargs);
+      Py_DECREF(sort_method);
+      
+      if (unlikely(!sort_result)) {
+        Py_DECREF(result);
+        return NULL;
+      }
+      Py_DECREF(sort_result);
+    } else {
+      /* No key function - direct sort */
+      if (unlikely(PyList_Sort(result) < 0)) {
+        Py_DECREF(result);
+        return NULL;
+      }
+      
+      /* Reverse if max-heap */
+      if (is_max) {
+        if (unlikely(PyList_Reverse(result) < 0)) {
+          Py_DECREF(result);
+          return NULL;
         }
       }
-      Py_SETREF(items[j + 1], key);
     }
     return result;
   }
