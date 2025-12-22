@@ -80,6 +80,72 @@ python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtu
   #define ARCH_ARM64 1
 #endif
 
+/* ============================================================================
+ * SIMD Detection and Intrinsics
+ * ============================================================================
+ * Provides hardware-accelerated operations for homogeneous numeric arrays.
+ * Falls back to scalar operations on unsupported platforms.
+ */
+
+/* SIMD capability detection */
+#if defined(__AVX__)
+  #define HEAPX_HAS_AVX 1
+  #include <immintrin.h>
+#endif
+
+#if defined(__AVX2__)
+  #define HEAPX_HAS_AVX2 1
+  #ifndef HEAPX_HAS_AVX
+    #include <immintrin.h>
+  #endif
+#endif
+
+#if defined(__SSE2__)
+  #define HEAPX_HAS_SSE2 1
+  #ifndef HEAPX_HAS_AVX
+    #include <emmintrin.h>
+  #endif
+#endif
+
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+  #define HEAPX_HAS_NEON 1
+  #include <arm_neon.h>
+#endif
+
+/* Windows MSVC SIMD detection */
+#if defined(_MSC_VER) && !defined(HEAPX_HAS_AVX)
+  #if defined(__AVX__) || defined(_M_X64)
+    #define HEAPX_HAS_SSE2 1
+    #include <intrin.h>
+  #endif
+#endif
+
+/* Restrict qualifier for pointer aliasing optimization */
+#if defined(__GNUC__) || defined(__clang__)
+  #define HEAPX_RESTRICT __restrict__
+#elif defined(_MSC_VER)
+  #define HEAPX_RESTRICT __restrict
+#else
+  #define HEAPX_RESTRICT
+#endif
+
+/* OpenMP SIMD hints for auto-vectorization */
+#if defined(_OPENMP) && _OPENMP >= 201307
+  #define HEAPX_PRAGMA_SIMD _Pragma("omp simd")
+  #define HEAPX_PRAGMA_SIMD_REDUCTION(op, var) _Pragma("omp simd reduction(" #op ":" #var ")")
+#elif defined(__clang__)
+  #define HEAPX_PRAGMA_SIMD _Pragma("clang loop vectorize(enable)")
+  #define HEAPX_PRAGMA_SIMD_REDUCTION(op, var) _Pragma("clang loop vectorize(enable)")
+#elif defined(__GNUC__) && defined(GCC_VERSION) && GCC_VERSION >= 40900
+  #define HEAPX_PRAGMA_SIMD _Pragma("GCC ivdep")
+  #define HEAPX_PRAGMA_SIMD_REDUCTION(op, var) _Pragma("GCC ivdep")
+#else
+  #define HEAPX_PRAGMA_SIMD
+  #define HEAPX_PRAGMA_SIMD_REDUCTION(op, var)
+#endif
+
+/* Note: SIMD helper functions are defined after FORCE_INLINE macro below */
+
 /* Optimization macros with enhanced compiler support */
 #define PyList_GET_ITEM_FAST(op, i) (((PyListObject *)(op))->ob_item[i])
 #define PyList_SET_ITEM_FAST(op, i, v) (((PyListObject *)(op))->ob_item[i] = v)
@@ -91,9 +157,9 @@ python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtu
   #define FORCE_INLINE __attribute__((always_inline)) inline
   #define HOT_FUNCTION __attribute__((hot))
   #define COLD_FUNCTION __attribute__((cold))
-  #if defined(COMPILER_GCC) && GCC_VERSION >= 40900
+  #if defined(COMPILER_GCC) && defined(GCC_VERSION) && GCC_VERSION >= 40900
     #define ASSUME_ALIGNED(ptr, align) __builtin_assume_aligned((ptr), (align))
-  #elif defined(COMPILER_CLANG) && CLANG_VERSION >= 30600
+  #elif defined(COMPILER_CLANG) && defined(CLANG_VERSION) && CLANG_VERSION >= 30600
     #define ASSUME_ALIGNED(ptr, align) __builtin_assume_aligned((ptr), (align))
   #else
     #define ASSUME_ALIGNED(ptr, align) (ptr)
@@ -126,6 +192,194 @@ python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtu
 
 /* Thread-safe stack buffer size for key arrays */
 #define KEY_STACK_SIZE 128
+
+/* ============================================================================
+ * SIMD Helper Functions for Quaternary Heap Operations
+ * ============================================================================
+ * These functions find the index of the min/max value among 4 doubles.
+ * Uses AVX/SSE2/NEON intrinsics when available, falls back to scalar.
+ */
+
+#if defined(HEAPX_HAS_AVX)
+/* AVX implementation - processes all 4 doubles in parallel */
+static FORCE_INLINE Py_ssize_t
+simd_find_min_index_4_doubles(const double * HEAPX_RESTRICT values) {
+  __m256d v = _mm256_loadu_pd(values);
+  __m256d v_shuffled = _mm256_permute_pd(v, 0x05);
+  __m256d cmp1 = _mm256_cmp_pd(v, v_shuffled, _CMP_LE_OQ);
+  int mask = _mm256_movemask_pd(cmp1);
+  
+  double min01 = (mask & 1) ? values[0] : values[1];
+  double min23 = (mask & 4) ? values[2] : values[3];
+  Py_ssize_t idx01 = (mask & 1) ? 0 : 1;
+  Py_ssize_t idx23 = (mask & 4) ? 2 : 3;
+  
+  return (min01 <= min23) ? idx01 : idx23;
+}
+
+static FORCE_INLINE Py_ssize_t
+simd_find_max_index_4_doubles(const double * HEAPX_RESTRICT values) {
+  __m256d v = _mm256_loadu_pd(values);
+  __m256d v_shuffled = _mm256_permute_pd(v, 0x05);
+  __m256d cmp1 = _mm256_cmp_pd(v, v_shuffled, _CMP_GE_OQ);
+  int mask = _mm256_movemask_pd(cmp1);
+  
+  double max01 = (mask & 1) ? values[0] : values[1];
+  double max23 = (mask & 4) ? values[2] : values[3];
+  Py_ssize_t idx01 = (mask & 1) ? 0 : 1;
+  Py_ssize_t idx23 = (mask & 4) ? 2 : 3;
+  
+  return (max01 >= max23) ? idx01 : idx23;
+}
+
+#elif defined(HEAPX_HAS_SSE2)
+/* SSE2 implementation - processes 2 doubles at a time */
+static FORCE_INLINE Py_ssize_t
+simd_find_min_index_4_doubles(const double * HEAPX_RESTRICT values) {
+  __m128d v01 = _mm_loadu_pd(values);
+  __m128d v23 = _mm_loadu_pd(values + 2);
+  
+  __m128d v01_swap = _mm_shuffle_pd(v01, v01, 1);
+  __m128d cmp01 = _mm_cmple_pd(v01, v01_swap);
+  int mask01 = _mm_movemask_pd(cmp01);
+  Py_ssize_t idx01 = (mask01 & 1) ? 0 : 1;
+  double min01 = values[idx01];
+  
+  __m128d v23_swap = _mm_shuffle_pd(v23, v23, 1);
+  __m128d cmp23 = _mm_cmple_pd(v23, v23_swap);
+  int mask23 = _mm_movemask_pd(cmp23);
+  Py_ssize_t idx23 = (mask23 & 1) ? 2 : 3;
+  double min23 = values[idx23];
+  
+  return (min01 <= min23) ? idx01 : idx23;
+}
+
+static FORCE_INLINE Py_ssize_t
+simd_find_max_index_4_doubles(const double * HEAPX_RESTRICT values) {
+  __m128d v01 = _mm_loadu_pd(values);
+  __m128d v23 = _mm_loadu_pd(values + 2);
+  
+  __m128d v01_swap = _mm_shuffle_pd(v01, v01, 1);
+  __m128d cmp01 = _mm_cmpge_pd(v01, v01_swap);
+  int mask01 = _mm_movemask_pd(cmp01);
+  Py_ssize_t idx01 = (mask01 & 1) ? 0 : 1;
+  double max01 = values[idx01];
+  
+  __m128d v23_swap = _mm_shuffle_pd(v23, v23, 1);
+  __m128d cmp23 = _mm_cmpge_pd(v23, v23_swap);
+  int mask23 = _mm_movemask_pd(cmp23);
+  Py_ssize_t idx23 = (mask23 & 1) ? 2 : 3;
+  double max23 = values[idx23];
+  
+  return (max01 >= max23) ? idx01 : idx23;
+}
+
+#elif defined(HEAPX_HAS_NEON)
+/* ARM NEON implementation */
+static FORCE_INLINE Py_ssize_t
+simd_find_min_index_4_doubles(const double * HEAPX_RESTRICT values) {
+  double min01 = (values[0] <= values[1]) ? values[0] : values[1];
+  double min23 = (values[2] <= values[3]) ? values[2] : values[3];
+  Py_ssize_t idx01 = (values[0] <= values[1]) ? 0 : 1;
+  Py_ssize_t idx23 = (values[2] <= values[3]) ? 2 : 3;
+  return (min01 <= min23) ? idx01 : idx23;
+}
+
+static FORCE_INLINE Py_ssize_t
+simd_find_max_index_4_doubles(const double * HEAPX_RESTRICT values) {
+  double max01 = (values[0] >= values[1]) ? values[0] : values[1];
+  double max23 = (values[2] >= values[3]) ? values[2] : values[3];
+  Py_ssize_t idx01 = (values[0] >= values[1]) ? 0 : 1;
+  Py_ssize_t idx23 = (values[2] >= values[3]) ? 2 : 3;
+  return (max01 >= max23) ? idx01 : idx23;
+}
+
+#else
+/* Scalar fallback for platforms without SIMD */
+static FORCE_INLINE Py_ssize_t
+simd_find_min_index_4_doubles(const double * HEAPX_RESTRICT values) {
+  Py_ssize_t best = 0;
+  double best_val = values[0];
+  for (Py_ssize_t i = 1; i < 4; i++) {
+    if (values[i] < best_val) {
+      best_val = values[i];
+      best = i;
+    }
+  }
+  return best;
+}
+
+static FORCE_INLINE Py_ssize_t
+simd_find_max_index_4_doubles(const double * HEAPX_RESTRICT values) {
+  Py_ssize_t best = 0;
+  double best_val = values[0];
+  for (Py_ssize_t i = 1; i < 4; i++) {
+    if (values[i] > best_val) {
+      best_val = values[i];
+      best = i;
+    }
+  }
+  return best;
+}
+#endif
+
+/* Scalar find best among N children - structured for auto-vectorization */
+static FORCE_INLINE Py_ssize_t
+scalar_find_best_child_float(const double * HEAPX_RESTRICT values, 
+                              Py_ssize_t n_children, int is_max) {
+  if (n_children <= 0) return 0;
+  
+  Py_ssize_t best = 0;
+  double best_val = values[0];
+  
+  if (is_max) {
+    HEAPX_PRAGMA_SIMD
+    for (Py_ssize_t i = 1; i < n_children; i++) {
+      if (values[i] > best_val) {
+        best_val = values[i];
+        best = i;
+      }
+    }
+  } else {
+    HEAPX_PRAGMA_SIMD
+    for (Py_ssize_t i = 1; i < n_children; i++) {
+      if (values[i] < best_val) {
+        best_val = values[i];
+        best = i;
+      }
+    }
+  }
+  return best;
+}
+
+/* Integer version for homogeneous int arrays */
+static FORCE_INLINE Py_ssize_t
+scalar_find_best_child_long(const long * HEAPX_RESTRICT values,
+                             Py_ssize_t n_children, int is_max) {
+  if (n_children <= 0) return 0;
+  
+  Py_ssize_t best = 0;
+  long best_val = values[0];
+  
+  if (is_max) {
+    HEAPX_PRAGMA_SIMD
+    for (Py_ssize_t i = 1; i < n_children; i++) {
+      if (values[i] > best_val) {
+        best_val = values[i];
+        best = i;
+      }
+    }
+  } else {
+    HEAPX_PRAGMA_SIMD
+    for (Py_ssize_t i = 1; i < n_children; i++) {
+      if (values[i] < best_val) {
+        best_val = values[i];
+        best = i;
+      }
+    }
+  }
+  return best;
+}
 
 /* Enhanced fast comparison for comprehensive Python type coverage */
 static FORCE_INLINE int
@@ -389,13 +643,15 @@ list_heapify_homogeneous_float(PyListObject *listobj, int is_max)
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   if (unlikely(n <= 1)) return 0;
 
-  PyObject **items = listobj->ob_item;
-  double *values = (double *)PyMem_Malloc(sizeof(double) * (size_t)n);
+  PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
+  double * HEAPX_RESTRICT values = (double *)PyMem_Malloc(sizeof(double) * (size_t)n);
   if (unlikely(!values)) {
     PyErr_NoMemory();
     return -1;
   }
 
+  /* Extract values - structured for auto-vectorization */
+  HEAPX_PRAGMA_SIMD
   for (Py_ssize_t i = 0; i < n; i++) {
     values[i] = PyFloat_AS_DOUBLE(items[i]);
   }
@@ -423,6 +679,144 @@ list_heapify_homogeneous_float(PyListObject *listobj, int is_max)
   return 0;
 }
 
+/* ============================================================================
+ * SIMD-Optimized Quaternary Heap for Homogeneous Float Arrays
+ * ============================================================================
+ * Uses AVX/SSE2/NEON intrinsics to find best child among 4 children in parallel.
+ * Falls back to scalar operations when fewer than 4 children exist.
+ */
+HOT_FUNCTION static int
+list_heapify_quaternary_homogeneous_float(PyListObject *listobj, int is_max)
+{
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  if (unlikely(n <= 1)) return 0;
+
+  PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
+  double * HEAPX_RESTRICT values = (double *)PyMem_Malloc(sizeof(double) * (size_t)n);
+  if (unlikely(!values)) {
+    PyErr_NoMemory();
+    return -1;
+  }
+
+  /* Extract all float values - structured for auto-vectorization */
+  HEAPX_PRAGMA_SIMD
+  for (Py_ssize_t i = 0; i < n; i++) {
+    values[i] = PyFloat_AS_DOUBLE(items[i]);
+  }
+
+  /* Floyd's algorithm for quaternary heap */
+  for (Py_ssize_t i = (n - 2) / 4; i >= 0; i--) {
+    Py_ssize_t pos = i;
+    double val = values[pos];
+    PyObject *obj = items[pos];
+    
+    while (1) {
+      Py_ssize_t first_child = 4 * pos + 1;
+      if (first_child >= n) break;
+      
+      /* Calculate number of children at this node */
+      Py_ssize_t n_children = n - first_child;
+      if (n_children > 4) n_children = 4;
+      
+      Py_ssize_t best_offset;
+      
+      /* Use SIMD when we have exactly 4 children */
+      if (n_children == 4) {
+        best_offset = is_max 
+          ? simd_find_max_index_4_doubles(values + first_child)
+          : simd_find_min_index_4_doubles(values + first_child);
+      } else {
+        /* Scalar fallback for fewer than 4 children */
+        best_offset = scalar_find_best_child_float(values + first_child, n_children, is_max);
+      }
+      
+      Py_ssize_t best = first_child + best_offset;
+      
+      /* Check if heap property is satisfied */
+      int should_stop = is_max 
+        ? (val >= values[best]) 
+        : (val <= values[best]);
+      
+      if (should_stop) break;
+      
+      /* Move best child up */
+      values[pos] = values[best];
+      items[pos] = items[best];
+      pos = best;
+    }
+    
+    values[pos] = val;
+    items[pos] = obj;
+  }
+  
+  PyMem_Free(values);
+  return 0;
+}
+
+/* SIMD-Optimized Quaternary Heap for Homogeneous Integer Arrays */
+HOT_FUNCTION static int
+list_heapify_quaternary_homogeneous_int(PyListObject *listobj, int is_max)
+{
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  if (unlikely(n <= 1)) return 0;
+
+  PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
+  long * HEAPX_RESTRICT values = (long *)PyMem_Malloc(sizeof(long) * (size_t)n);
+  if (unlikely(!values)) {
+    PyErr_NoMemory();
+    return -1;
+  }
+
+  /* Extract all integer values with overflow check */
+  for (Py_ssize_t i = 0; i < n; i++) {
+    int overflow = 0;
+    values[i] = PyLong_AsLongAndOverflow(items[i], &overflow);
+    if (unlikely(overflow != 0)) {
+      PyMem_Free(values);
+      return 2; /* Signal overflow - fallback to generic */
+    }
+    if (unlikely(values[i] == -1 && PyErr_Occurred())) {
+      PyMem_Free(values);
+      return -1;
+    }
+  }
+
+  /* Floyd's algorithm for quaternary heap */
+  for (Py_ssize_t i = (n - 2) / 4; i >= 0; i--) {
+    Py_ssize_t pos = i;
+    long val = values[pos];
+    PyObject *obj = items[pos];
+    
+    while (1) {
+      Py_ssize_t first_child = 4 * pos + 1;
+      if (first_child >= n) break;
+      
+      Py_ssize_t n_children = n - first_child;
+      if (n_children > 4) n_children = 4;
+      
+      /* Find best child using vectorizable scalar loop */
+      Py_ssize_t best_offset = scalar_find_best_child_long(values + first_child, n_children, is_max);
+      Py_ssize_t best = first_child + best_offset;
+      
+      int should_stop = is_max 
+        ? (val >= values[best]) 
+        : (val <= values[best]);
+      
+      if (should_stop) break;
+      
+      values[pos] = values[best];
+      items[pos] = items[best];
+      pos = best;
+    }
+    
+    values[pos] = val;
+    items[pos] = obj;
+  }
+  
+  PyMem_Free(values);
+  return 0;
+}
+
 /* Step 3: Specialized heapify for homogeneous integer arrays */
 /* Returns: 0 = success, -1 = error, 2 = overflow (fallback to generic) */
 HOT_FUNCTION static int
@@ -431,10 +825,10 @@ list_heapify_homogeneous_int(PyListObject *listobj, int is_max)
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   if (unlikely(n <= 1)) return 0;
 
-  PyObject **items = listobj->ob_item;
+  PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
   
   /* Extract integer values into C array for fast comparison */
-  long *values = PyMem_Malloc(sizeof(long) * (size_t)n);
+  long * HEAPX_RESTRICT values = PyMem_Malloc(sizeof(long) * (size_t)n);
   if (unlikely(!values)) {
     PyErr_NoMemory();
     return -1;
@@ -1680,19 +2074,36 @@ py_heapify(PyObject *self, PyObject *args, PyObject *kwargs)
     PyListObject *listobj = (PyListObject *)heap;
     
     /* Check for homogeneous array optimization (integers or floats) */
-    if (likely(cmp == Py_None && arity == 2 && n >= 8)) {
+    if (likely(cmp == Py_None && n >= 8)) {
       int homogeneous = detect_homogeneous_type(listobj->ob_item, n);
-      if (homogeneous == 1) {  /* 1 = all integers */
-        rc = list_heapify_homogeneous_int(listobj, is_max);
-        if (rc == 0) Py_RETURN_NONE;
-        /* rc == 2 means overflow, fall through to generic path */
-        /* rc == -1 means error, also fall through */
-        if (rc == -1) PyErr_Clear();
-      } else if (homogeneous == 2) {  /* 2 = all floats */
-        rc = list_heapify_homogeneous_float(listobj, is_max);
-        if (rc == 0) Py_RETURN_NONE;
-        /* Fall through to generic path on error */
-        PyErr_Clear();
+      
+      /* SIMD-optimized path for quaternary heaps with homogeneous data */
+      if (arity == 4 && homogeneous) {
+        if (homogeneous == 1) {  /* all integers */
+          rc = list_heapify_quaternary_homogeneous_int(listobj, is_max);
+          if (rc == 0) Py_RETURN_NONE;
+          if (rc == -1) PyErr_Clear();
+          /* rc == 2 means overflow, fall through */
+        } else if (homogeneous == 2) {  /* all floats */
+          rc = list_heapify_quaternary_homogeneous_float(listobj, is_max);
+          if (rc == 0) Py_RETURN_NONE;
+          PyErr_Clear();
+        }
+      }
+      /* Binary heap homogeneous optimization */
+      else if (arity == 2 && homogeneous) {
+        if (homogeneous == 1) {  /* 1 = all integers */
+          rc = list_heapify_homogeneous_int(listobj, is_max);
+          if (rc == 0) Py_RETURN_NONE;
+          /* rc == 2 means overflow, fall through to generic path */
+          /* rc == -1 means error, also fall through */
+          if (rc == -1) PyErr_Clear();
+        } else if (homogeneous == 2) {  /* 2 = all floats */
+          rc = list_heapify_homogeneous_float(listobj, is_max);
+          if (rc == 0) Py_RETURN_NONE;
+          /* Fall through to generic path on error */
+          PyErr_Clear();
+        }
       }
     }
     
