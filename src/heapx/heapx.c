@@ -940,7 +940,8 @@ list_heapify_homogeneous_int(PyListObject *listobj, int is_max)
 
 /* ---------- Ultra-optimized Floyd's heapify: binary min/max heap with fast comparisons ---------- */
 /* No-refcount optimization: during heapify, we only move pointers within the same list.
- * The list owns all references, so no INCREF/DECREF needed for internal moves. */
+ * The list owns all references, so no INCREF/DECREF needed for internal moves.
+ * Safety checks after comparisons detect list modification (comparisons can call Python __lt__/__gt__). */
 static int
 list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
 {
@@ -953,7 +954,6 @@ list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
     Py_ssize_t pos = i;
     PyObject *item = items[pos];
 
-    /* Sift down phase - no refcount changes needed */
     while (1) {
       Py_ssize_t child = (pos << 1) + 1;
       if (child >= n) break;
@@ -964,12 +964,22 @@ list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
       Py_ssize_t right = child + 1;
       if (right < n) {
         int cmp = optimized_compare(items[right], bestobj, is_max ? Py_GT : Py_LT);
+        if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+          PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+          return -1;
+        }
         if (unlikely(cmp < 0)) return -1;
+        items = listobj->ob_item;
         if (cmp) { best = right; bestobj = items[right]; }
       }
 
       int need_swap = optimized_compare(bestobj, item, is_max ? Py_GT : Py_LT);
+      if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        return -1;
+      }
       if (unlikely(need_swap < 0)) return -1;
+      items = listobj->ob_item;
       if (!need_swap) break;
 
       items[pos] = bestobj;
@@ -1115,7 +1125,7 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
 /* ---------- Specialized optimized algorithms for different configurations ---------- */
 
 /* Ultra-optimized ternary heap (arity=3) for lists without key functions */
-/* No-refcount optimization: during heapify, we only move pointers within the same list. */
+/* No-refcount optimization with safety checks after comparisons. */
 HOT_FUNCTION static int
 list_heapify_ternary_ultra_optimized(PyListObject *listobj, int is_max)
 {
@@ -1135,22 +1145,35 @@ list_heapify_ternary_ultra_optimized(PyListObject *listobj, int is_max)
       Py_ssize_t best = child;
       PyObject *bestobj = items[child];
       
-      /* Compare with second child */
       if (child + 1 < n) {
         int cmp = optimized_compare(items[child + 1], bestobj, is_max ? Py_GT : Py_LT);
+        if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+          PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+          return -1;
+        }
         if (unlikely(cmp < 0)) return -1;
+        items = listobj->ob_item;
         if (cmp) { best = child + 1; bestobj = items[child + 1]; }
       }
       
-      /* Compare with third child */
       if (child + 2 < n) {
         int cmp = optimized_compare(items[child + 2], bestobj, is_max ? Py_GT : Py_LT);
+        if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+          PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+          return -1;
+        }
         if (unlikely(cmp < 0)) return -1;
+        items = listobj->ob_item;
         if (cmp) { best = child + 2; bestobj = items[child + 2]; }
       }
       
       int need_swap = optimized_compare(bestobj, item, is_max ? Py_GT : Py_LT);
+      if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        return -1;
+      }
       if (unlikely(need_swap < 0)) return -1;
+      items = listobj->ob_item;
       if (!need_swap) break;
       
       items[pos] = bestobj;
@@ -1164,7 +1187,7 @@ list_heapify_ternary_ultra_optimized(PyListObject *listobj, int is_max)
 }
 
 /* Ultra-optimized quaternary heap (arity=4) for lists without key functions */
-/* No-refcount optimization: during heapify, we only move pointers within the same list. */
+/* No-refcount optimization with safety checks after comparisons. */
 HOT_FUNCTION static int
 list_heapify_quaternary_ultra_optimized(PyListObject *listobj, int is_max)
 {
@@ -1190,17 +1213,26 @@ list_heapify_quaternary_ultra_optimized(PyListObject *listobj, int is_max)
       Py_ssize_t best = child;
       PyObject *bestobj = items[child];
       
-      /* Compare with remaining children */
       Py_ssize_t last = child + 4;
       if (last > n) last = n;
       for (Py_ssize_t j = child + 1; j < last; j++) {
         int cmp = optimized_compare(items[j], bestobj, is_max ? Py_GT : Py_LT);
+        if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+          PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+          return -1;
+        }
         if (unlikely(cmp < 0)) return -1;
+        items = listobj->ob_item;
         if (cmp) { best = j; bestobj = items[j]; }
       }
       
       int need_swap = optimized_compare(bestobj, item, is_max ? Py_GT : Py_LT);
+      if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        return -1;
+      }
       if (unlikely(need_swap < 0)) return -1;
+      items = listobj->ob_item;
       if (!need_swap) break;
       
       items[pos] = bestobj;
@@ -1477,7 +1509,7 @@ list_heapify_quaternary_with_key_ultra_optimized(PyListObject *listobj, PyObject
 }
 
 /* Ultra-optimized small heap specialization (n <= 16) */
-/* No-refcount optimization: during heapify, we only move pointers within the same list. */
+/* No-refcount optimization with safety checks after comparisons. */
 HOT_FUNCTION static int
 list_heapify_small_ultra_optimized(PyListObject *listobj, int is_max, Py_ssize_t arity)
 {
@@ -1494,7 +1526,12 @@ list_heapify_small_ultra_optimized(PyListObject *listobj, int is_max, Py_ssize_t
       
       while (j >= 0) {
         int cmp = optimized_compare(key, items[j], is_max ? Py_GT : Py_LT);
+        if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+          PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+          return -1;
+        }
         if (unlikely(cmp < 0)) return -1;
+        items = listobj->ob_item;
         if (!cmp) break;
         items[j + 1] = items[j];
         j--;
@@ -1509,7 +1546,6 @@ list_heapify_small_ultra_optimized(PyListObject *listobj, int is_max, Py_ssize_t
     Py_ssize_t pos = i;
     PyObject *item = items[pos];
     
-    /* Sift down phase */
     while (1) {
       Py_ssize_t child = arity * pos + 1;
       if (child >= n) break;
@@ -1522,7 +1558,12 @@ list_heapify_small_ultra_optimized(PyListObject *listobj, int is_max, Py_ssize_t
       
       for (Py_ssize_t j = child + 1; j < last; j++) {
         int cmp = optimized_compare(items[j], bestobj, is_max ? Py_GT : Py_LT);
+        if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+          PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+          return -1;
+        }
         if (unlikely(cmp < 0)) return -1;
+        items = listobj->ob_item;
         if (cmp) { best = j; bestobj = items[j]; }
       }
       
@@ -1534,7 +1575,12 @@ list_heapify_small_ultra_optimized(PyListObject *listobj, int is_max, Py_ssize_t
     while (pos > i) {
       Py_ssize_t parent = (pos - 1) / arity;
       int cmp = optimized_compare(item, items[parent], is_max ? Py_GT : Py_LT);
+      if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        return -1;
+      }
       if (unlikely(cmp < 0)) return -1;
+      items = listobj->ob_item;
       if (!cmp) break;
       items[pos] = items[parent];
       pos = parent;
@@ -2356,10 +2402,12 @@ sift_down(PyObject *heap, Py_ssize_t pos, Py_ssize_t n, int is_max, PyObject *cm
 }
 
 /* Ultra-optimized sift up for lists without key functions */
+/* Safety checks after comparisons to detect list modification. */
 HOT_FUNCTION static inline int
 list_sift_up_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, int is_max, Py_ssize_t arity) {
   if (unlikely(pos == 0)) return 0;
   
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
   PyObject **items = listobj->ob_item;
   PyObject *item = items[pos];
   
@@ -2368,7 +2416,12 @@ list_sift_up_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, int is_max, 
     PyObject *parent_item = items[parent];
     
     int should_swap = optimized_compare(item, parent_item, is_max ? Py_GT : Py_LT);
+    if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+      PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+      return -1;
+    }
     if (unlikely(should_swap < 0)) return -1;
+    items = listobj->ob_item;
     if (!should_swap) break;
     
     items[pos] = parent_item;
@@ -2412,10 +2465,12 @@ list_sift_up_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, int
 }
 
 /* Ultra-optimized sift down for lists without key functions */
+/* Safety checks after comparisons to detect list modification. */
 HOT_FUNCTION static inline int
 list_sift_down_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, Py_ssize_t n, int is_max, Py_ssize_t arity) {
   PyObject **items = listobj->ob_item;
   PyObject *item = items[pos];
+  Py_ssize_t orig_n = n;
   
   while (1) {
     Py_ssize_t child = arity * pos + 1;
@@ -2437,7 +2492,12 @@ list_sift_down_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, Py_ssize_t
     
     for (Py_ssize_t j = child + 1; j < last; j++) {
       int better = optimized_compare(items[j], best_item, is_max ? Py_GT : Py_LT);
+      if (unlikely(PyList_GET_SIZE(listobj) != orig_n)) {
+        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        return -1;
+      }
       if (unlikely(better < 0)) return -1;
+      items = listobj->ob_item;
       if (better) {
         best = j;
         best_item = items[j];
@@ -2445,7 +2505,12 @@ list_sift_down_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, Py_ssize_t
     }
     
     int should_swap = optimized_compare(best_item, item, is_max ? Py_GT : Py_LT);
+    if (unlikely(PyList_GET_SIZE(listobj) != orig_n)) {
+      PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+      return -1;
+    }
     if (unlikely(should_swap < 0)) return -1;
+    items = listobj->ob_item;
     if (!should_swap) break;
     
     items[pos] = best_item;
@@ -3942,7 +4007,7 @@ list_heapsort_quaternary_ultra_optimized(PyListObject *listobj, int sort_is_max)
 }
 
 /* Step 4: Bottom-up heapsort - reduces comparisons by ~50% */
-/* No-refcount optimization: we're just moving pointers within the same list. */
+/* No-refcount optimization with safety checks after comparisons. */
 HOT_FUNCTION static int
 list_heapsort_binary_ultra_optimized(PyListObject *listobj, int sort_is_max) {
   Py_ssize_t n = PyList_GET_SIZE(listobj);
@@ -3954,31 +4019,37 @@ list_heapsort_binary_ultra_optimized(PyListObject *listobj, int sort_is_max) {
     items[heap_size] = items[0];
     
     /* Phase 1: Descend to leaf, always following better child */
-    /* This uses only 1 comparison per level (child vs child) */
     Py_ssize_t pos = 0;
     Py_ssize_t child;
     
     while ((child = (pos << 1) + 1) < heap_size) {
-      /* Find better child */
       Py_ssize_t right = child + 1;
       if (right < heap_size) {
         int cmp = optimized_compare(items[right], items[child], sort_is_max ? Py_GT : Py_LT);
+        if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+          PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+          return -1;
+        }
         if (unlikely(cmp < 0)) return -1;
+        items = listobj->ob_item;
         if (cmp) child = right;
       }
       
-      /* Move down - no comparison with item being placed yet */
       items[pos] = items[child];
       pos = child;
     }
     
     /* Phase 2: Bubble up from leaf position */
-    /* The item we're placing often belongs near the bottom, so this is fast */
     while (pos > 0) {
       Py_ssize_t parent = (pos - 1) >> 1;
       int cmp = optimized_compare(last, items[parent], sort_is_max ? Py_GT : Py_LT);
+      if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        return -1;
+      }
       if (unlikely(cmp < 0)) return -1;
-      if (!cmp) break;  /* Found correct position */
+      items = listobj->ob_item;
+      if (!cmp) break;
       
       items[pos] = items[parent];
       pos = parent;
