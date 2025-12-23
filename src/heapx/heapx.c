@@ -35,6 +35,11 @@ python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtu
 #include <float.h>
 #include <limits.h>
 
+/* Maximum arity to prevent integer overflow in child index calculations.
+ * With arity <= 64 and any heap that fits in memory (~10^12 elements),
+ * arity * pos + 1 cannot overflow Py_ssize_t (max ~9.2 * 10^18). */
+#define HEAPX_MAX_ARITY 64
+
 #ifdef OS_WINDOWS
   #include <intrin.h>
   #include <immintrin.h>
@@ -2293,8 +2298,8 @@ py_heapify(PyObject *self, PyObject *args, PyObject *kwargs)
     PyErr_SetString(PyExc_TypeError, "cmp must be callable or None");
     return NULL;
   }
-  if (unlikely(arity < 1)) {
-    PyErr_SetString(PyExc_ValueError, "arity must be >= 1");
+  if (unlikely(arity < 1 || arity > HEAPX_MAX_ARITY)) {
+    PyErr_SetString(PyExc_ValueError, "arity must be >= 1 and <= 64");
     return NULL;
   }
 
@@ -3168,8 +3173,8 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyErr_SetString(PyExc_TypeError, "cmp must be callable or None");
     return NULL;
   }
-  if (unlikely(arity < 1)) {
-    PyErr_SetString(PyExc_ValueError, "arity must be >= 1");
+  if (unlikely(arity < 1 || arity > HEAPX_MAX_ARITY)) {
+    PyErr_SetString(PyExc_ValueError, "arity must be >= 1 and <= 64");
     return NULL;
   }
 
@@ -3622,8 +3627,8 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyErr_SetString(PyExc_TypeError, "cmp must be callable or None");
     return NULL;
   }
-  if (unlikely(arity < 1)) {
-    PyErr_SetString(PyExc_ValueError, "arity must be >= 1");
+  if (unlikely(arity < 1 || arity > HEAPX_MAX_ARITY)) {
+    PyErr_SetString(PyExc_ValueError, "arity must be >= 1 and <= 64");
     return NULL;
   }
   if (unlikely(n_pop < 1)) {
@@ -4337,8 +4342,8 @@ py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyErr_SetString(PyExc_TypeError, "cmp must be callable or None");
     return NULL;
   }
-  if (unlikely(arity < 1)) {
-    PyErr_SetString(PyExc_ValueError, "arity must be >= 1");
+  if (unlikely(arity < 1 || arity > HEAPX_MAX_ARITY)) {
+    PyErr_SetString(PyExc_ValueError, "arity must be >= 1 and <= 64");
     return NULL;
   }
 
@@ -4828,8 +4833,8 @@ py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyErr_SetString(PyExc_TypeError, "predicate must be callable or None");
     return NULL;
   }
-  if (unlikely(arity < 1)) {
-    PyErr_SetString(PyExc_ValueError, "arity must be >= 1");
+  if (unlikely(arity < 1 || arity > HEAPX_MAX_ARITY)) {
+    PyErr_SetString(PyExc_ValueError, "arity must be >= 1 and <= 64");
     return NULL;
   }
 
@@ -5379,8 +5384,8 @@ py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyErr_SetString(PyExc_TypeError, "predicate must be callable or None");
     return NULL;
   }
-  if (unlikely(arity < 1)) {
-    PyErr_SetString(PyExc_ValueError, "arity must be >= 1");
+  if (unlikely(arity < 1 || arity > HEAPX_MAX_ARITY)) {
+    PyErr_SetString(PyExc_ValueError, "arity must be >= 1 and <= 64");
     return NULL;
   }
 
@@ -5813,8 +5818,8 @@ py_merge(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyErr_SetString(PyExc_TypeError, "cmp must be callable or None");
     return NULL;
   }
-  if (unlikely(arity < 1)) {
-    PyErr_SetString(PyExc_ValueError, "arity must be >= 1");
+  if (unlikely(arity < 1 || arity > HEAPX_MAX_ARITY)) {
+    PyErr_SetString(PyExc_ValueError, "arity must be >= 1 and <= 64");
     return NULL;
   }
 
