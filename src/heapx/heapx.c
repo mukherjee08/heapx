@@ -787,7 +787,7 @@ detect_homogeneous_type(PyObject **items, Py_ssize_t n) {
   return candidate;
 }
 
-/* Step 2: Specialized heapify for homogeneous float arrays */
+/* Bottom-up heapify for homogeneous float arrays - ~25% fewer comparisons */
 HOT_FUNCTION static int
 list_heapify_homogeneous_float(PyListObject *listobj, int is_max)
 {
@@ -796,7 +796,6 @@ list_heapify_homogeneous_float(PyListObject *listobj, int is_max)
 
   PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
   
-  /* Hybrid allocation: stack for small, heap for large */
   double stack_values[VALUE_STACK_SIZE];
   double * HEAPX_RESTRICT values;
   int use_stack = (n <= VALUE_STACK_SIZE);
@@ -805,13 +804,9 @@ list_heapify_homogeneous_float(PyListObject *listobj, int is_max)
     values = ASSUME_ALIGNED(stack_values, 16);
   } else {
     values = (double *)PyMem_Malloc(sizeof(double) * (size_t)n);
-    if (unlikely(!values)) {
-      PyErr_NoMemory();
-      return -1;
-    }
+    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
   }
 
-  /* Extract values - structured for auto-vectorization */
   HEAPX_PRAGMA_SIMD
   for (Py_ssize_t i = 0; i < n; i++) {
     values[i] = PyFloat_AS_DOUBLE(items[i]);
@@ -819,8 +814,10 @@ list_heapify_homogeneous_float(PyListObject *listobj, int is_max)
 
   for (Py_ssize_t i = (n - 2) >> 1; i >= 0; i--) {
     Py_ssize_t pos = i;
-    double val = values[pos];
-    PyObject *obj = items[pos];
+    double val = values[i];
+    PyObject *obj = items[i];
+    
+    /* Phase 1: Descend to leaf, only comparing children */
     while (1) {
       Py_ssize_t child = (pos << 1) + 1;
       if (child >= n) break;
@@ -828,10 +825,18 @@ list_heapify_homogeneous_float(PyListObject *listobj, int is_max)
         if (is_max ? (values[child + 1] > values[child]) : (values[child + 1] < values[child]))
           child++;
       }
-      if (is_max ? (val >= values[child]) : (val <= values[child])) break;
       values[pos] = values[child];
       items[pos] = items[child];
       pos = child;
+    }
+    
+    /* Phase 2: Bubble up from leaf position */
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) >> 1;
+      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      values[pos] = values[parent];
+      items[pos] = items[parent];
+      pos = parent;
     }
     values[pos] = val;
     items[pos] = obj;
@@ -842,6 +847,7 @@ list_heapify_homogeneous_float(PyListObject *listobj, int is_max)
 }
 
 /* Ternary heap for homogeneous float arrays - scalar C comparisons */
+/* Bottom-up ternary heap for homogeneous float arrays */
 HOT_FUNCTION static int
 list_heapify_ternary_homogeneous_float(PyListObject *listobj, int is_max)
 {
@@ -865,8 +871,10 @@ list_heapify_ternary_homogeneous_float(PyListObject *listobj, int is_max)
 
   for (Py_ssize_t i = (n - 2) / 3; i >= 0; i--) {
     Py_ssize_t pos = i;
-    double val = values[pos];
-    PyObject *obj = items[pos];
+    double val = values[i];
+    PyObject *obj = items[i];
+    
+    /* Phase 1: Descend to leaf */
     while (1) {
       Py_ssize_t c1 = 3 * pos + 1;
       if (c1 >= n) break;
@@ -874,8 +882,14 @@ list_heapify_ternary_homogeneous_float(PyListObject *listobj, int is_max)
       double best_val = values[c1];
       if (likely(c1 + 1 < n) && (is_max ? values[c1+1] > best_val : values[c1+1] < best_val)) { best = c1+1; best_val = values[c1+1]; }
       if (likely(c1 + 2 < n) && (is_max ? values[c1+2] > best_val : values[c1+2] < best_val)) { best = c1+2; }
-      if (is_max ? (val >= values[best]) : (val <= values[best])) break;
       values[pos] = values[best]; items[pos] = items[best]; pos = best;
+    }
+    
+    /* Phase 2: Bubble up */
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) / 3;
+      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      values[pos] = values[parent]; items[pos] = items[parent]; pos = parent;
     }
     values[pos] = val; items[pos] = obj;
   }
@@ -884,7 +898,7 @@ list_heapify_ternary_homogeneous_float(PyListObject *listobj, int is_max)
   return 0;
 }
 
-/* Ternary heap for homogeneous int arrays - scalar C comparisons */
+/* Bottom-up ternary heap for homogeneous int arrays */
 HOT_FUNCTION static int
 list_heapify_ternary_homogeneous_int(PyListObject *listobj, int is_max)
 {
@@ -912,8 +926,10 @@ list_heapify_ternary_homogeneous_int(PyListObject *listobj, int is_max)
 
   for (Py_ssize_t i = (n - 2) / 3; i >= 0; i--) {
     Py_ssize_t pos = i;
-    long val = values[pos];
-    PyObject *obj = items[pos];
+    long val = values[i];
+    PyObject *obj = items[i];
+    
+    /* Phase 1: Descend to leaf */
     while (1) {
       Py_ssize_t c1 = 3 * pos + 1;
       if (c1 >= n) break;
@@ -921,8 +937,14 @@ list_heapify_ternary_homogeneous_int(PyListObject *listobj, int is_max)
       long best_val = values[c1];
       if (likely(c1 + 1 < n) && (is_max ? values[c1+1] > best_val : values[c1+1] < best_val)) { best = c1+1; best_val = values[c1+1]; }
       if (likely(c1 + 2 < n) && (is_max ? values[c1+2] > best_val : values[c1+2] < best_val)) { best = c1+2; }
-      if (is_max ? (val >= values[best]) : (val <= values[best])) break;
       values[pos] = values[best]; items[pos] = items[best]; pos = best;
+    }
+    
+    /* Phase 2: Bubble up */
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) / 3;
+      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      values[pos] = values[parent]; items[pos] = items[parent]; pos = parent;
     }
     values[pos] = val; items[pos] = obj;
   }
@@ -931,12 +953,7 @@ list_heapify_ternary_homogeneous_int(PyListObject *listobj, int is_max)
   return 0;
 }
 
-/* ============================================================================
- * SIMD-Optimized Quaternary Heap for Homogeneous Float Arrays
- * ============================================================================
- * Uses AVX/SSE2/NEON intrinsics to find best child among 4 children in parallel.
- * Falls back to scalar operations when fewer than 4 children exist.
- */
+/* Bottom-up SIMD-Optimized Quaternary Heap for Homogeneous Float Arrays */
 HOT_FUNCTION static int
 list_heapify_quaternary_homogeneous_float(PyListObject *listobj, int is_max)
 {
@@ -945,52 +962,51 @@ list_heapify_quaternary_homogeneous_float(PyListObject *listobj, int is_max)
 
   PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
   
-  /* Hybrid allocation: stack for small, heap for large */
   double stack_values[VALUE_STACK_SIZE];
   double * HEAPX_RESTRICT values;
   int use_stack = (n <= VALUE_STACK_SIZE);
   
   if (use_stack) {
-    values = ASSUME_ALIGNED(stack_values, 32);  /* 32-byte for AVX */
+    values = ASSUME_ALIGNED(stack_values, 32);
   } else {
     values = (double *)PyMem_Malloc(sizeof(double) * (size_t)n);
-    if (unlikely(!values)) {
-      PyErr_NoMemory();
-      return -1;
-    }
+    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
   }
 
-  /* Extract all float values - structured for auto-vectorization */
   HEAPX_PRAGMA_SIMD
   for (Py_ssize_t i = 0; i < n; i++) {
     values[i] = PyFloat_AS_DOUBLE(items[i]);
   }
 
-  /* Floyd's algorithm for quaternary heap */
+  /* Bottom-up quaternary heap */
   for (Py_ssize_t i = (n - 2) / 4; i >= 0; i--) {
     Py_ssize_t pos = i;
-    double val = values[pos];
-    PyObject *obj = items[pos];
+    double val = values[i];
+    PyObject *obj = items[i];
     
+    /* Phase 1: Descend to leaf */
     while (1) {
       Py_ssize_t first_child = 4 * pos + 1;
       if (first_child >= n) break;
       
-      /* Calculate number of children at this node */
       Py_ssize_t n_children = n - first_child;
       if (n_children > 4) n_children = 4;
       
-      /* Use SIMD with padding for any child count */
       Py_ssize_t best_offset = simd_find_best_child_float(values + first_child, n_children, is_max);
       Py_ssize_t best = first_child + best_offset;
       
-      /* Check if heap property is satisfied */
-      if (is_max ? (val >= values[best]) : (val <= values[best])) break;
-      
-      /* Move best child up */
       values[pos] = values[best];
       items[pos] = items[best];
       pos = best;
+    }
+    
+    /* Phase 2: Bubble up */
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) / 4;
+      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      values[pos] = values[parent];
+      items[pos] = items[parent];
+      pos = parent;
     }
     
     values[pos] = val;
@@ -1001,7 +1017,7 @@ list_heapify_quaternary_homogeneous_float(PyListObject *listobj, int is_max)
   return 0;
 }
 
-/* SIMD-Optimized Quaternary Heap for Homogeneous Integer Arrays */
+/* Bottom-up SIMD-Optimized Quaternary Heap for Homogeneous Integer Arrays */
 HOT_FUNCTION static int
 list_heapify_quaternary_homogeneous_int(PyListObject *listobj, int is_max)
 {
@@ -1010,7 +1026,6 @@ list_heapify_quaternary_homogeneous_int(PyListObject *listobj, int is_max)
 
   PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
   
-  /* Hybrid allocation: stack for small, heap for large */
   long stack_values[VALUE_STACK_SIZE];
   long * HEAPX_RESTRICT values;
   int use_stack = (n <= VALUE_STACK_SIZE);
@@ -1019,19 +1034,15 @@ list_heapify_quaternary_homogeneous_int(PyListObject *listobj, int is_max)
     values = ASSUME_ALIGNED(stack_values, 16);
   } else {
     values = (long *)PyMem_Malloc(sizeof(long) * (size_t)n);
-    if (unlikely(!values)) {
-      PyErr_NoMemory();
-      return -1;
-    }
+    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
   }
 
-  /* Extract all integer values with overflow check */
   for (Py_ssize_t i = 0; i < n; i++) {
     int overflow = 0;
     values[i] = PyLong_AsLongAndOverflow(items[i], &overflow);
     if (unlikely(overflow != 0)) {
       if (!use_stack) PyMem_Free(values);
-      return 2; /* Signal overflow - fallback to generic */
+      return 2;
     }
     if (unlikely(values[i] == -1 && PyErr_Occurred())) {
       if (!use_stack) PyMem_Free(values);
@@ -1039,12 +1050,13 @@ list_heapify_quaternary_homogeneous_int(PyListObject *listobj, int is_max)
     }
   }
 
-  /* Floyd's algorithm for quaternary heap */
+  /* Bottom-up quaternary heap */
   for (Py_ssize_t i = (n - 2) / 4; i >= 0; i--) {
     Py_ssize_t pos = i;
-    long val = values[pos];
-    PyObject *obj = items[pos];
+    long val = values[i];
+    PyObject *obj = items[i];
     
+    /* Phase 1: Descend to leaf */
     while (1) {
       Py_ssize_t first_child = 4 * pos + 1;
       if (first_child >= n) break;
@@ -1052,15 +1064,21 @@ list_heapify_quaternary_homogeneous_int(PyListObject *listobj, int is_max)
       Py_ssize_t n_children = n - first_child;
       if (n_children > 4) n_children = 4;
       
-      /* Find best child using SIMD with padding */
       Py_ssize_t best_offset = simd_find_best_child_long(values + first_child, n_children, is_max);
       Py_ssize_t best = first_child + best_offset;
-      
-      if (is_max ? (val >= values[best]) : (val <= values[best])) break;
       
       values[pos] = values[best];
       items[pos] = items[best];
       pos = best;
+    }
+    
+    /* Phase 2: Bubble up */
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) / 4;
+      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      values[pos] = values[parent];
+      items[pos] = items[parent];
+      pos = parent;
     }
     
     values[pos] = val;
@@ -1071,7 +1089,7 @@ list_heapify_quaternary_homogeneous_int(PyListObject *listobj, int is_max)
   return 0;
 }
 
-/* SIMD-Optimized N-ary Heap for arity multiples of 4 (8, 12, 16, ...) */
+/* Bottom-up SIMD-Optimized N-ary Heap for homogeneous floats, arity >= 5 */
 HOT_FUNCTION static int
 list_heapify_nary_simd_homogeneous_float(PyListObject *listobj, int is_max, Py_ssize_t arity)
 {
@@ -1088,10 +1106,7 @@ list_heapify_nary_simd_homogeneous_float(PyListObject *listobj, int is_max, Py_s
     values = ASSUME_ALIGNED(stack_values, 32);
   } else {
     values = (double *)PyMem_Malloc(sizeof(double) * (size_t)n);
-    if (unlikely(!values)) {
-      PyErr_NoMemory();
-      return -1;
-    }
+    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
   }
 
   HEAPX_PRAGMA_SIMD
@@ -1101,9 +1116,10 @@ list_heapify_nary_simd_homogeneous_float(PyListObject *listobj, int is_max, Py_s
 
   for (Py_ssize_t i = (n - 2) / arity; i >= 0; i--) {
     Py_ssize_t pos = i;
-    double val = values[pos];
-    PyObject *obj = items[pos];
+    double val = values[i];
+    PyObject *obj = items[i];
     
+    /* Phase 1: Descend to leaf */
     while (1) {
       Py_ssize_t first_child = arity * pos + 1;
       if (first_child >= n) break;
@@ -1114,11 +1130,18 @@ list_heapify_nary_simd_homogeneous_float(PyListObject *listobj, int is_max, Py_s
       Py_ssize_t best_offset = simd_find_best_child_float(values + first_child, n_children, is_max);
       Py_ssize_t best = first_child + best_offset;
       
-      if (is_max ? (val >= values[best]) : (val <= values[best])) break;
-      
       values[pos] = values[best];
       items[pos] = items[best];
       pos = best;
+    }
+    
+    /* Phase 2: Bubble up */
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) / arity;
+      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      values[pos] = values[parent];
+      items[pos] = items[parent];
+      pos = parent;
     }
     
     values[pos] = val;
@@ -1129,7 +1152,7 @@ list_heapify_nary_simd_homogeneous_float(PyListObject *listobj, int is_max, Py_s
   return 0;
 }
 
-/* SIMD-Optimized N-ary Heap for homogeneous integers, arity >= 5 */
+/* Bottom-up SIMD-Optimized N-ary Heap for homogeneous integers, arity >= 5 */
 HOT_FUNCTION static int
 list_heapify_nary_simd_homogeneous_int(PyListObject *listobj, int is_max, Py_ssize_t arity)
 {
@@ -1146,30 +1169,22 @@ list_heapify_nary_simd_homogeneous_int(PyListObject *listobj, int is_max, Py_ssi
     values = ASSUME_ALIGNED(stack_values, 16);
   } else {
     values = (long *)PyMem_Malloc(sizeof(long) * (size_t)n);
-    if (unlikely(!values)) {
-      PyErr_NoMemory();
-      return -1;
-    }
+    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
   }
 
   for (Py_ssize_t i = 0; i < n; i++) {
     int overflow = 0;
     values[i] = PyLong_AsLongAndOverflow(items[i], &overflow);
-    if (unlikely(overflow != 0)) {
-      if (!use_stack) PyMem_Free(values);
-      return 2;
-    }
-    if (unlikely(values[i] == -1 && PyErr_Occurred())) {
-      if (!use_stack) PyMem_Free(values);
-      return -1;
-    }
+    if (unlikely(overflow != 0)) { if (!use_stack) PyMem_Free(values); return 2; }
+    if (unlikely(values[i] == -1 && PyErr_Occurred())) { if (!use_stack) PyMem_Free(values); return -1; }
   }
 
   for (Py_ssize_t i = (n - 2) / arity; i >= 0; i--) {
     Py_ssize_t pos = i;
-    long val = values[pos];
-    PyObject *obj = items[pos];
+    long val = values[i];
+    PyObject *obj = items[i];
     
+    /* Phase 1: Descend to leaf */
     while (1) {
       Py_ssize_t first_child = arity * pos + 1;
       if (first_child >= n) break;
@@ -1180,11 +1195,18 @@ list_heapify_nary_simd_homogeneous_int(PyListObject *listobj, int is_max, Py_ssi
       Py_ssize_t best_offset = simd_find_best_child_long(values + first_child, n_children, is_max);
       Py_ssize_t best = first_child + best_offset;
       
-      if (is_max ? (val >= values[best]) : (val <= values[best])) break;
-      
       values[pos] = values[best];
       items[pos] = items[best];
       pos = best;
+    }
+    
+    /* Phase 2: Bubble up */
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) / arity;
+      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      values[pos] = values[parent];
+      items[pos] = items[parent];
+      pos = parent;
     }
     
     values[pos] = val;
@@ -1195,7 +1217,7 @@ list_heapify_nary_simd_homogeneous_int(PyListObject *listobj, int is_max, Py_ssi
   return 0;
 }
 
-/* Step 3: Specialized heapify for homogeneous integer arrays */
+/* Bottom-up heapify for homogeneous integer arrays */
 /* Returns: 0 = success, -1 = error, 2 = overflow (fallback to generic) */
 HOT_FUNCTION static int
 list_heapify_homogeneous_int(PyListObject *listobj, int is_max)
@@ -1205,7 +1227,6 @@ list_heapify_homogeneous_int(PyListObject *listobj, int is_max)
 
   PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
   
-  /* Hybrid allocation: stack for small, heap for large */
   long stack_values[VALUE_STACK_SIZE];
   long * HEAPX_RESTRICT values;
   int use_stack = (n <= VALUE_STACK_SIZE);
@@ -1282,10 +1303,11 @@ list_heapify_homogeneous_int(PyListObject *listobj, int is_max)
   return 0;
 }
 
-/* ---------- Ultra-optimized Floyd's heapify: binary min/max heap with fast comparisons ---------- */
-/* No-refcount optimization: during heapify, we only move pointers within the same list.
- * The list owns all references, so no INCREF/DECREF needed for internal moves.
- * Safety checks after comparisons detect list modification (comparisons can call Python __lt__/__gt__). */
+/* ---------- Ultra-optimized Bottom-Up Floyd's heapify: binary min/max heap ---------- */
+/* Bottom-up heapify (Wegener 1993): reduces comparisons by ~25% vs standard Floyd.
+ * Phase 1: Descend to leaf comparing only children (no comparison with item)
+ * Phase 2: Bubble up from leaf (typically O(1) distance)
+ * Safety: INCREF objects held across comparisons to prevent use-after-free. */
 static int
 list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
 {
@@ -1299,43 +1321,51 @@ list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
     PyObject *item = items[pos];
     Py_INCREF(item);  /* Protect item across comparisons */
 
+    /* Phase 1: Descend to leaf, only comparing children */
     while (1) {
       Py_ssize_t child = (pos << 1) + 1;
       if (child >= n) break;
       
-      Py_ssize_t best = child;
-      PyObject *bestobj = items[child];
-      Py_INCREF(bestobj);  /* Protect bestobj across comparisons */
-      
       Py_ssize_t right = child + 1;
       if (likely(right < n)) {
-        PyObject *rightobj = items[right];
-        Py_INCREF(rightobj);
-        int cmp = optimized_compare(rightobj, bestobj, is_max ? Py_GT : Py_LT);
+        PyObject *lc = items[child];
+        PyObject *rc = items[right];
+        Py_INCREF(lc); Py_INCREF(rc);
+        int cmp = optimized_compare(rc, lc, is_max ? Py_GT : Py_LT);
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-          Py_DECREF(rightobj); Py_DECREF(bestobj); Py_DECREF(item);
+          Py_DECREF(lc); Py_DECREF(rc); Py_DECREF(item);
           PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
           return -1;
         }
-        if (unlikely(cmp < 0)) { Py_DECREF(rightobj); Py_DECREF(bestobj); Py_DECREF(item); return -1; }
+        if (unlikely(cmp < 0)) { Py_DECREF(lc); Py_DECREF(rc); Py_DECREF(item); return -1; }
         items = listobj->ob_item;
-        if (cmp) { Py_DECREF(bestobj); best = right; bestobj = rightobj; }
-        else { Py_DECREF(rightobj); }
+        Py_DECREF(lc); Py_DECREF(rc);
+        if (cmp) child = right;
       }
+      
+      /* Move child up unconditionally */
+      items[pos] = items[child];
+      pos = child;
+    }
 
-      int need_swap = optimized_compare(bestobj, item, is_max ? Py_GT : Py_LT);
+    /* Phase 2: Bubble up from leaf position */
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) >> 1;
+      PyObject *pobj = items[parent];
+      Py_INCREF(pobj);
+      int cmp = optimized_compare(item, pobj, is_max ? Py_GT : Py_LT);
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-        Py_DECREF(bestobj); Py_DECREF(item);
+        Py_DECREF(pobj); Py_DECREF(item);
         PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
         return -1;
       }
-      if (unlikely(need_swap < 0)) { Py_DECREF(bestobj); Py_DECREF(item); return -1; }
+      if (unlikely(cmp < 0)) { Py_DECREF(pobj); Py_DECREF(item); return -1; }
       items = listobj->ob_item;
-      Py_DECREF(bestobj);
-      if (!need_swap) break;
-
-      items[pos] = items[best];
-      pos = best;
+      Py_DECREF(pobj);
+      if (!cmp) break;
+      
+      items[pos] = items[parent];
+      pos = parent;
     }
 
     items[pos] = item;
@@ -1344,7 +1374,8 @@ list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
   return 0;
 }
 
-/* ---------- Ultra-optimized key function path: binary list with precomputed keys and fast comparisons ---------- */
+/* ---------- Ultra-optimized Bottom-Up key function path: binary list with precomputed keys ---------- */
+/* Bottom-up heapify with key caching: O(n) key calls + ~25% fewer comparisons */
 static int
 list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, int is_max)
 {
@@ -1369,7 +1400,6 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
 
   /* PHASE 1: PRECOMPUTE ALL KEYS */
   for (Py_ssize_t i = 0; i < n; i++) {
-    /* REFRESH POINTER - keyfunc may have resized list */
     PyObject **items = listobj->ob_item;
     PyObject *k = call_key_function(keyfunc, items[i]);
     if (unlikely(!k)) {
@@ -1377,7 +1407,6 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
       if (keys_on_heap) PyMem_Free(keys);
       return -1;
     }
-    /* SAFETY CHECK */
     if (unlikely(PyList_GET_SIZE(listobj) != n)) {
       Py_DECREF(k);
       for (Py_ssize_t j = 0; j < i; j++) Py_DECREF(keys[j]);
@@ -1388,13 +1417,8 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
     keys[i] = k;
   }
 
-  /* OPTIMIZATION: Detect homogeneous key types for fast comparison paths */
-  int key_homogeneous_type = detect_homogeneous_type(keys, n);
-  (void)key_homogeneous_type; /* Suppress unused warning */
-
-  /* PHASE 2: STANDARD HEAPIFICATION WITH KEY COMPARISONS */
+  /* PHASE 2: BOTTOM-UP HEAPIFICATION WITH KEY COMPARISONS */
   for (Py_ssize_t i = (n - 2) >> 1; i >= 0; i--) {
-    /* REFRESH POINTER */
     PyObject **items = listobj->ob_item;
     PyObject *newitem = items[i];
     PyObject *newkey = keys[i];
@@ -1402,66 +1426,62 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
     Py_INCREF(newkey);
     Py_ssize_t pos = i;
     
-    /* Sift down: find the correct position for newitem */
+    /* Phase 1: Descend to leaf, only comparing children */
     while (1) {
       Py_ssize_t child = (pos << 1) + 1;
       if (unlikely(child >= n)) break;
       
-      Py_ssize_t best = child;
-      
-      /* Find best child */
       Py_ssize_t right = child + 1;
       if (likely(right < n)) {
         int cmp = optimized_compare(keys[right], keys[child], is_max ? Py_GT : Py_LT);
-        /* SAFETY CHECK */
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-          Py_DECREF(newitem);
-          Py_DECREF(newkey);
+          Py_DECREF(newitem); Py_DECREF(newkey);
           for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
           if (keys_on_heap) PyMem_Free(keys);
           PyErr_SetString(PyExc_ValueError, "list modified during heapify");
           return -1;
         }
         if (unlikely(cmp < 0)) {
-          Py_DECREF(newitem);
-          Py_DECREF(newkey);
+          Py_DECREF(newitem); Py_DECREF(newkey);
           for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
           if (keys_on_heap) PyMem_Free(keys);
           return -1;
         }
-        if (cmp) {
-          best = right;
-        }
+        if (cmp) child = right;
       }
       
-      /* Check if newkey satisfies heap property at this position */
-      int need_swap = optimized_compare(keys[best], newkey, is_max ? Py_GT : Py_LT);
-      /* SAFETY CHECK */
+      /* Move child up unconditionally */
+      items = listobj->ob_item;
+      items[pos] = items[child];
+      keys[pos] = keys[child];
+      pos = child;
+    }
+    
+    /* Phase 2: Bubble up from leaf position */
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) >> 1;
+      int cmp = optimized_compare(newkey, keys[parent], is_max ? Py_GT : Py_LT);
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-        Py_DECREF(newitem);
-        Py_DECREF(newkey);
+        Py_DECREF(newitem); Py_DECREF(newkey);
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
         if (keys_on_heap) PyMem_Free(keys);
         PyErr_SetString(PyExc_ValueError, "list modified during heapify");
         return -1;
       }
-      if (unlikely(need_swap < 0)) {
-        Py_DECREF(newitem);
-        Py_DECREF(newkey);
+      if (unlikely(cmp < 0)) {
+        Py_DECREF(newitem); Py_DECREF(newkey);
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
         if (keys_on_heap) PyMem_Free(keys);
         return -1;
       }
-      if (!need_swap) break;
+      if (!cmp) break;
       
-      /* Move best child up to current position - REFRESH POINTER */
       items = listobj->ob_item;
-      items[pos] = items[best];
-      keys[pos] = keys[best];
-      pos = best;
+      items[pos] = items[parent];
+      keys[pos] = keys[parent];
+      pos = parent;
     }
     
-    /* Place newitem and newkey at final position */
     items = listobj->ob_item;
     items[pos] = newitem;
     keys[pos] = newkey;
@@ -1478,6 +1498,7 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
 /* ---------- Specialized optimized algorithms for different configurations ---------- */
 
 /* Ultra-optimized ternary heap (arity=3) for lists without key functions */
+/* Ultra-optimized Bottom-Up ternary heap (arity=3) for lists without key functions */
 /* Safety: INCREF objects held across comparisons to prevent use-after-free. */
 HOT_FUNCTION static int
 list_heapify_ternary_ultra_optimized(PyListObject *listobj, int is_max)
@@ -1492,57 +1513,68 @@ list_heapify_ternary_ultra_optimized(PyListObject *listobj, int is_max)
     PyObject *item = items[pos];
     Py_INCREF(item);
     
+    /* Phase 1: Descend to leaf, only comparing children */
     while (1) {
       Py_ssize_t child = 3 * pos + 1;
       if (child >= n) break;
       
       Py_ssize_t best = child;
-      PyObject *bestobj = items[child];
-      Py_INCREF(bestobj);
       
       if (likely(child + 1 < n)) {
+        PyObject *c0 = items[child];
         PyObject *c1 = items[child + 1];
-        Py_INCREF(c1);
-        int cmp = optimized_compare(c1, bestobj, is_max ? Py_GT : Py_LT);
+        Py_INCREF(c0); Py_INCREF(c1);
+        int cmp = optimized_compare(c1, c0, is_max ? Py_GT : Py_LT);
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-          Py_DECREF(c1); Py_DECREF(bestobj); Py_DECREF(item);
+          Py_DECREF(c0); Py_DECREF(c1); Py_DECREF(item);
           PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
           return -1;
         }
-        if (unlikely(cmp < 0)) { Py_DECREF(c1); Py_DECREF(bestobj); Py_DECREF(item); return -1; }
+        if (unlikely(cmp < 0)) { Py_DECREF(c0); Py_DECREF(c1); Py_DECREF(item); return -1; }
         items = listobj->ob_item;
-        if (cmp) { Py_DECREF(bestobj); best = child + 1; bestobj = c1; }
-        else { Py_DECREF(c1); }
+        Py_DECREF(c0); Py_DECREF(c1);
+        if (cmp) best = child + 1;
       }
       
       if (likely(child + 2 < n)) {
+        PyObject *cb = items[best];
         PyObject *c2 = items[child + 2];
-        Py_INCREF(c2);
-        int cmp = optimized_compare(c2, bestobj, is_max ? Py_GT : Py_LT);
+        Py_INCREF(cb); Py_INCREF(c2);
+        int cmp = optimized_compare(c2, cb, is_max ? Py_GT : Py_LT);
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-          Py_DECREF(c2); Py_DECREF(bestobj); Py_DECREF(item);
+          Py_DECREF(cb); Py_DECREF(c2); Py_DECREF(item);
           PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
           return -1;
         }
-        if (unlikely(cmp < 0)) { Py_DECREF(c2); Py_DECREF(bestobj); Py_DECREF(item); return -1; }
+        if (unlikely(cmp < 0)) { Py_DECREF(cb); Py_DECREF(c2); Py_DECREF(item); return -1; }
         items = listobj->ob_item;
-        if (cmp) { Py_DECREF(bestobj); best = child + 2; bestobj = c2; }
-        else { Py_DECREF(c2); }
+        Py_DECREF(cb); Py_DECREF(c2);
+        if (cmp) best = child + 2;
       }
       
-      int need_swap = optimized_compare(bestobj, item, is_max ? Py_GT : Py_LT);
+      /* Move best child up unconditionally */
+      items[pos] = items[best];
+      pos = best;
+    }
+    
+    /* Phase 2: Bubble up from leaf position */
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) / 3;
+      PyObject *pobj = items[parent];
+      Py_INCREF(pobj);
+      int cmp = optimized_compare(item, pobj, is_max ? Py_GT : Py_LT);
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-        Py_DECREF(bestobj); Py_DECREF(item);
+        Py_DECREF(pobj); Py_DECREF(item);
         PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
         return -1;
       }
-      if (unlikely(need_swap < 0)) { Py_DECREF(bestobj); Py_DECREF(item); return -1; }
+      if (unlikely(cmp < 0)) { Py_DECREF(pobj); Py_DECREF(item); return -1; }
       items = listobj->ob_item;
-      Py_DECREF(bestobj);
-      if (!need_swap) break;
+      Py_DECREF(pobj);
+      if (!cmp) break;
       
-      items[pos] = items[best];
-      pos = best;
+      items[pos] = items[parent];
+      pos = parent;
     }
     
     items[pos] = item;
@@ -1552,7 +1584,7 @@ list_heapify_ternary_ultra_optimized(PyListObject *listobj, int is_max)
   return 0;
 }
 
-/* Ultra-optimized quaternary heap (arity=4) for lists without key functions */
+/* Ultra-optimized Bottom-Up quaternary heap (arity=4) for lists without key functions */
 /* Safety: INCREF objects held across comparisons to prevent use-after-free. */
 HOT_FUNCTION static int
 list_heapify_quaternary_ultra_optimized(PyListObject *listobj, int is_max)
@@ -1567,6 +1599,7 @@ list_heapify_quaternary_ultra_optimized(PyListObject *listobj, int is_max)
     PyObject *item = items[pos];
     Py_INCREF(item);
     
+    /* Phase 1: Descend to leaf, only comparing children */
     while (1) {
       Py_ssize_t child = 4 * pos + 1;
       if (child >= n) break;
@@ -1598,19 +1631,30 @@ list_heapify_quaternary_ultra_optimized(PyListObject *listobj, int is_max)
         else { Py_DECREF(cj); }
       }
       
-      int need_swap = optimized_compare(bestobj, item, is_max ? Py_GT : Py_LT);
+      Py_DECREF(bestobj);
+      /* Move best child up unconditionally */
+      items[pos] = items[best];
+      pos = best;
+    }
+    
+    /* Phase 2: Bubble up from leaf position */
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) / 4;
+      PyObject *pobj = items[parent];
+      Py_INCREF(pobj);
+      int cmp = optimized_compare(item, pobj, is_max ? Py_GT : Py_LT);
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-        Py_DECREF(bestobj); Py_DECREF(item);
+        Py_DECREF(pobj); Py_DECREF(item);
         PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
         return -1;
       }
-      if (unlikely(need_swap < 0)) { Py_DECREF(bestobj); Py_DECREF(item); return -1; }
+      if (unlikely(cmp < 0)) { Py_DECREF(pobj); Py_DECREF(item); return -1; }
       items = listobj->ob_item;
-      Py_DECREF(bestobj);
-      if (!need_swap) break;
+      Py_DECREF(pobj);
+      if (!cmp) break;
       
-      items[pos] = items[best];
-      pos = best;
+      items[pos] = items[parent];
+      pos = parent;
     }
     
     items[pos] = item;
@@ -1620,23 +1664,18 @@ list_heapify_quaternary_ultra_optimized(PyListObject *listobj, int is_max)
   return 0;
 }
 
-/* Ultra-optimized list heapify with key function for ternary heaps */
+/* Ultra-optimized Bottom-Up ternary heap with key function */
 HOT_FUNCTION static int
 list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, int is_max)
 {
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   if (unlikely(n <= 1)) return 0;
 
-  /* Enhanced key caching */
   PyObject **keys = PyMem_Malloc(sizeof(PyObject *) * (size_t)n);
-  if (unlikely(!keys)) {
-    PyErr_NoMemory();
-    return -1;
-  }
+  if (unlikely(!keys)) { PyErr_NoMemory(); return -1; }
 
   /* Precompute all keys */
   for (Py_ssize_t i = 0; i < n; i++) {
-    /* REFRESH POINTER */
     PyObject **items = listobj->ob_item;
     PyObject *k = call_key_function(keyfunc, items[i]);
     if (unlikely(!k)) {
@@ -1644,7 +1683,6 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
       PyMem_Free(keys);
       return -1;
     }
-    /* SAFETY CHECK */
     if (unlikely(PyList_GET_SIZE(listobj) != n)) {
       Py_DECREF(k);
       for (Py_ssize_t j = 0; j < i; j++) Py_DECREF(keys[j]);
@@ -1655,102 +1693,90 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
     keys[i] = k;
   }
 
-  /* Ternary heapification with cached keys */
+  /* Bottom-up ternary heapification with cached keys */
   for (Py_ssize_t i = (n - 2) / 3; i >= 0; i--) {
     Py_ssize_t pos = i;
-    /* REFRESH POINTER */
     PyObject **items = listobj->ob_item;
     PyObject *newitem = items[pos];
     PyObject *newkey = keys[pos];
     Py_INCREF(newitem);
     Py_INCREF(newkey);
     
-    /* Standard sift-down */
+    /* Phase 1: Descend to leaf, only comparing children */
     while (1) {
       Py_ssize_t child = 3 * pos + 1;
       if (unlikely(child >= n)) break;
       
       Py_ssize_t best = child;
-      PyObject *bestkey = keys[child];
       
-      /* Compare with second child */
       if (likely(child + 1 < n)) {
-        int cmp = optimized_compare(keys[child + 1], bestkey, is_max ? Py_GT : Py_LT);
-        /* SAFETY CHECK */
+        int cmp = optimized_compare(keys[child + 1], keys[child], is_max ? Py_GT : Py_LT);
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-          Py_DECREF(newitem);
-          Py_DECREF(newkey);
+          Py_DECREF(newitem); Py_DECREF(newkey);
           for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
           PyMem_Free(keys);
           PyErr_SetString(PyExc_ValueError, "list modified during heapify");
           return -1;
         }
         if (unlikely(cmp < 0)) {
-          Py_DECREF(newitem);
-          Py_DECREF(newkey);
+          Py_DECREF(newitem); Py_DECREF(newkey);
           for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
           PyMem_Free(keys);
           return -1;
         }
-        if (cmp) {
-          best = child + 1;
-          bestkey = keys[child + 1];
-        }
+        if (cmp) best = child + 1;
       }
       
-      /* Compare with third child */
       if (likely(child + 2 < n)) {
-        int cmp = optimized_compare(keys[child + 2], bestkey, is_max ? Py_GT : Py_LT);
-        /* SAFETY CHECK */
+        int cmp = optimized_compare(keys[child + 2], keys[best], is_max ? Py_GT : Py_LT);
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-          Py_DECREF(newitem);
-          Py_DECREF(newkey);
+          Py_DECREF(newitem); Py_DECREF(newkey);
           for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
           PyMem_Free(keys);
           PyErr_SetString(PyExc_ValueError, "list modified during heapify");
           return -1;
         }
         if (unlikely(cmp < 0)) {
-          Py_DECREF(newitem);
-          Py_DECREF(newkey);
+          Py_DECREF(newitem); Py_DECREF(newkey);
           for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
           PyMem_Free(keys);
           return -1;
         }
-        if (cmp) {
-          best = child + 2;
-          bestkey = keys[child + 2];
-        }
+        if (cmp) best = child + 2;
       }
       
-      /* Check if newkey is in correct position */
-      int need_swap = optimized_compare(bestkey, newkey, is_max ? Py_GT : Py_LT);
-      /* SAFETY CHECK */
-      if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-        Py_DECREF(newitem);
-        Py_DECREF(newkey);
-        for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-        PyMem_Free(keys);
-        PyErr_SetString(PyExc_ValueError, "list modified during heapify");
-        return -1;
-      }
-      if (unlikely(need_swap < 0)) {
-        Py_DECREF(newitem);
-        Py_DECREF(newkey);
-        for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-        PyMem_Free(keys);
-        return -1;
-      }
-      if (!need_swap) break;
-      
-      /* Swap - REFRESH POINTER */
+      /* Move best child up unconditionally */
       items = listobj->ob_item;
       items[pos] = items[best];
       keys[pos] = keys[best];
       pos = best;
     }
     
-    /* REFRESH POINTER */
+    /* Phase 2: Bubble up from leaf position */
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) / 3;
+      int cmp = optimized_compare(newkey, keys[parent], is_max ? Py_GT : Py_LT);
+      if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+        Py_DECREF(newitem); Py_DECREF(newkey);
+        for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
+        PyMem_Free(keys);
+        PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+        return -1;
+      }
+      if (unlikely(cmp < 0)) {
+        Py_DECREF(newitem); Py_DECREF(newkey);
+        for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
+        PyMem_Free(keys);
+        return -1;
+      }
+      if (!cmp) break;
+      
+      items = listobj->ob_item;
+      items[pos] = items[parent];
+      keys[pos] = keys[parent];
+      pos = parent;
+    }
+    
     items = listobj->ob_item;
     items[pos] = newitem;
     keys[pos] = newkey;
@@ -1758,29 +1784,23 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
     Py_DECREF(newkey);
   }
 
-  /* Cleanup */
   for (Py_ssize_t i = 0; i < n; i++) Py_DECREF(keys[i]);
   PyMem_Free(keys);
   return 0;
 }
 
-/* Step 1: Ultra-optimized quaternary heap with key function */
+/* Ultra-optimized Bottom-Up quaternary heap with key function */
 HOT_FUNCTION static int
 list_heapify_quaternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, int is_max)
 {
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   if (unlikely(n <= 1)) return 0;
 
-  /* Allocate key cache - O(n) space for O(n) key calls instead of O(n log n) */
   PyObject **keys = PyMem_Malloc(sizeof(PyObject *) * (size_t)n);
-  if (unlikely(!keys)) {
-    PyErr_NoMemory();
-    return -1;
-  }
+  if (unlikely(!keys)) { PyErr_NoMemory(); return -1; }
 
   /* Pre-compute all keys once */
   for (Py_ssize_t i = 0; i < n; i++) {
-    /* REFRESH POINTER */
     PyObject **items = listobj->ob_item;
     PyObject *k = call_key_function(keyfunc, items[i]);
     if (unlikely(!k)) {
@@ -1788,7 +1808,6 @@ list_heapify_quaternary_with_key_ultra_optimized(PyListObject *listobj, PyObject
       PyMem_Free(keys);
       return -1;
     }
-    /* SAFETY CHECK */
     if (unlikely(PyList_GET_SIZE(listobj) != n)) {
       Py_DECREF(k);
       for (Py_ssize_t j = 0; j < i; j++) Py_DECREF(keys[j]);
@@ -1799,77 +1818,73 @@ list_heapify_quaternary_with_key_ultra_optimized(PyListObject *listobj, PyObject
     keys[i] = k;
   }
 
-  /* Floyd's heapify: start from last non-leaf, work backwards */
+  /* Bottom-up quaternary heapification */
   for (Py_ssize_t i = (n - 2) >> 2; i >= 0; i--) {
     Py_ssize_t pos = i;
-    /* REFRESH POINTER */
     PyObject **items = listobj->ob_item;
     PyObject *newitem = items[pos];
     PyObject *newkey = keys[pos];
     Py_INCREF(newitem);
     Py_INCREF(newkey);
     
-    /* Sift down phase */
+    /* Phase 1: Descend to leaf, only comparing children */
     while (1) {
       Py_ssize_t child = (pos << 2) + 1;
       if (unlikely(child >= n)) break;
       
       Py_ssize_t best = child;
-      PyObject *bestkey = keys[child];
       
-      /* Unrolled loop for 4 children */
+      /* Find best among up to 4 children */
       for (Py_ssize_t j = 1; j < 4 && child + j < n; j++) {
-        int cmp = optimized_compare(keys[child + j], bestkey, is_max ? Py_GT : Py_LT);
-        /* SAFETY CHECK */
+        int cmp = optimized_compare(keys[child + j], keys[best], is_max ? Py_GT : Py_LT);
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-          Py_DECREF(newitem);
-          Py_DECREF(newkey);
+          Py_DECREF(newitem); Py_DECREF(newkey);
           for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
           PyMem_Free(keys);
           PyErr_SetString(PyExc_ValueError, "list modified during heapify");
           return -1;
         }
         if (unlikely(cmp < 0)) {
-          Py_DECREF(newitem);
-          Py_DECREF(newkey);
+          Py_DECREF(newitem); Py_DECREF(newkey);
           for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
           PyMem_Free(keys);
           return -1;
         }
-        if (cmp) {
-          best = child + j;
-          bestkey = keys[child + j];
-        }
+        if (cmp) best = child + j;
       }
       
-      /* Check if heap property satisfied */
-      int need_swap = optimized_compare(bestkey, newkey, is_max ? Py_GT : Py_LT);
-      /* SAFETY CHECK */
-      if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-        Py_DECREF(newitem);
-        Py_DECREF(newkey);
-        for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-        PyMem_Free(keys);
-        PyErr_SetString(PyExc_ValueError, "list modified during heapify");
-        return -1;
-      }
-      if (unlikely(need_swap < 0)) {
-        Py_DECREF(newitem);
-        Py_DECREF(newkey);
-        for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-        PyMem_Free(keys);
-        return -1;
-      }
-      if (!need_swap) break;
-      
-      /* Move best child up - REFRESH POINTER */
+      /* Move best child up unconditionally */
       items = listobj->ob_item;
       items[pos] = items[best];
       keys[pos] = keys[best];
       pos = best;
     }
     
-    /* REFRESH POINTER */
+    /* Phase 2: Bubble up from leaf position */
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) >> 2;
+      int cmp = optimized_compare(newkey, keys[parent], is_max ? Py_GT : Py_LT);
+      if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+        Py_DECREF(newitem); Py_DECREF(newkey);
+        for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
+        PyMem_Free(keys);
+        PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+        return -1;
+      }
+      if (unlikely(cmp < 0)) {
+        Py_DECREF(newitem); Py_DECREF(newkey);
+        for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
+        PyMem_Free(keys);
+        return -1;
+      }
+      if (!cmp) break;
+      
+      items = listobj->ob_item;
+      items[pos] = items[parent];
+      keys[pos] = keys[parent];
+      pos = parent;
+    }
+    
     items = listobj->ob_item;
     items[pos] = newitem;
     keys[pos] = newkey;
@@ -1877,7 +1892,6 @@ list_heapify_quaternary_with_key_ultra_optimized(PyListObject *listobj, PyObject
     Py_DECREF(newkey);
   }
 
-  /* Cleanup */
   for (Py_ssize_t i = 0; i < n; i++) Py_DECREF(keys[i]);
   PyMem_Free(keys);
   return 0;
@@ -2866,20 +2880,21 @@ list_sift_up_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, int
   return 0;
 }
 
-/* Ultra-optimized sift down for lists without key functions */
+/* Bottom-up sift down for lists without key functions - for single element operations */
 /* Safety: INCREF objects held across comparisons to prevent use-after-free. */
 HOT_FUNCTION static inline int
-list_sift_down_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, Py_ssize_t n, int is_max, Py_ssize_t arity) {
+list_sift_down_ultra_optimized(PyListObject *listobj, Py_ssize_t start_pos, Py_ssize_t n, int is_max, Py_ssize_t arity) {
   PyObject **items = listobj->ob_item;
-  PyObject *item = items[pos];
+  PyObject *item = items[start_pos];
   Py_INCREF(item);
-  Py_ssize_t list_size = PyList_GET_SIZE(listobj);  /* Save actual list size for modification check */
+  Py_ssize_t list_size = PyList_GET_SIZE(listobj);
+  Py_ssize_t pos = start_pos;
   
+  /* Phase 1: Descend to leaf, only comparing children */
   while (1) {
     Py_ssize_t child = arity * pos + 1;
     if (unlikely(child >= n)) break;
     
-    /* Prefetch grandchildren for large arities */
     if (arity >= 4) {
       Py_ssize_t grandchild = arity * child + 1;
       if (likely(grandchild < n)) {
@@ -2909,19 +2924,29 @@ list_sift_down_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, Py_ssize_t
       else { Py_DECREF(cj); }
     }
     
-    int should_swap = optimized_compare(best_item, item, is_max ? Py_GT : Py_LT);
+    Py_DECREF(best_item);
+    items[pos] = items[best];
+    pos = best;
+  }
+  
+  /* Phase 2: Bubble up from leaf position */
+  while (pos > start_pos) {
+    Py_ssize_t parent = (pos - 1) / arity;
+    PyObject *pobj = items[parent];
+    Py_INCREF(pobj);
+    int cmp = optimized_compare(item, pobj, is_max ? Py_GT : Py_LT);
     if (unlikely(PyList_GET_SIZE(listobj) != list_size)) {
-      Py_DECREF(best_item); Py_DECREF(item);
+      Py_DECREF(pobj); Py_DECREF(item);
       PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
       return -1;
     }
-    if (unlikely(should_swap < 0)) { Py_DECREF(best_item); Py_DECREF(item); return -1; }
+    if (unlikely(cmp < 0)) { Py_DECREF(pobj); Py_DECREF(item); return -1; }
     items = listobj->ob_item;
-    Py_DECREF(best_item);
-    if (!should_swap) break;
+    Py_DECREF(pobj);
+    if (!cmp) break;
     
-    items[pos] = items[best];
-    pos = best;
+    items[pos] = items[parent];
+    pos = parent;
   }
   
   items[pos] = item;
@@ -2929,14 +2954,14 @@ list_sift_down_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, Py_ssize_t
   return 0;
 }
 
-/* Ultra-optimized sift down with key function for lists */
+/* Bottom-up sift down with key function for lists */
 /* Safety: Check list size after key function calls which can modify the list. */
 HOT_FUNCTION static inline int
-list_sift_down_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, Py_ssize_t n, int is_max, PyObject *keyfunc, Py_ssize_t arity) {
+list_sift_down_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t start_pos, Py_ssize_t n, int is_max, PyObject *keyfunc, Py_ssize_t arity) {
   PyObject **items = listobj->ob_item;
-  PyObject *item = items[pos];
+  PyObject *item = items[start_pos];
   Py_INCREF(item);
-  Py_ssize_t list_size = PyList_GET_SIZE(listobj);  /* Save actual list size for modification check */
+  Py_ssize_t list_size = PyList_GET_SIZE(listobj);
   
   PyObject *key = call_key_function(keyfunc, item);
   if (unlikely(!key)) { Py_DECREF(item); return -1; }
@@ -2946,7 +2971,9 @@ list_sift_down_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, P
     return -1;
   }
   items = listobj->ob_item;
+  Py_ssize_t pos = start_pos;
   
+  /* Phase 1: Descend to leaf, only comparing children */
   while (1) {
     Py_ssize_t child = arity * pos + 1;
     if (unlikely(child >= n)) break;
@@ -2999,20 +3026,35 @@ list_sift_down_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, P
       }
     }
     
-    int should_swap = optimized_compare(best_key, key, is_max ? Py_GT : Py_LT);
+    Py_DECREF(best_key);
+    Py_DECREF(best_item);
+    items[pos] = items[best];
+    pos = best;
+  }
+  
+  /* Phase 2: Bubble up from leaf position */
+  while (pos > start_pos) {
+    Py_ssize_t parent = (pos - 1) / arity;
+    PyObject *parent_key = call_key_function(keyfunc, items[parent]);
+    if (unlikely(!parent_key)) { Py_DECREF(key); Py_DECREF(item); return -1; }
     if (unlikely(PyList_GET_SIZE(listobj) != list_size)) {
-      Py_DECREF(best_key); Py_DECREF(best_item); Py_DECREF(key); Py_DECREF(item);
+      Py_DECREF(parent_key); Py_DECREF(key); Py_DECREF(item);
       PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
       return -1;
     }
-    Py_DECREF(best_key);
-    if (unlikely(should_swap < 0)) { Py_DECREF(best_item); Py_DECREF(key); Py_DECREF(item); return -1; }
+    int cmp = optimized_compare(key, parent_key, is_max ? Py_GT : Py_LT);
+    Py_DECREF(parent_key);
+    if (unlikely(PyList_GET_SIZE(listobj) != list_size)) {
+      Py_DECREF(key); Py_DECREF(item);
+      PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+      return -1;
+    }
+    if (unlikely(cmp < 0)) { Py_DECREF(key); Py_DECREF(item); return -1; }
     items = listobj->ob_item;
-    Py_DECREF(best_item);
-    if (!should_swap) break;
+    if (!cmp) break;
     
-    items[pos] = items[best];
-    pos = best;
+    items[pos] = items[parent];
+    pos = parent;
   }
   
   items[pos] = item;
@@ -3971,132 +4013,132 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
 }
 
 
-/* Helper: Inline ternary heapsort without key function */
+/* Helper: Bottom-up ternary heapsort without key function */
 HOT_FUNCTION static int
 list_heapsort_ternary_ultra_optimized(PyListObject *listobj, int sort_is_max) {
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   
   for (Py_ssize_t i = n - 1; i > 0; i--) {
-    /* REFRESH POINTER */
     PyObject **items = listobj->ob_item;
-    PyObject *tmp = items[0];
-    items[0] = items[i];
-    items[i] = tmp;
+    PyObject *last = items[i];
+    Py_INCREF(last);
+    items[i] = items[0];
     
+    /* Phase 1: Descend to leaf, always following best child */
     Py_ssize_t pos = 0;
-    PyObject *item = items[0];
-    Py_INCREF(item);
-    
     while (1) {
       Py_ssize_t child = pos * 3 + 1;
-      if (unlikely(child >= i)) break;
+      if (child >= i) break;
       
-      /* REFRESH POINTER */
       items = listobj->ob_item;
       Py_ssize_t best = child;
-      PyObject *best_item = items[child];
       
       for (Py_ssize_t c = child + 1; c < child + 3 && c < i; c++) {
-        int cmp_res = optimized_compare(items[c], best_item, sort_is_max ? Py_GT : Py_LT);
-        /* SAFETY CHECK */
+        PyObject *bc = items[best];
+        PyObject *cc = items[c];
+        Py_INCREF(bc); Py_INCREF(cc);
+        int cmp = optimized_compare(cc, bc, sort_is_max ? Py_GT : Py_LT);
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+          Py_DECREF(bc); Py_DECREF(cc); Py_DECREF(last);
           PyErr_SetString(PyExc_ValueError, "list modified during sort");
-          Py_DECREF(item);
           return -1;
         }
-        if (unlikely(cmp_res < 0)) { Py_DECREF(item); return -1; }
-        /* REFRESH POINTER */
+        if (unlikely(cmp < 0)) { Py_DECREF(bc); Py_DECREF(cc); Py_DECREF(last); return -1; }
         items = listobj->ob_item;
-        if (cmp_res) {
-          best = c;
-          best_item = items[c];
-        }
+        Py_DECREF(bc); Py_DECREF(cc);
+        if (cmp) best = c;
       }
       
-      int should_swap = optimized_compare(best_item, item, sort_is_max ? Py_GT : Py_LT);
-      /* SAFETY CHECK */
-      if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-        PyErr_SetString(PyExc_ValueError, "list modified during sort");
-        Py_DECREF(item);
-        return -1;
-      }
-      if (unlikely(should_swap < 0)) { Py_DECREF(item); return -1; }
-      /* REFRESH POINTER */
-      items = listobj->ob_item;
-      if (!should_swap) break;
-      
-      items[pos] = best_item;
+      items[pos] = items[best];
       pos = best;
     }
-    /* REFRESH POINTER */
-    items = listobj->ob_item;
-    items[pos] = item;
-    Py_DECREF(item);
+    
+    /* Phase 2: Bubble up from leaf position */
+    while (pos > 0) {
+      Py_ssize_t parent = (pos - 1) / 3;
+      PyObject *pobj = items[parent];
+      Py_INCREF(pobj);
+      int cmp = optimized_compare(last, pobj, sort_is_max ? Py_GT : Py_LT);
+      if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+        Py_DECREF(pobj); Py_DECREF(last);
+        PyErr_SetString(PyExc_ValueError, "list modified during sort");
+        return -1;
+      }
+      if (unlikely(cmp < 0)) { Py_DECREF(pobj); Py_DECREF(last); return -1; }
+      items = listobj->ob_item;
+      Py_DECREF(pobj);
+      if (!cmp) break;
+      
+      items[pos] = items[parent];
+      pos = parent;
+    }
+    items[pos] = last;
+    Py_DECREF(last);
   }
   return 0;
 }
 
-/* Helper: Inline quaternary heapsort without key function */
+/* Helper: Bottom-up quaternary heapsort without key function */
 HOT_FUNCTION static int
 list_heapsort_quaternary_ultra_optimized(PyListObject *listobj, int sort_is_max) {
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   
   for (Py_ssize_t i = n - 1; i > 0; i--) {
-    /* REFRESH POINTER */
     PyObject **items = listobj->ob_item;
-    PyObject *tmp = items[0];
-    items[0] = items[i];
-    items[i] = tmp;
+    PyObject *last = items[i];
+    Py_INCREF(last);
+    items[i] = items[0];
     
+    /* Phase 1: Descend to leaf, always following best child */
     Py_ssize_t pos = 0;
-    PyObject *item = items[0];
-    Py_INCREF(item);
-    
     while (1) {
       Py_ssize_t child = (pos << 2) + 1;
-      if (unlikely(child >= i)) break;
+      if (child >= i) break;
       
-      /* REFRESH POINTER */
       items = listobj->ob_item;
       Py_ssize_t best = child;
-      PyObject *best_item = items[child];
       
       for (Py_ssize_t c = child + 1; c < child + 4 && c < i; c++) {
-        int cmp_res = optimized_compare(items[c], best_item, sort_is_max ? Py_GT : Py_LT);
-        /* SAFETY CHECK */
+        PyObject *bc = items[best];
+        PyObject *cc = items[c];
+        Py_INCREF(bc); Py_INCREF(cc);
+        int cmp = optimized_compare(cc, bc, sort_is_max ? Py_GT : Py_LT);
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+          Py_DECREF(bc); Py_DECREF(cc); Py_DECREF(last);
           PyErr_SetString(PyExc_ValueError, "list modified during sort");
-          Py_DECREF(item);
           return -1;
         }
-        if (unlikely(cmp_res < 0)) { Py_DECREF(item); return -1; }
-        /* REFRESH POINTER */
+        if (unlikely(cmp < 0)) { Py_DECREF(bc); Py_DECREF(cc); Py_DECREF(last); return -1; }
         items = listobj->ob_item;
-        if (cmp_res) {
-          best = c;
-          best_item = items[c];
-        }
+        Py_DECREF(bc); Py_DECREF(cc);
+        if (cmp) best = c;
       }
       
-      int should_swap = optimized_compare(best_item, item, sort_is_max ? Py_GT : Py_LT);
-      /* SAFETY CHECK */
-      if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-        PyErr_SetString(PyExc_ValueError, "list modified during sort");
-        Py_DECREF(item);
-        return -1;
-      }
-      if (unlikely(should_swap < 0)) { Py_DECREF(item); return -1; }
-      /* REFRESH POINTER */
-      items = listobj->ob_item;
-      if (!should_swap) break;
-      
-      items[pos] = best_item;
+      items[pos] = items[best];
       pos = best;
     }
-    /* REFRESH POINTER */
-    items = listobj->ob_item;
-    items[pos] = item;
-    Py_DECREF(item);
+    
+    /* Phase 2: Bubble up from leaf position */
+    while (pos > 0) {
+      Py_ssize_t parent = (pos - 1) >> 2;
+      PyObject *pobj = items[parent];
+      Py_INCREF(pobj);
+      int cmp = optimized_compare(last, pobj, sort_is_max ? Py_GT : Py_LT);
+      if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+        Py_DECREF(pobj); Py_DECREF(last);
+        PyErr_SetString(PyExc_ValueError, "list modified during sort");
+        return -1;
+      }
+      if (unlikely(cmp < 0)) { Py_DECREF(pobj); Py_DECREF(last); return -1; }
+      items = listobj->ob_item;
+      Py_DECREF(pobj);
+      if (!cmp) break;
+      
+      items[pos] = items[parent];
+      pos = parent;
+    }
+    items[pos] = last;
+    Py_DECREF(last);
   }
   return 0;
 }
