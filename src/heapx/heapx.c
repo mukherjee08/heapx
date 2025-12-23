@@ -675,30 +675,111 @@ call_key_function(PyObject *keyfunc, PyObject *item) {
 #endif
 }
 
-/* SIMD and homogeneous array detection for vectorization opportunities */
+/* SIMD-accelerated homogeneous array detection for vectorization opportunities.
+ * Uses SIMD to compare type pointers in batches, providing hyper-robust scanning. */
 static int
 detect_homogeneous_type(PyObject **items, Py_ssize_t n) {
-  const int SIMD_CONST = 8; /* Constant to define the SIMD optimization */
+  const Py_ssize_t MIN_SIZE = 8; /* Minimum size for SIMD benefits */
 
-  if (unlikely(n < SIMD_CONST)) return 0; /* Too small for SIMD benefits */
+  if (unlikely(n < MIN_SIZE)) return 0;
 
-  int all_long = 1, all_float = 1;
-  
-  /* Check first 8 elements to determine type homogeneity */
-  for (Py_ssize_t i = 0; (i < SIMD_CONST) && (all_long || all_float); i++) {
-    if (!PyLong_CheckExact(items[i])) all_long = 0;
-    if (!PyFloat_CheckExact(items[i])) all_float = 0;
+  /* Determine candidate type from first element */
+  PyTypeObject *first_type = Py_TYPE(items[0]);
+  int candidate;
+  if (first_type == &PyLong_Type) {
+    candidate = 1; /* integers */
+  } else if (first_type == &PyFloat_Type) {
+    candidate = 2; /* floats */
+  } else {
+    return 0; /* Not a SIMD-optimizable type */
   }
 
-  if (!all_long && !all_float) return 0;
+  Py_ssize_t i = 1;
+
+#if defined(HEAPX_HAS_AVX2)
+  /* AVX2: Compare 4 type pointers at once (256-bit = 4 × 64-bit pointers) */
+  __m256i target_type = _mm256_set1_epi64x((int64_t)first_type);
+  Py_ssize_t simd_end = n - 3;
   
-  /* Verify homogeneity across entire array */
-  for (Py_ssize_t i = SIMD_CONST; i < n; i++) {
-    if (all_long && !PyLong_CheckExact(items[i])) return 0;
-    if (all_float && !PyFloat_CheckExact(items[i])) return 0;
+  for (; i < simd_end; i += 4) {
+    /* Load 4 object pointers */
+    PyObject *obj0 = items[i];
+    PyObject *obj1 = items[i + 1];
+    PyObject *obj2 = items[i + 2];
+    PyObject *obj3 = items[i + 3];
+    
+    /* Extract type pointers and pack into SIMD register */
+    __m256i types = _mm256_set_epi64x(
+      (int64_t)Py_TYPE(obj3),
+      (int64_t)Py_TYPE(obj2),
+      (int64_t)Py_TYPE(obj1),
+      (int64_t)Py_TYPE(obj0)
+    );
+    
+    /* Compare all 4 types against target */
+    __m256i cmp = _mm256_cmpeq_epi64(types, target_type);
+    int mask = _mm256_movemask_epi8(cmp);
+    
+    /* All 4 must match: mask should be 0xFFFFFFFF (all 32 bytes equal) */
+    if (mask != (int)0xFFFFFFFF) return 0;
   }
+
+#elif defined(HEAPX_HAS_SSE2)
+  /* SSE2: Compare 2 type pointers at once (128-bit = 2 × 64-bit pointers) */
+  __m128i target_type = _mm_set1_epi64x((int64_t)first_type);
+  Py_ssize_t simd_end = n - 1;
   
-  return all_long ? 1 : 2; /* 1=integers, 2=floats */
+  for (; i < simd_end; i += 2) {
+    PyObject *obj0 = items[i];
+    PyObject *obj1 = items[i + 1];
+    
+    __m128i types = _mm_set_epi64x(
+      (int64_t)Py_TYPE(obj1),
+      (int64_t)Py_TYPE(obj0)
+    );
+    
+    __m128i cmp = _mm_cmpeq_epi64(types, target_type);
+    int mask = _mm_movemask_epi8(cmp);
+    
+    /* All 2 must match: mask should be 0xFFFF (all 16 bytes equal) */
+    if (mask != 0xFFFF) return 0;
+  }
+
+#elif defined(HEAPX_HAS_NEON)
+  /* ARM NEON: Compare 2 type pointers at once (128-bit = 2 × 64-bit pointers) */
+  int64x2_t target_type = vdupq_n_s64((int64_t)first_type);
+  Py_ssize_t simd_end = n - 1;
+  
+  for (; i < simd_end; i += 2) {
+    int64x2_t types = {
+      (int64_t)Py_TYPE(items[i]),
+      (int64_t)Py_TYPE(items[i + 1])
+    };
+    
+    uint64x2_t cmp = vceqq_s64(types, target_type);
+    /* Both lanes must be all-ones (0xFFFFFFFFFFFFFFFF) */
+    if (vgetq_lane_u64(cmp, 0) != ~0ULL || vgetq_lane_u64(cmp, 1) != ~0ULL) return 0;
+  }
+
+#else
+  /* Scalar fallback: process 4 elements per iteration for better ILP */
+  Py_ssize_t scalar_end = n - 3;
+  for (; i < scalar_end; i += 4) {
+    if (Py_TYPE(items[i]) != first_type ||
+        Py_TYPE(items[i + 1]) != first_type ||
+        Py_TYPE(items[i + 2]) != first_type ||
+        Py_TYPE(items[i + 3]) != first_type) {
+      return 0;
+    }
+  }
+#endif
+
+  /* Handle remaining elements (scalar) */
+  for (; i < n; i++) {
+    if (Py_TYPE(items[i]) != first_type) return 0;
+  }
+
+  return candidate;
 }
 
 /* Step 2: Specialized heapify for homogeneous float arrays */
