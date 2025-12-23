@@ -824,7 +824,7 @@ list_heapify_homogeneous_float(PyListObject *listobj, int is_max)
     while (1) {
       Py_ssize_t child = (pos << 1) + 1;
       if (child >= n) break;
-      if (child + 1 < n) {
+      if (likely(child + 1 < n)) {
         if (is_max ? (values[child + 1] > values[child]) : (values[child + 1] < values[child]))
           child++;
       }
@@ -872,8 +872,8 @@ list_heapify_ternary_homogeneous_float(PyListObject *listobj, int is_max)
       if (c1 >= n) break;
       Py_ssize_t best = c1;
       double best_val = values[c1];
-      if (c1 + 1 < n && (is_max ? values[c1+1] > best_val : values[c1+1] < best_val)) { best = c1+1; best_val = values[c1+1]; }
-      if (c1 + 2 < n && (is_max ? values[c1+2] > best_val : values[c1+2] < best_val)) { best = c1+2; }
+      if (likely(c1 + 1 < n) && (is_max ? values[c1+1] > best_val : values[c1+1] < best_val)) { best = c1+1; best_val = values[c1+1]; }
+      if (likely(c1 + 2 < n) && (is_max ? values[c1+2] > best_val : values[c1+2] < best_val)) { best = c1+2; }
       if (is_max ? (val >= values[best]) : (val <= values[best])) break;
       values[pos] = values[best]; items[pos] = items[best]; pos = best;
     }
@@ -919,8 +919,8 @@ list_heapify_ternary_homogeneous_int(PyListObject *listobj, int is_max)
       if (c1 >= n) break;
       Py_ssize_t best = c1;
       long best_val = values[c1];
-      if (c1 + 1 < n && (is_max ? values[c1+1] > best_val : values[c1+1] < best_val)) { best = c1+1; best_val = values[c1+1]; }
-      if (c1 + 2 < n && (is_max ? values[c1+2] > best_val : values[c1+2] < best_val)) { best = c1+2; }
+      if (likely(c1 + 1 < n) && (is_max ? values[c1+1] > best_val : values[c1+1] < best_val)) { best = c1+1; best_val = values[c1+1]; }
+      if (likely(c1 + 2 < n) && (is_max ? values[c1+2] > best_val : values[c1+2] < best_val)) { best = c1+2; }
       if (is_max ? (val >= values[best]) : (val <= values[best])) break;
       values[pos] = values[best]; items[pos] = items[best]; pos = best;
     }
@@ -1308,7 +1308,7 @@ list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
       Py_INCREF(bestobj);  /* Protect bestobj across comparisons */
       
       Py_ssize_t right = child + 1;
-      if (right < n) {
+      if (likely(right < n)) {
         PyObject *rightobj = items[right];
         Py_INCREF(rightobj);
         int cmp = optimized_compare(rightobj, bestobj, is_max ? Py_GT : Py_LT);
@@ -1500,7 +1500,7 @@ list_heapify_ternary_ultra_optimized(PyListObject *listobj, int is_max)
       PyObject *bestobj = items[child];
       Py_INCREF(bestobj);
       
-      if (child + 1 < n) {
+      if (likely(child + 1 < n)) {
         PyObject *c1 = items[child + 1];
         Py_INCREF(c1);
         int cmp = optimized_compare(c1, bestobj, is_max ? Py_GT : Py_LT);
@@ -1515,7 +1515,7 @@ list_heapify_ternary_ultra_optimized(PyListObject *listobj, int is_max)
         else { Py_DECREF(c1); }
       }
       
-      if (child + 2 < n) {
+      if (likely(child + 2 < n)) {
         PyObject *c2 = items[child + 2];
         Py_INCREF(c2);
         int cmp = optimized_compare(c2, bestobj, is_max ? Py_GT : Py_LT);
@@ -1573,7 +1573,7 @@ list_heapify_quaternary_ultra_optimized(PyListObject *listobj, int is_max)
       
       /* Prefetch grandchildren */
       Py_ssize_t grandchild = 4 * child + 1;
-      if (grandchild < n) {
+      if (likely(grandchild < n)) {
         PREFETCH_MULTIPLE(items, grandchild, 4, n);
       }
       
@@ -2882,7 +2882,7 @@ list_sift_down_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, Py_ssize_t
     /* Prefetch grandchildren for large arities */
     if (arity >= 4) {
       Py_ssize_t grandchild = arity * child + 1;
-      if (grandchild < n) {
+      if (likely(grandchild < n)) {
         PREFETCH_MULTIPLE(items, grandchild, arity, n);
       }
     }
