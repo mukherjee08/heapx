@@ -371,18 +371,24 @@ static inline void detect_cache_parameters(void) {
 
 /* Cold error handling functions - marked to keep off hot path */
 COLD_FUNCTION static void
-set_list_modified_error(void) {
-  PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+set_list_modified_error(Py_ssize_t expected, Py_ssize_t actual) {
+  PyErr_Format(PyExc_ValueError, 
+      "list modified during heap operation (expected size %zd, got %zd)",
+      expected, actual);
 }
 
 COLD_FUNCTION static void
-set_list_modified_error_sort(void) {
-  PyErr_SetString(PyExc_ValueError, "list modified during sort");
+set_list_modified_error_sort(Py_ssize_t expected, Py_ssize_t actual) {
+  PyErr_Format(PyExc_ValueError, 
+      "list modified during sort (expected size %zd, got %zd)",
+      expected, actual);
 }
 
 COLD_FUNCTION static void
-set_list_modified_error_pop(void) {
-  PyErr_SetString(PyExc_ValueError, "list modified during pop");
+set_list_modified_error_pop(Py_ssize_t expected, Py_ssize_t actual) {
+  PyErr_Format(PyExc_ValueError, 
+      "list modified during pop (expected size %zd, got %zd)",
+      expected, actual);
 }
 
 /* ============================================================================
@@ -2030,7 +2036,7 @@ list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
       /* Check list size before assignment to prevent refcount corruption */
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(item);
-        set_list_modified_error();
+        set_list_modified_error(n, PyList_GET_SIZE(listobj));
         return -1;
       }
       items = listobj->ob_item;
@@ -2055,7 +2061,7 @@ list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
       /* Check list size before assignment to prevent refcount corruption */
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(item);
-        set_list_modified_error();
+        set_list_modified_error(n, PyList_GET_SIZE(listobj));
         return -1;
       }
       items = listobj->ob_item;
@@ -2070,7 +2076,7 @@ list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
     /* Check list size before final assignment */
     if (unlikely(PyList_GET_SIZE(listobj) != n)) {
       Py_DECREF(item);
-      set_list_modified_error();
+      set_list_modified_error(n, PyList_GET_SIZE(listobj));
       return -1;
     }
     items = listobj->ob_item;
@@ -2119,7 +2125,7 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
       Py_DECREF(k);
       for (Py_ssize_t j = 0; j < i; j++) Py_DECREF(keys[j]);
       if (keys_on_heap) PyMem_Free(keys);
-      PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+      PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
       return -1;
     }
     keys[i] = k;
@@ -2156,7 +2162,7 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
         Py_DECREF(newitem); Py_DECREF(newkey);
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
         if (keys_on_heap) PyMem_Free(keys);
-        PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+        PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       items = listobj->ob_item;
@@ -2189,7 +2195,7 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
         Py_DECREF(newitem); Py_DECREF(newkey);
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
         if (keys_on_heap) PyMem_Free(keys);
-        PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+        PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       items = listobj->ob_item;
@@ -2210,7 +2216,7 @@ list_heapify_with_key_ultra_optimized(PyListObject *listobj, PyObject *keyfunc, 
       Py_DECREF(newitem); Py_DECREF(newkey);
       for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
       if (keys_on_heap) PyMem_Free(keys);
-      PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+      PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
       return -1;
     }
     items = listobj->ob_item;
@@ -2268,7 +2274,7 @@ list_heapify_ternary_ultra_optimized(PyListObject *listobj, int is_max)
         /* Check list size before accessing items[best] */
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
           Py_DECREF(item);
-          set_list_modified_error();
+          set_list_modified_error(n, PyList_GET_SIZE(listobj));
           return -1;
         }
         items = listobj->ob_item;
@@ -2284,7 +2290,7 @@ list_heapify_ternary_ultra_optimized(PyListObject *listobj, int is_max)
       /* Check list size before assignment to prevent refcount corruption */
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(item);
-        set_list_modified_error();
+        set_list_modified_error(n, PyList_GET_SIZE(listobj));
         return -1;
       }
       items = listobj->ob_item;
@@ -2309,7 +2315,7 @@ list_heapify_ternary_ultra_optimized(PyListObject *listobj, int is_max)
       /* Check list size before assignment to prevent refcount corruption */
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(item);
-        set_list_modified_error();
+        set_list_modified_error(n, PyList_GET_SIZE(listobj));
         return -1;
       }
       items = listobj->ob_item;
@@ -2324,7 +2330,7 @@ list_heapify_ternary_ultra_optimized(PyListObject *listobj, int is_max)
     /* Check list size before final assignment */
     if (unlikely(PyList_GET_SIZE(listobj) != n)) {
       Py_DECREF(item);
-      set_list_modified_error();
+      set_list_modified_error(n, PyList_GET_SIZE(listobj));
       return -1;
     }
     items = listobj->ob_item;
@@ -2380,7 +2386,7 @@ list_heapify_quaternary_ultra_optimized(PyListObject *listobj, int is_max)
         /* Check list size after comparison - list might have been modified */
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
           Py_DECREF(cj); Py_DECREF(bestobj); Py_DECREF(item);
-          set_list_modified_error();
+          set_list_modified_error(n, PyList_GET_SIZE(listobj));
           return -1;
         }
         if (cmp) { Py_DECREF(bestobj); best = j; bestobj = cj; }
@@ -2391,7 +2397,7 @@ list_heapify_quaternary_ultra_optimized(PyListObject *listobj, int is_max)
       /* Check list size before assignment to prevent refcount corruption */
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(item);
-        set_list_modified_error();
+        set_list_modified_error(n, PyList_GET_SIZE(listobj));
         return -1;
       }
       items = listobj->ob_item;
@@ -2416,7 +2422,7 @@ list_heapify_quaternary_ultra_optimized(PyListObject *listobj, int is_max)
       /* Check list size before assignment to prevent refcount corruption */
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(item);
-        set_list_modified_error();
+        set_list_modified_error(n, PyList_GET_SIZE(listobj));
         return -1;
       }
       items = listobj->ob_item;
@@ -2431,7 +2437,7 @@ list_heapify_quaternary_ultra_optimized(PyListObject *listobj, int is_max)
     /* Check list size before final assignment */
     if (unlikely(PyList_GET_SIZE(listobj) != n)) {
       Py_DECREF(item);
-      set_list_modified_error();
+      set_list_modified_error(n, PyList_GET_SIZE(listobj));
       return -1;
     }
     items = listobj->ob_item;
@@ -2467,7 +2473,7 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
       Py_DECREF(k);
       for (Py_ssize_t j = 0; j < i; j++) Py_DECREF(keys[j]);
       PyMem_Free(keys);
-      PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+      PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
       return -1;
     }
     keys[i] = k;
@@ -2516,7 +2522,7 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
         Py_DECREF(newitem); Py_DECREF(newkey);
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
         PyMem_Free(keys);
-        PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+        PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       items = listobj->ob_item;
@@ -2549,7 +2555,7 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
         Py_DECREF(newitem); Py_DECREF(newkey);
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
         PyMem_Free(keys);
-        PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+        PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       items = listobj->ob_item;
@@ -2570,7 +2576,7 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
       Py_DECREF(newitem); Py_DECREF(newkey);
       for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
       PyMem_Free(keys);
-      PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+      PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
       return -1;
     }
     items = listobj->ob_item;
@@ -2610,7 +2616,7 @@ list_heapify_quaternary_with_key_ultra_optimized(PyListObject *listobj, PyObject
       Py_DECREF(k);
       for (Py_ssize_t j = 0; j < i; j++) Py_DECREF(keys[j]);
       PyMem_Free(keys);
-      PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+      PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
       return -1;
     }
     keys[i] = k;
@@ -2649,7 +2655,7 @@ list_heapify_quaternary_with_key_ultra_optimized(PyListObject *listobj, PyObject
         Py_DECREF(newitem); Py_DECREF(newkey);
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
         PyMem_Free(keys);
-        PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+        PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       
@@ -2683,7 +2689,7 @@ list_heapify_quaternary_with_key_ultra_optimized(PyListObject *listobj, PyObject
         Py_DECREF(newitem); Py_DECREF(newkey);
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
         PyMem_Free(keys);
-        PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+        PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       
@@ -2742,7 +2748,7 @@ list_heapify_small_ultra_optimized(PyListObject *listobj, int is_max, Py_ssize_t
         /* Check size BEFORE assignment to prevent refcount corruption */
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
           Py_DECREF(key);
-          PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+          PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
           return -1;
         }
         /* Move with proper refcount handling */
@@ -2787,7 +2793,7 @@ list_heapify_small_ultra_optimized(PyListObject *listobj, int is_max, Py_ssize_t
         /* Check list size after comparison */
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
           Py_DECREF(cj); Py_DECREF(bestobj); Py_DECREF(item);
-          PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+          PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
           return -1;
         }
         items = listobj->ob_item;
@@ -2798,7 +2804,7 @@ list_heapify_small_ultra_optimized(PyListObject *listobj, int is_max, Py_ssize_t
       /* Check size BEFORE assignment to prevent refcount corruption */
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(bestobj); Py_DECREF(item);
-        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       
@@ -2824,7 +2830,7 @@ list_heapify_small_ultra_optimized(PyListObject *listobj, int is_max, Py_ssize_t
       /* Check size BEFORE assignment to prevent refcount corruption */
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(item);
-        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       /* Move parent down with proper refcount handling */
@@ -2864,7 +2870,7 @@ heapify_arity_one_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp)
         /* SAFETY CHECK */
         if (unlikely(PyList_GET_SIZE(heap) != n)) {
           Py_DECREF(decorated);
-          PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+          PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(heap));
           return -1;
         }
         
@@ -2879,7 +2885,7 @@ heapify_arity_one_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp)
         if (unlikely(PyList_GET_SIZE(heap) != n)) {
           Py_DECREF(key);
           Py_DECREF(decorated);
-          PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+          PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(heap));
           return -1;
         }
         
@@ -2981,7 +2987,7 @@ generic_heapify_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp, Py_ss
   for (Py_ssize_t i = (n - 2) / arity; i >= 0; i--) {
     /* SAFETY CHECK before each iteration */
     if (unlikely(PySequence_Size(heap) != n)) {
-      PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+      PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PySequence_Size(heap));
       return -1;
     }
     
@@ -2993,7 +2999,7 @@ generic_heapify_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp, Py_ss
 
       /* SAFETY CHECK before reading children */
       if (unlikely(PySequence_Size(heap) != n)) {
-        PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+        PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PySequence_Size(heap));
         return -1;
       }
 
@@ -3007,7 +3013,7 @@ generic_heapify_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp, Py_ss
         if (unlikely(!bestkey)) { Py_DECREF(bestobj); return -1; }
         /* SAFETY CHECK after key function call */
         if (unlikely(PySequence_Size(heap) != n)) {
-          PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+          PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PySequence_Size(heap));
           Py_DECREF(bestobj);
           Py_DECREF(bestkey);
           return -1;
@@ -3037,7 +3043,7 @@ generic_heapify_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp, Py_ss
           }
           /* SAFETY CHECK after key function call */
           if (unlikely(PySequence_Size(heap) != n)) {
-            PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+            PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PySequence_Size(heap));
             Py_DECREF(cur); Py_DECREF(curkey); Py_DECREF(bestobj); Py_DECREF(bestkey);
             return -1;
           }
@@ -3049,7 +3055,7 @@ generic_heapify_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp, Py_ss
         int better = optimized_compare(curkey, bestkey, is_max ? Py_GT : Py_LT);
         /* SAFETY CHECK after comparison */
         if (unlikely(PySequence_Size(heap) != n)) {
-          PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+          PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PySequence_Size(heap));
           Py_DECREF(cur); Py_DECREF(curkey); Py_DECREF(bestobj); Py_DECREF(bestkey);
           return -1;
         }
@@ -3082,7 +3088,7 @@ generic_heapify_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp, Py_ss
         }
         /* SAFETY CHECK after key function call */
         if (unlikely(PySequence_Size(heap) != n)) {
-          PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+          PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PySequence_Size(heap));
           Py_DECREF(parent); Py_DECREF(parentkey); Py_DECREF(bestobj); Py_DECREF(bestkey);
           return -1;
         }
@@ -3094,7 +3100,7 @@ generic_heapify_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp, Py_ss
       int should_continue = optimized_compare(bestkey, parentkey, is_max ? Py_GT : Py_LT);
       /* SAFETY CHECK after comparison */
       if (unlikely(PySequence_Size(heap) != n)) {
-        PyErr_SetString(PyExc_ValueError, "list modified during heapify");
+        PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PySequence_Size(heap));
         Py_DECREF(parent); Py_DECREF(parentkey); Py_DECREF(bestobj); Py_DECREF(bestkey);
         return -1;
       }
@@ -3154,11 +3160,11 @@ py_heapify(PyObject *self, PyObject *args, PyObject *kwargs)
   if (unlikely(is_max < 0)) return NULL;
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
-    PyErr_SetString(PyExc_TypeError, "cmp must be callable or None");
+    PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
     return NULL;
   }
   if (unlikely(arity < 1 || arity > HEAPX_MAX_ARITY)) {
-    PyErr_SetString(PyExc_ValueError, "arity must be >= 1 and <= 64");
+    PyErr_Format(PyExc_ValueError, "arity must be >= 1 and <= 64, got %zd", arity);
     return NULL;
   }
 
@@ -3676,7 +3682,7 @@ list_sift_up_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, int is_max, 
     int should_swap = optimized_compare(item, parent_item, is_max ? Py_GT : Py_LT);
     if (unlikely(PyList_GET_SIZE(listobj) != n)) {
       Py_DECREF(parent_item); Py_DECREF(item);
-      PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+      PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
       return -1;
     }
     if (unlikely(should_swap < 0)) { Py_DECREF(parent_item); Py_DECREF(item); return -1; }
@@ -3760,7 +3766,7 @@ list_sift_down_ultra_optimized(PyListObject *listobj, Py_ssize_t start_pos, Py_s
       int better = optimized_compare(cj, best_item, is_max ? Py_GT : Py_LT);
       if (unlikely(PyList_GET_SIZE(listobj) != list_size)) {
         Py_DECREF(cj); Py_DECREF(best_item); Py_DECREF(item);
-        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", list_size, PyList_GET_SIZE(listobj));
         return -1;
       }
       if (unlikely(better < 0)) { Py_DECREF(cj); Py_DECREF(best_item); Py_DECREF(item); return -1; }
@@ -3782,7 +3788,7 @@ list_sift_down_ultra_optimized(PyListObject *listobj, Py_ssize_t start_pos, Py_s
     int cmp = optimized_compare(item, pobj, is_max ? Py_GT : Py_LT);
     if (unlikely(PyList_GET_SIZE(listobj) != list_size)) {
       Py_DECREF(pobj); Py_DECREF(item);
-      PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+      PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", list_size, PyList_GET_SIZE(listobj));
       return -1;
     }
     if (unlikely(cmp < 0)) { Py_DECREF(pobj); Py_DECREF(item); return -1; }
@@ -3812,7 +3818,7 @@ list_sift_down_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t start_
   if (unlikely(!key)) { Py_DECREF(item); return -1; }
   if (unlikely(PyList_GET_SIZE(listobj) != list_size)) {
     Py_DECREF(key); Py_DECREF(item);
-    PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+    PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", list_size, PyList_GET_SIZE(listobj));
     return -1;
   }
   items = listobj->ob_item;
@@ -3830,7 +3836,7 @@ list_sift_down_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t start_
     if (unlikely(!best_key)) { Py_DECREF(best_item); Py_DECREF(key); Py_DECREF(item); return -1; }
     if (unlikely(PyList_GET_SIZE(listobj) != list_size)) {
       Py_DECREF(best_key); Py_DECREF(best_item); Py_DECREF(key); Py_DECREF(item);
-      PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+      PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", list_size, PyList_GET_SIZE(listobj));
       return -1;
     }
     items = listobj->ob_item;
@@ -3845,7 +3851,7 @@ list_sift_down_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t start_
       if (unlikely(!cur_key)) { Py_DECREF(cj); Py_DECREF(best_item); Py_DECREF(key); Py_DECREF(best_key); Py_DECREF(item); return -1; }
       if (unlikely(PyList_GET_SIZE(listobj) != list_size)) {
         Py_DECREF(cur_key); Py_DECREF(cj); Py_DECREF(best_key); Py_DECREF(best_item); Py_DECREF(key); Py_DECREF(item);
-        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", list_size, PyList_GET_SIZE(listobj));
         return -1;
       }
       items = listobj->ob_item;
@@ -3853,7 +3859,7 @@ list_sift_down_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t start_
       int better = optimized_compare(cur_key, best_key, is_max ? Py_GT : Py_LT);
       if (unlikely(PyList_GET_SIZE(listobj) != list_size)) {
         Py_DECREF(cur_key); Py_DECREF(cj); Py_DECREF(best_key); Py_DECREF(best_item); Py_DECREF(key); Py_DECREF(item);
-        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", list_size, PyList_GET_SIZE(listobj));
         return -1;
       }
       if (unlikely(better < 0)) { Py_DECREF(cur_key); Py_DECREF(cj); Py_DECREF(best_key); Py_DECREF(best_item); Py_DECREF(key); Py_DECREF(item); return -1; }
@@ -3884,14 +3890,14 @@ list_sift_down_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t start_
     if (unlikely(!parent_key)) { Py_DECREF(key); Py_DECREF(item); return -1; }
     if (unlikely(PyList_GET_SIZE(listobj) != list_size)) {
       Py_DECREF(parent_key); Py_DECREF(key); Py_DECREF(item);
-      PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+      PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", list_size, PyList_GET_SIZE(listobj));
       return -1;
     }
     int cmp = optimized_compare(key, parent_key, is_max ? Py_GT : Py_LT);
     Py_DECREF(parent_key);
     if (unlikely(PyList_GET_SIZE(listobj) != list_size)) {
       Py_DECREF(key); Py_DECREF(item);
-      PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+      PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", list_size, PyList_GET_SIZE(listobj));
       return -1;
     }
     if (unlikely(cmp < 0)) { Py_DECREF(key); Py_DECREF(item); return -1; }
@@ -3954,7 +3960,7 @@ list_remove_at_index_optimized(PyListObject *listobj, Py_ssize_t idx, int is_max
       int cmp_res = optimized_compare(items[idx], items[parent], is_max ? Py_GT : Py_LT);
       /* SAFETY CHECK */
       if (unlikely(Py_SIZE(listobj) != new_size)) {
-        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         Py_DECREF(removed);
         return -1;
       }
@@ -3987,7 +3993,7 @@ list_remove_at_index_optimized(PyListObject *listobj, Py_ssize_t idx, int is_max
       }
       /* SAFETY CHECK */
       if (unlikely(Py_SIZE(listobj) != new_size)) {
-        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         Py_DECREF(key_item);
         Py_DECREF(removed);
         return -1;
@@ -4002,7 +4008,7 @@ list_remove_at_index_optimized(PyListObject *listobj, Py_ssize_t idx, int is_max
       }
       /* SAFETY CHECK */
       if (unlikely(Py_SIZE(listobj) != new_size)) {
-        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         Py_DECREF(key_item);
         Py_DECREF(key_parent);
         Py_DECREF(removed);
@@ -4013,7 +4019,7 @@ list_remove_at_index_optimized(PyListObject *listobj, Py_ssize_t idx, int is_max
       Py_DECREF(key_parent);
       /* SAFETY CHECK */
       if (unlikely(Py_SIZE(listobj) != new_size)) {
-        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         Py_DECREF(removed);
         return -1;
       }
@@ -4057,11 +4063,11 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
   if (unlikely(is_max < 0)) return NULL;
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
-    PyErr_SetString(PyExc_TypeError, "cmp must be callable or None");
+    PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
     return NULL;
   }
   if (unlikely(arity < 1 || arity > HEAPX_MAX_ARITY)) {
-    PyErr_SetString(PyExc_ValueError, "arity must be >= 1 and <= 64");
+    PyErr_Format(PyExc_ValueError, "arity must be >= 1 and <= 64, got %zd", arity);
     return NULL;
   }
 
@@ -4128,7 +4134,7 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
             int cmp_res = optimized_compare(item, arr[mid], is_max ? Py_GT : Py_LT);
             /* SAFETY CHECK */
             if (unlikely(PyList_GET_SIZE(heap) != total_size)) {
-              PyErr_SetString(PyExc_ValueError, "list modified during push");
+              PyErr_Format(PyExc_ValueError, "list modified during push (expected size %zd, got %zd)", total_size, PyList_GET_SIZE(heap));
               Py_DECREF(item);
               return NULL;
             }
@@ -4163,7 +4169,7 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
             int cmp_res = optimized_compare(item, arr[parent], is_max ? Py_GT : Py_LT);
             /* SAFETY CHECK */
             if (unlikely(PyList_GET_SIZE(heap) != total_size)) {
-              PyErr_SetString(PyExc_ValueError, "list modified during push");
+              PyErr_Format(PyExc_ValueError, "list modified during push (expected size %zd, got %zd)", total_size, PyList_GET_SIZE(heap));
               Py_DECREF(item);
               return NULL;
             }
@@ -4197,7 +4203,7 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
             int cmp_res = optimized_compare(item, arr[parent], is_max ? Py_GT : Py_LT);
             /* SAFETY CHECK */
             if (unlikely(PyList_GET_SIZE(heap) != total_size)) {
-              PyErr_SetString(PyExc_ValueError, "list modified during push");
+              PyErr_Format(PyExc_ValueError, "list modified during push (expected size %zd, got %zd)", total_size, PyList_GET_SIZE(heap));
               Py_DECREF(item);
               return NULL;
             }
@@ -4231,7 +4237,7 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
             int cmp_res = optimized_compare(item, arr[parent], is_max ? Py_GT : Py_LT);
             /* SAFETY CHECK */
             if (unlikely(PyList_GET_SIZE(heap) != total_size)) {
-              PyErr_SetString(PyExc_ValueError, "list modified during push");
+              PyErr_Format(PyExc_ValueError, "list modified during push (expected size %zd, got %zd)", total_size, PyList_GET_SIZE(heap));
               Py_DECREF(item);
               return NULL;
             }
@@ -4264,7 +4270,7 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
           int cmp_res = optimized_compare(item, arr[parent], is_max ? Py_GT : Py_LT);
           /* SAFETY CHECK */
           if (unlikely(PyList_GET_SIZE(heap) != total_size)) {
-            PyErr_SetString(PyExc_ValueError, "list modified during push");
+            PyErr_Format(PyExc_ValueError, "list modified during push (expected size %zd, got %zd)", total_size, PyList_GET_SIZE(heap));
             Py_DECREF(item);
             return NULL;
           }
@@ -4297,7 +4303,7 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
           if (unlikely(!key)) { Py_DECREF(item); return NULL; }
           /* SAFETY CHECK */
           if (unlikely(PyList_GET_SIZE(heap) != total_size)) {
-            PyErr_SetString(PyExc_ValueError, "list modified during push");
+            PyErr_Format(PyExc_ValueError, "list modified during push (expected size %zd, got %zd)", total_size, PyList_GET_SIZE(heap));
             Py_DECREF(item);
             Py_DECREF(key);
             return NULL;
@@ -4311,7 +4317,7 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
             if (unlikely(!parent_key)) { Py_DECREF(item); Py_DECREF(key); return NULL; }
             /* SAFETY CHECK */
             if (unlikely(PyList_GET_SIZE(heap) != total_size)) {
-              PyErr_SetString(PyExc_ValueError, "list modified during push");
+              PyErr_Format(PyExc_ValueError, "list modified during push (expected size %zd, got %zd)", total_size, PyList_GET_SIZE(heap));
               Py_DECREF(item);
               Py_DECREF(key);
               Py_DECREF(parent_key);
@@ -4322,7 +4328,7 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
             Py_DECREF(parent_key);
             /* SAFETY CHECK */
             if (unlikely(PyList_GET_SIZE(heap) != total_size)) {
-              PyErr_SetString(PyExc_ValueError, "list modified during push");
+              PyErr_Format(PyExc_ValueError, "list modified during push (expected size %zd, got %zd)", total_size, PyList_GET_SIZE(heap));
               Py_DECREF(item);
               Py_DECREF(key);
               return NULL;
@@ -4356,7 +4362,7 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
           if (unlikely(!key)) { Py_DECREF(item); return NULL; }
           /* SAFETY CHECK */
           if (unlikely(PyList_GET_SIZE(heap) != total_size)) {
-            PyErr_SetString(PyExc_ValueError, "list modified during push");
+            PyErr_Format(PyExc_ValueError, "list modified during push (expected size %zd, got %zd)", total_size, PyList_GET_SIZE(heap));
             Py_DECREF(item);
             Py_DECREF(key);
             return NULL;
@@ -4370,7 +4376,7 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
             if (unlikely(!parent_key)) { Py_DECREF(item); Py_DECREF(key); return NULL; }
             /* SAFETY CHECK */
             if (unlikely(PyList_GET_SIZE(heap) != total_size)) {
-              PyErr_SetString(PyExc_ValueError, "list modified during push");
+              PyErr_Format(PyExc_ValueError, "list modified during push (expected size %zd, got %zd)", total_size, PyList_GET_SIZE(heap));
               Py_DECREF(item);
               Py_DECREF(key);
               Py_DECREF(parent_key);
@@ -4381,7 +4387,7 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
             Py_DECREF(parent_key);
             /* SAFETY CHECK */
             if (unlikely(PyList_GET_SIZE(heap) != total_size)) {
-              PyErr_SetString(PyExc_ValueError, "list modified during push");
+              PyErr_Format(PyExc_ValueError, "list modified during push (expected size %zd, got %zd)", total_size, PyList_GET_SIZE(heap));
               Py_DECREF(item);
               Py_DECREF(key);
               return NULL;
@@ -4414,7 +4420,7 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
         if (unlikely(!key)) { Py_DECREF(item); return NULL; }
         /* SAFETY CHECK */
         if (unlikely(PyList_GET_SIZE(heap) != total_size)) {
-          PyErr_SetString(PyExc_ValueError, "list modified during push");
+          PyErr_Format(PyExc_ValueError, "list modified during push (expected size %zd, got %zd)", total_size, PyList_GET_SIZE(heap));
           Py_DECREF(item);
           Py_DECREF(key);
           return NULL;
@@ -4428,7 +4434,7 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
           if (unlikely(!parent_key)) { Py_DECREF(item); Py_DECREF(key); return NULL; }
           /* SAFETY CHECK */
           if (unlikely(PyList_GET_SIZE(heap) != total_size)) {
-            PyErr_SetString(PyExc_ValueError, "list modified during push");
+            PyErr_Format(PyExc_ValueError, "list modified during push (expected size %zd, got %zd)", total_size, PyList_GET_SIZE(heap));
             Py_DECREF(item);
             Py_DECREF(key);
             Py_DECREF(parent_key);
@@ -4439,7 +4445,7 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
           Py_DECREF(parent_key);
           /* SAFETY CHECK */
           if (unlikely(PyList_GET_SIZE(heap) != total_size)) {
-            PyErr_SetString(PyExc_ValueError, "list modified during push");
+            PyErr_Format(PyExc_ValueError, "list modified during push (expected size %zd, got %zd)", total_size, PyList_GET_SIZE(heap));
             Py_DECREF(item);
             Py_DECREF(key);
             return NULL;
@@ -4511,15 +4517,15 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
   if (unlikely(is_max < 0)) return NULL;
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
-    PyErr_SetString(PyExc_TypeError, "cmp must be callable or None");
+    PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
     return NULL;
   }
   if (unlikely(arity < 1 || arity > HEAPX_MAX_ARITY)) {
-    PyErr_SetString(PyExc_ValueError, "arity must be >= 1 and <= 64");
+    PyErr_Format(PyExc_ValueError, "arity must be >= 1 and <= 64, got %zd", arity);
     return NULL;
   }
   if (unlikely(n_pop < 1)) {
-    PyErr_SetString(PyExc_ValueError, "n must be >= 1");
+    PyErr_Format(PyExc_ValueError, "n must be >= 1, got %zd", n_pop);
     return NULL;
   }
 
@@ -4681,7 +4687,7 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
               
               /* SAFETY CHECK before reading children */
               if (unlikely(PyList_GET_SIZE(heap) != new_size)) {
-                PyErr_SetString(PyExc_ValueError, "list modified during pop");
+                PyErr_Format(PyExc_ValueError, "list modified during pop (expected size %zd, got %zd)", new_size, PyList_GET_SIZE(heap));
                 Py_DECREF(sift_item);
                 Py_DECREF(results);
                 return NULL;
@@ -4699,7 +4705,7 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
                 int cmp_res = optimized_compare(right_item, best_item, is_max ? Py_GT : Py_LT);
                 /* SAFETY CHECK */
                 if (unlikely(PyList_GET_SIZE(heap) != new_size)) {
-                  PyErr_SetString(PyExc_ValueError, "list modified during pop");
+                  PyErr_Format(PyExc_ValueError, "list modified during pop (expected size %zd, got %zd)", new_size, PyList_GET_SIZE(heap));
                   Py_DECREF(right_item);
                   Py_DECREF(best_item);
                   Py_DECREF(sift_item);
@@ -4726,7 +4732,7 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
               int should_swap = optimized_compare(best_item, sift_item, is_max ? Py_GT : Py_LT);
               /* SAFETY CHECK */
               if (unlikely(PyList_GET_SIZE(heap) != new_size)) {
-                PyErr_SetString(PyExc_ValueError, "list modified during pop");
+                PyErr_Format(PyExc_ValueError, "list modified during pop (expected size %zd, got %zd)", new_size, PyList_GET_SIZE(heap));
                 Py_DECREF(best_item);
                 Py_DECREF(sift_item);
                 Py_DECREF(results);
@@ -4885,7 +4891,7 @@ list_heapsort_ternary_ultra_optimized(PyListObject *listobj, int sort_is_max) {
         int cmp = optimized_compare(cc, bc, sort_is_max ? Py_GT : Py_LT);
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
           Py_DECREF(bc); Py_DECREF(cc); Py_DECREF(last);
-          PyErr_SetString(PyExc_ValueError, "list modified during sort");
+          PyErr_Format(PyExc_ValueError, "list modified during sort (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
           return -1;
         }
         if (unlikely(cmp < 0)) { Py_DECREF(bc); Py_DECREF(cc); Py_DECREF(last); return -1; }
@@ -4906,7 +4912,7 @@ list_heapsort_ternary_ultra_optimized(PyListObject *listobj, int sort_is_max) {
       int cmp = optimized_compare(last, pobj, sort_is_max ? Py_GT : Py_LT);
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(pobj); Py_DECREF(last);
-        PyErr_SetString(PyExc_ValueError, "list modified during sort");
+        PyErr_Format(PyExc_ValueError, "list modified during sort (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       if (unlikely(cmp < 0)) { Py_DECREF(pobj); Py_DECREF(last); return -1; }
@@ -4950,7 +4956,7 @@ list_heapsort_quaternary_ultra_optimized(PyListObject *listobj, int sort_is_max)
         int cmp = optimized_compare(cc, bc, sort_is_max ? Py_GT : Py_LT);
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
           Py_DECREF(bc); Py_DECREF(cc); Py_DECREF(last);
-          PyErr_SetString(PyExc_ValueError, "list modified during sort");
+          PyErr_Format(PyExc_ValueError, "list modified during sort (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
           return -1;
         }
         if (unlikely(cmp < 0)) { Py_DECREF(bc); Py_DECREF(cc); Py_DECREF(last); return -1; }
@@ -4971,7 +4977,7 @@ list_heapsort_quaternary_ultra_optimized(PyListObject *listobj, int sort_is_max)
       int cmp = optimized_compare(last, pobj, sort_is_max ? Py_GT : Py_LT);
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(pobj); Py_DECREF(last);
-        PyErr_SetString(PyExc_ValueError, "list modified during sort");
+        PyErr_Format(PyExc_ValueError, "list modified during sort (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       if (unlikely(cmp < 0)) { Py_DECREF(pobj); Py_DECREF(last); return -1; }
@@ -5014,7 +5020,7 @@ list_heapsort_binary_ultra_optimized(PyListObject *listobj, int sort_is_max) {
         int cmp = optimized_compare(rc, lc, sort_is_max ? Py_GT : Py_LT);
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
           Py_DECREF(lc); Py_DECREF(rc); Py_DECREF(last);
-          PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+          PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
           return -1;
         }
         if (unlikely(cmp < 0)) { Py_DECREF(lc); Py_DECREF(rc); Py_DECREF(last); return -1; }
@@ -5035,7 +5041,7 @@ list_heapsort_binary_ultra_optimized(PyListObject *listobj, int sort_is_max) {
       int cmp = optimized_compare(last, pobj, sort_is_max ? Py_GT : Py_LT);
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(pobj); Py_DECREF(last);
-        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       if (unlikely(cmp < 0)) { Py_DECREF(pobj); Py_DECREF(last); return -1; }
@@ -5071,7 +5077,7 @@ list_heapsort_binary_with_key_ultra_optimized(PyListObject *listobj, int sort_is
     if (unlikely(!item_key)) { Py_DECREF(item); return -1; }
     /* SAFETY CHECK */
     if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-      PyErr_SetString(PyExc_ValueError, "list modified during sort");
+      PyErr_Format(PyExc_ValueError, "list modified during sort (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
       Py_DECREF(item);
       Py_DECREF(item_key);
       return -1;
@@ -5095,7 +5101,7 @@ list_heapsort_binary_with_key_ultra_optimized(PyListObject *listobj, int sort_is
       }
       /* SAFETY CHECK */
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-        PyErr_SetString(PyExc_ValueError, "list modified during sort");
+        PyErr_Format(PyExc_ValueError, "list modified during sort (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         Py_DECREF(item);
         Py_DECREF(item_key);
         Py_DECREF(best_key);
@@ -5115,7 +5121,7 @@ list_heapsort_binary_with_key_ultra_optimized(PyListObject *listobj, int sort_is
         }
         /* SAFETY CHECK */
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-          PyErr_SetString(PyExc_ValueError, "list modified during sort");
+          PyErr_Format(PyExc_ValueError, "list modified during sort (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
           Py_DECREF(item);
           Py_DECREF(item_key);
           Py_DECREF(best_key);
@@ -5125,7 +5131,7 @@ list_heapsort_binary_with_key_ultra_optimized(PyListObject *listobj, int sort_is
         int cmp_res = optimized_compare(right_key, best_key, sort_is_max ? Py_GT : Py_LT);
         /* SAFETY CHECK */
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-          PyErr_SetString(PyExc_ValueError, "list modified during sort");
+          PyErr_Format(PyExc_ValueError, "list modified during sort (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
           Py_DECREF(item);
           Py_DECREF(item_key);
           Py_DECREF(best_key);
@@ -5154,7 +5160,7 @@ list_heapsort_binary_with_key_ultra_optimized(PyListObject *listobj, int sort_is
       Py_DECREF(best_key);
       /* SAFETY CHECK */
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
-        PyErr_SetString(PyExc_ValueError, "list modified during sort");
+        PyErr_Format(PyExc_ValueError, "list modified during sort (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         Py_DECREF(item);
         Py_DECREF(item_key);
         return -1;
@@ -5226,11 +5232,11 @@ py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
   if (unlikely(is_max < 0)) return NULL;
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
-    PyErr_SetString(PyExc_TypeError, "cmp must be callable or None");
+    PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
     return NULL;
   }
   if (unlikely(arity < 1 || arity > HEAPX_MAX_ARITY)) {
-    PyErr_SetString(PyExc_ValueError, "arity must be >= 1 and <= 64");
+    PyErr_Format(PyExc_ValueError, "arity must be >= 1 and <= 64, got %zd", arity);
     return NULL;
   }
 
@@ -5291,7 +5297,7 @@ py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
     for (Py_ssize_t i = 1; i < n; i++) {
       /* SAFETY CHECK */
       if (unlikely(PyList_GET_SIZE(work_heap) != n)) {
-        PyErr_SetString(PyExc_ValueError, "list modified during sort");
+        PyErr_Format(PyExc_ValueError, "list modified during sort (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         Py_DECREF(work_heap);
         return NULL;
       }
@@ -5302,7 +5308,7 @@ py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
       while (j >= 0) {
         /* SAFETY CHECK */
         if (unlikely(PyList_GET_SIZE(work_heap) != n)) {
-          PyErr_SetString(PyExc_ValueError, "list modified during sort");
+          PyErr_Format(PyExc_ValueError, "list modified during sort (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
           Py_DECREF(key);
           Py_DECREF(work_heap);
           return NULL;
@@ -5311,7 +5317,7 @@ py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
         int cmp_res = optimized_compare(items[j], key, reverse ? Py_LT : Py_GT);
         /* SAFETY CHECK */
         if (unlikely(PyList_GET_SIZE(work_heap) != n)) {
-          PyErr_SetString(PyExc_ValueError, "list modified during sort");
+          PyErr_Format(PyExc_ValueError, "list modified during sort (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
           Py_DECREF(key);
           Py_DECREF(work_heap);
           return NULL;
@@ -5713,15 +5719,15 @@ py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
   if (unlikely(is_max < 0)) return NULL;
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
-    PyErr_SetString(PyExc_TypeError, "cmp must be callable or None");
+    PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
     return NULL;
   }
   if (unlikely(predicate != Py_None && !PyCallable_Check(predicate))) {
-    PyErr_SetString(PyExc_TypeError, "predicate must be callable or None");
+    PyErr_Format(PyExc_TypeError, "predicate must be callable or None, not %.200s", Py_TYPE(predicate)->tp_name);
     return NULL;
   }
   if (unlikely(arity < 1 || arity > HEAPX_MAX_ARITY)) {
-    PyErr_SetString(PyExc_ValueError, "arity must be >= 1 and <= 64");
+    PyErr_Format(PyExc_ValueError, "arity must be >= 1 and <= 64, got %zd", arity);
     return NULL;
   }
 
@@ -5772,7 +5778,7 @@ py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
         for (Py_ssize_t i = 1; i < new_size; i++) {
           /* SAFETY CHECK */
           if (unlikely(PyList_GET_SIZE(heap) != new_size)) {
-            PyErr_SetString(PyExc_ValueError, "list modified during remove");
+            PyErr_Format(PyExc_ValueError, "list modified during remove (expected size %zd, got %zd)", new_size, PyList_GET_SIZE(heap));
             Py_XDECREF(removed_item);
             return NULL;
           }
@@ -5783,7 +5789,7 @@ py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
           while (j >= 0) {
             /* SAFETY CHECK */
             if (unlikely(PyList_GET_SIZE(heap) != new_size)) {
-              PyErr_SetString(PyExc_ValueError, "list modified during remove");
+              PyErr_Format(PyExc_ValueError, "list modified during remove (expected size %zd, got %zd)", new_size, PyList_GET_SIZE(heap));
               Py_DECREF(key);
               Py_XDECREF(removed_item);
               return NULL;
@@ -5792,7 +5798,7 @@ py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
             int cmp_res = optimized_compare(key, items[j], is_max ? Py_GT : Py_LT);
             /* SAFETY CHECK */
             if (unlikely(PyList_GET_SIZE(heap) != new_size)) {
-              PyErr_SetString(PyExc_ValueError, "list modified during remove");
+              PyErr_Format(PyExc_ValueError, "list modified during remove (expected size %zd, got %zd)", new_size, PyList_GET_SIZE(heap));
               Py_DECREF(key);
               Py_XDECREF(removed_item);
               return NULL;
@@ -6189,7 +6195,7 @@ list_replace_at_index_optimized(PyListObject *listobj, Py_ssize_t idx, PyObject 
       int cmp_res = optimized_compare(items[idx], items[parent], is_max ? Py_GT : Py_LT);
       /* SAFETY CHECK */
       if (unlikely(Py_SIZE(listobj) != n)) {
-        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       if (unlikely(cmp_res < 0)) return -1;
@@ -6209,7 +6215,7 @@ list_replace_at_index_optimized(PyListObject *listobj, Py_ssize_t idx, PyObject 
       if (unlikely(!key_item)) return -1;
       /* SAFETY CHECK */
       if (unlikely(Py_SIZE(listobj) != n)) {
-        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         Py_DECREF(key_item);
         return -1;
       }
@@ -6222,7 +6228,7 @@ list_replace_at_index_optimized(PyListObject *listobj, Py_ssize_t idx, PyObject 
       }
       /* SAFETY CHECK */
       if (unlikely(Py_SIZE(listobj) != n)) {
-        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         Py_DECREF(key_item);
         Py_DECREF(key_parent);
         return -1;
@@ -6232,7 +6238,7 @@ list_replace_at_index_optimized(PyListObject *listobj, Py_ssize_t idx, PyObject 
       Py_DECREF(key_parent);
       /* SAFETY CHECK */
       if (unlikely(Py_SIZE(listobj) != n)) {
-        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       if (unlikely(cmp_res < 0)) return -1;
@@ -6264,15 +6270,15 @@ py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
   if (unlikely(is_max < 0)) return NULL;
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
-    PyErr_SetString(PyExc_TypeError, "cmp must be callable or None");
+    PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
     return NULL;
   }
   if (unlikely(predicate != Py_None && !PyCallable_Check(predicate))) {
-    PyErr_SetString(PyExc_TypeError, "predicate must be callable or None");
+    PyErr_Format(PyExc_TypeError, "predicate must be callable or None, not %.200s", Py_TYPE(predicate)->tp_name);
     return NULL;
   }
   if (unlikely(arity < 1 || arity > HEAPX_MAX_ARITY)) {
-    PyErr_SetString(PyExc_ValueError, "arity must be >= 1 and <= 64");
+    PyErr_Format(PyExc_ValueError, "arity must be >= 1 and <= 64, got %zd", arity);
     return NULL;
   }
 
@@ -6303,7 +6309,7 @@ py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
       for (Py_ssize_t i = 1; i < new_size; i++) {
         /* SAFETY CHECK */
         if (unlikely(PyList_GET_SIZE(heap) != new_size)) {
-          PyErr_SetString(PyExc_ValueError, "list modified during replace");
+          PyErr_Format(PyExc_ValueError, "list modified during replace (expected size %zd, got %zd)", new_size, PyList_GET_SIZE(heap));
           return NULL;
         }
         items = listobj->ob_item;
@@ -6313,7 +6319,7 @@ py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
         while (j >= 0) {
           /* SAFETY CHECK */
           if (unlikely(PyList_GET_SIZE(heap) != new_size)) {
-            PyErr_SetString(PyExc_ValueError, "list modified during replace");
+            PyErr_Format(PyExc_ValueError, "list modified during replace (expected size %zd, got %zd)", new_size, PyList_GET_SIZE(heap));
             Py_DECREF(key);
             return NULL;
           }
@@ -6321,7 +6327,7 @@ py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
           int cmp_res = optimized_compare(key, items[j], is_max ? Py_GT : Py_LT);
           /* SAFETY CHECK */
           if (unlikely(PyList_GET_SIZE(heap) != new_size)) {
-            PyErr_SetString(PyExc_ValueError, "list modified during replace");
+            PyErr_Format(PyExc_ValueError, "list modified during replace (expected size %zd, got %zd)", new_size, PyList_GET_SIZE(heap));
             Py_DECREF(key);
             return NULL;
           }
@@ -6536,7 +6542,7 @@ py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
     
     Py_ssize_t n_values = PySequence_Size(value_list);
     if (n_values != replace_count && n_values != 1) {
-      PyErr_SetString(PyExc_ValueError, "values length must match selection count or be 1");
+      PyErr_Format(PyExc_ValueError, "values length must match selection count or be 1 (got %zd values for %zd selections)", n_values, replace_count);
       Py_DECREF(to_replace);
       Py_DECREF(value_list);
       return NULL;
@@ -6702,17 +6708,17 @@ py_merge(PyObject *self, PyObject *args, PyObject *kwargs) {
   if (unlikely(sorted_heaps < 0)) return NULL;
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
-    PyErr_SetString(PyExc_TypeError, "cmp must be callable or None");
+    PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
     return NULL;
   }
   if (unlikely(arity < 1 || arity > HEAPX_MAX_ARITY)) {
-    PyErr_SetString(PyExc_ValueError, "arity must be >= 1 and <= 64");
+    PyErr_Format(PyExc_ValueError, "arity must be >= 1 and <= 64, got %zd", arity);
     return NULL;
   }
 
   Py_ssize_t n_args = PyTuple_Size(args);
   if (n_args < 2) {
-    PyErr_SetString(PyExc_ValueError, "merge requires at least 2 heaps");
+    PyErr_Format(PyExc_ValueError, "merge requires at least 2 heaps, got %zd", n_args);
     return NULL;
   }
 
@@ -6725,7 +6731,7 @@ py_merge(PyObject *self, PyObject *args, PyObject *kwargs) {
   for (Py_ssize_t i = 0; i < n_args; i++) {
     PyObject *heap = PyTuple_GetItem(args, i);
     if (unlikely(!PySequence_Check(heap))) {
-      PyErr_SetString(PyExc_TypeError, "all arguments must be sequences");
+      PyErr_Format(PyExc_TypeError, "merge argument %zd must be a sequence, not %.200s", i + 1, Py_TYPE(heap)->tp_name);
       return NULL;
     }
     
