@@ -467,22 +467,33 @@ simd_find_max_index_4_doubles(const double * HEAPX_RESTRICT values) {
 }
 
 #elif defined(HEAPX_HAS_NEON)
-/* ARM NEON implementation */
+/* ARM NEON implementation - uses 128-bit float64x2_t vectors */
 static FORCE_INLINE Py_ssize_t
 simd_find_min_index_4_doubles(const double * HEAPX_RESTRICT values) {
-  double min01 = (values[0] <= values[1]) ? values[0] : values[1];
-  double min23 = (values[2] <= values[3]) ? values[2] : values[3];
-  Py_ssize_t idx01 = (values[0] <= values[1]) ? 0 : 1;
-  Py_ssize_t idx23 = (values[2] <= values[3]) ? 2 : 3;
+  float64x2_t v01 = vld1q_f64(values);
+  float64x2_t v23 = vld1q_f64(values + 2);
+  
+  /* Compare pairs: find min of each pair */
+  float64x2_t min_pair = vminq_f64(v01, v23);
+  double min01 = vgetq_lane_f64(v01, 0) <= vgetq_lane_f64(v01, 1) ? vgetq_lane_f64(v01, 0) : vgetq_lane_f64(v01, 1);
+  double min23 = vgetq_lane_f64(v23, 0) <= vgetq_lane_f64(v23, 1) ? vgetq_lane_f64(v23, 0) : vgetq_lane_f64(v23, 1);
+  Py_ssize_t idx01 = vgetq_lane_f64(v01, 0) <= vgetq_lane_f64(v01, 1) ? 0 : 1;
+  Py_ssize_t idx23 = vgetq_lane_f64(v23, 0) <= vgetq_lane_f64(v23, 1) ? 2 : 3;
+  
   return (min01 <= min23) ? idx01 : idx23;
 }
 
 static FORCE_INLINE Py_ssize_t
 simd_find_max_index_4_doubles(const double * HEAPX_RESTRICT values) {
-  double max01 = (values[0] >= values[1]) ? values[0] : values[1];
-  double max23 = (values[2] >= values[3]) ? values[2] : values[3];
-  Py_ssize_t idx01 = (values[0] >= values[1]) ? 0 : 1;
-  Py_ssize_t idx23 = (values[2] >= values[3]) ? 2 : 3;
+  float64x2_t v01 = vld1q_f64(values);
+  float64x2_t v23 = vld1q_f64(values + 2);
+  
+  /* Compare pairs: find max of each pair */
+  double max01 = vgetq_lane_f64(v01, 0) >= vgetq_lane_f64(v01, 1) ? vgetq_lane_f64(v01, 0) : vgetq_lane_f64(v01, 1);
+  double max23 = vgetq_lane_f64(v23, 0) >= vgetq_lane_f64(v23, 1) ? vgetq_lane_f64(v23, 0) : vgetq_lane_f64(v23, 1);
+  Py_ssize_t idx01 = vgetq_lane_f64(v01, 0) >= vgetq_lane_f64(v01, 1) ? 0 : 1;
+  Py_ssize_t idx23 = vgetq_lane_f64(v23, 0) >= vgetq_lane_f64(v23, 1) ? 2 : 3;
+  
   return (max01 >= max23) ? idx01 : idx23;
 }
 
@@ -619,8 +630,64 @@ simd_find_max_index_8_doubles(const double * HEAPX_RESTRICT values) {
 }
 #endif /* HEAPX_HAS_AVX2 */
 
-/* Scalar fallback for 8-wide double functions when AVX2 is not available */
-#if !defined(HEAPX_HAS_AVX2)
+/* NEON implementation for 8-wide double functions */
+#if defined(HEAPX_HAS_NEON) && !defined(HEAPX_HAS_AVX2)
+static FORCE_INLINE Py_ssize_t
+simd_find_min_index_8_doubles(const double * HEAPX_RESTRICT values) {
+  /* Process as two groups of 4 using NEON */
+  float64x2_t v01 = vld1q_f64(values);
+  float64x2_t v23 = vld1q_f64(values + 2);
+  float64x2_t v45 = vld1q_f64(values + 4);
+  float64x2_t v67 = vld1q_f64(values + 6);
+  
+  /* Find min in first group (0-3) */
+  double min01 = vgetq_lane_f64(v01, 0) <= vgetq_lane_f64(v01, 1) ? vgetq_lane_f64(v01, 0) : vgetq_lane_f64(v01, 1);
+  double min23 = vgetq_lane_f64(v23, 0) <= vgetq_lane_f64(v23, 1) ? vgetq_lane_f64(v23, 0) : vgetq_lane_f64(v23, 1);
+  Py_ssize_t idx01 = vgetq_lane_f64(v01, 0) <= vgetq_lane_f64(v01, 1) ? 0 : 1;
+  Py_ssize_t idx23 = vgetq_lane_f64(v23, 0) <= vgetq_lane_f64(v23, 1) ? 2 : 3;
+  double min_first = (min01 <= min23) ? min01 : min23;
+  Py_ssize_t idx_first = (min01 <= min23) ? idx01 : idx23;
+  
+  /* Find min in second group (4-7) */
+  double min45 = vgetq_lane_f64(v45, 0) <= vgetq_lane_f64(v45, 1) ? vgetq_lane_f64(v45, 0) : vgetq_lane_f64(v45, 1);
+  double min67 = vgetq_lane_f64(v67, 0) <= vgetq_lane_f64(v67, 1) ? vgetq_lane_f64(v67, 0) : vgetq_lane_f64(v67, 1);
+  Py_ssize_t idx45 = vgetq_lane_f64(v45, 0) <= vgetq_lane_f64(v45, 1) ? 4 : 5;
+  Py_ssize_t idx67 = vgetq_lane_f64(v67, 0) <= vgetq_lane_f64(v67, 1) ? 6 : 7;
+  double min_second = (min45 <= min67) ? min45 : min67;
+  Py_ssize_t idx_second = (min45 <= min67) ? idx45 : idx67;
+  
+  return (min_first <= min_second) ? idx_first : idx_second;
+}
+
+static FORCE_INLINE Py_ssize_t
+simd_find_max_index_8_doubles(const double * HEAPX_RESTRICT values) {
+  /* Process as two groups of 4 using NEON */
+  float64x2_t v01 = vld1q_f64(values);
+  float64x2_t v23 = vld1q_f64(values + 2);
+  float64x2_t v45 = vld1q_f64(values + 4);
+  float64x2_t v67 = vld1q_f64(values + 6);
+  
+  /* Find max in first group (0-3) */
+  double max01 = vgetq_lane_f64(v01, 0) >= vgetq_lane_f64(v01, 1) ? vgetq_lane_f64(v01, 0) : vgetq_lane_f64(v01, 1);
+  double max23 = vgetq_lane_f64(v23, 0) >= vgetq_lane_f64(v23, 1) ? vgetq_lane_f64(v23, 0) : vgetq_lane_f64(v23, 1);
+  Py_ssize_t idx01 = vgetq_lane_f64(v01, 0) >= vgetq_lane_f64(v01, 1) ? 0 : 1;
+  Py_ssize_t idx23 = vgetq_lane_f64(v23, 0) >= vgetq_lane_f64(v23, 1) ? 2 : 3;
+  double max_first = (max01 >= max23) ? max01 : max23;
+  Py_ssize_t idx_first = (max01 >= max23) ? idx01 : idx23;
+  
+  /* Find max in second group (4-7) */
+  double max45 = vgetq_lane_f64(v45, 0) >= vgetq_lane_f64(v45, 1) ? vgetq_lane_f64(v45, 0) : vgetq_lane_f64(v45, 1);
+  double max67 = vgetq_lane_f64(v67, 0) >= vgetq_lane_f64(v67, 1) ? vgetq_lane_f64(v67, 0) : vgetq_lane_f64(v67, 1);
+  Py_ssize_t idx45 = vgetq_lane_f64(v45, 0) >= vgetq_lane_f64(v45, 1) ? 4 : 5;
+  Py_ssize_t idx67 = vgetq_lane_f64(v67, 0) >= vgetq_lane_f64(v67, 1) ? 6 : 7;
+  double max_second = (max45 >= max67) ? max45 : max67;
+  Py_ssize_t idx_second = (max45 >= max67) ? idx45 : idx67;
+  
+  return (max_first >= max_second) ? idx_first : idx_second;
+}
+
+/* Scalar fallback for 8-wide double functions when neither AVX2 nor NEON available */
+#elif !defined(HEAPX_HAS_AVX2) && !defined(HEAPX_HAS_NEON)
 static FORCE_INLINE Py_ssize_t
 simd_find_min_index_8_doubles(const double * HEAPX_RESTRICT values) {
   Py_ssize_t best = 0;
@@ -812,7 +879,110 @@ simd_find_max_index_8_longs(const long * HEAPX_RESTRICT values) {
 }
 
 #else
-/* Scalar fallback for platforms without AVX2 */
+/* NEON implementation for platforms with ARM NEON */
+#if defined(HEAPX_HAS_NEON)
+static FORCE_INLINE Py_ssize_t
+simd_find_min_index_4_longs(const long * HEAPX_RESTRICT values) {
+  int64x2_t v01 = vld1q_s64((const int64_t*)values);
+  int64x2_t v23 = vld1q_s64((const int64_t*)(values + 2));
+  
+  /* Compare pairs to find min */
+  int64_t val0 = vgetq_lane_s64(v01, 0);
+  int64_t val1 = vgetq_lane_s64(v01, 1);
+  int64_t val2 = vgetq_lane_s64(v23, 0);
+  int64_t val3 = vgetq_lane_s64(v23, 1);
+  
+  int64_t min01 = (val0 <= val1) ? val0 : val1;
+  int64_t min23 = (val2 <= val3) ? val2 : val3;
+  Py_ssize_t idx01 = (val0 <= val1) ? 0 : 1;
+  Py_ssize_t idx23 = (val2 <= val3) ? 2 : 3;
+  
+  return (min01 <= min23) ? idx01 : idx23;
+}
+
+static FORCE_INLINE Py_ssize_t
+simd_find_max_index_4_longs(const long * HEAPX_RESTRICT values) {
+  int64x2_t v01 = vld1q_s64((const int64_t*)values);
+  int64x2_t v23 = vld1q_s64((const int64_t*)(values + 2));
+  
+  /* Compare pairs to find max */
+  int64_t val0 = vgetq_lane_s64(v01, 0);
+  int64_t val1 = vgetq_lane_s64(v01, 1);
+  int64_t val2 = vgetq_lane_s64(v23, 0);
+  int64_t val3 = vgetq_lane_s64(v23, 1);
+  
+  int64_t max01 = (val0 >= val1) ? val0 : val1;
+  int64_t max23 = (val2 >= val3) ? val2 : val3;
+  Py_ssize_t idx01 = (val0 >= val1) ? 0 : 1;
+  Py_ssize_t idx23 = (val2 >= val3) ? 2 : 3;
+  
+  return (max01 >= max23) ? idx01 : idx23;
+}
+
+static FORCE_INLINE Py_ssize_t
+simd_find_min_index_8_longs(const long * HEAPX_RESTRICT values) {
+  /* Load all 8 values using NEON */
+  int64x2_t v01 = vld1q_s64((const int64_t*)values);
+  int64x2_t v23 = vld1q_s64((const int64_t*)(values + 2));
+  int64x2_t v45 = vld1q_s64((const int64_t*)(values + 4));
+  int64x2_t v67 = vld1q_s64((const int64_t*)(values + 6));
+  
+  /* Find min in first group (0-3) */
+  int64_t val0 = vgetq_lane_s64(v01, 0), val1 = vgetq_lane_s64(v01, 1);
+  int64_t val2 = vgetq_lane_s64(v23, 0), val3 = vgetq_lane_s64(v23, 1);
+  int64_t min01 = (val0 <= val1) ? val0 : val1;
+  int64_t min23 = (val2 <= val3) ? val2 : val3;
+  Py_ssize_t idx01 = (val0 <= val1) ? 0 : 1;
+  Py_ssize_t idx23 = (val2 <= val3) ? 2 : 3;
+  int64_t min_first = (min01 <= min23) ? min01 : min23;
+  Py_ssize_t idx_first = (min01 <= min23) ? idx01 : idx23;
+  
+  /* Find min in second group (4-7) */
+  int64_t val4 = vgetq_lane_s64(v45, 0), val5 = vgetq_lane_s64(v45, 1);
+  int64_t val6 = vgetq_lane_s64(v67, 0), val7 = vgetq_lane_s64(v67, 1);
+  int64_t min45 = (val4 <= val5) ? val4 : val5;
+  int64_t min67 = (val6 <= val7) ? val6 : val7;
+  Py_ssize_t idx45 = (val4 <= val5) ? 4 : 5;
+  Py_ssize_t idx67 = (val6 <= val7) ? 6 : 7;
+  int64_t min_second = (min45 <= min67) ? min45 : min67;
+  Py_ssize_t idx_second = (min45 <= min67) ? idx45 : idx67;
+  
+  return (min_first <= min_second) ? idx_first : idx_second;
+}
+
+static FORCE_INLINE Py_ssize_t
+simd_find_max_index_8_longs(const long * HEAPX_RESTRICT values) {
+  /* Load all 8 values using NEON */
+  int64x2_t v01 = vld1q_s64((const int64_t*)values);
+  int64x2_t v23 = vld1q_s64((const int64_t*)(values + 2));
+  int64x2_t v45 = vld1q_s64((const int64_t*)(values + 4));
+  int64x2_t v67 = vld1q_s64((const int64_t*)(values + 6));
+  
+  /* Find max in first group (0-3) */
+  int64_t val0 = vgetq_lane_s64(v01, 0), val1 = vgetq_lane_s64(v01, 1);
+  int64_t val2 = vgetq_lane_s64(v23, 0), val3 = vgetq_lane_s64(v23, 1);
+  int64_t max01 = (val0 >= val1) ? val0 : val1;
+  int64_t max23 = (val2 >= val3) ? val2 : val3;
+  Py_ssize_t idx01 = (val0 >= val1) ? 0 : 1;
+  Py_ssize_t idx23 = (val2 >= val3) ? 2 : 3;
+  int64_t max_first = (max01 >= max23) ? max01 : max23;
+  Py_ssize_t idx_first = (max01 >= max23) ? idx01 : idx23;
+  
+  /* Find max in second group (4-7) */
+  int64_t val4 = vgetq_lane_s64(v45, 0), val5 = vgetq_lane_s64(v45, 1);
+  int64_t val6 = vgetq_lane_s64(v67, 0), val7 = vgetq_lane_s64(v67, 1);
+  int64_t max45 = (val4 >= val5) ? val4 : val5;
+  int64_t max67 = (val6 >= val7) ? val6 : val7;
+  Py_ssize_t idx45 = (val4 >= val5) ? 4 : 5;
+  Py_ssize_t idx67 = (val6 >= val7) ? 6 : 7;
+  int64_t max_second = (max45 >= max67) ? max45 : max67;
+  Py_ssize_t idx_second = (max45 >= max67) ? idx45 : idx67;
+  
+  return (max_first >= max_second) ? idx_first : idx_second;
+}
+
+#else
+/* Scalar fallback for platforms without AVX2 or NEON */
 static FORCE_INLINE Py_ssize_t
 simd_find_min_index_4_longs(const long * HEAPX_RESTRICT values) {
   long min01 = (values[0] <= values[1]) ? values[0] : values[1];
@@ -850,6 +1020,7 @@ simd_find_max_index_8_longs(const long * HEAPX_RESTRICT values) {
   }
   return best;
 }
+#endif /* HEAPX_HAS_NEON */
 #endif /* HEAPX_HAS_AVX2 */
 
 /* SIMD-optimized best child finder for longs with 8-wide AVX2 acceleration */
@@ -1273,10 +1444,11 @@ detect_homogeneous_type(PyObject **items, Py_ssize_t n) {
   Py_ssize_t simd_end = n - 1;
   
   for (; i < simd_end; i += 2) {
-    int64x2_t types = {
-      (int64_t)Py_TYPE(items[i]),
-      (int64_t)Py_TYPE(items[i + 1])
-    };
+    /* Use proper NEON intrinsics for portable vector creation */
+    int64x2_t types = vcombine_s64(
+      vcreate_s64((uint64_t)Py_TYPE(items[i])),
+      vcreate_s64((uint64_t)Py_TYPE(items[i + 1]))
+    );
     
     uint64x2_t cmp = vceqq_s64(types, target_type);
     /* Both lanes must be all-ones (0xFFFFFFFFFFFFFFFF) */
