@@ -34,6 +34,7 @@ python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtu
 #include <stdint.h>
 #include <float.h>
 #include <limits.h>
+#include <math.h>
 
 /* Maximum arity to prevent integer overflow in child index calculations.
  * With arity <= 64 and any heap that fits in memory (~10^12 elements),
@@ -1184,9 +1185,9 @@ fast_compare(PyObject *a, PyObject *b, int op, int *result) {
     double val_a = PyFloat_AS_DOUBLE(a);
     double val_b = PyFloat_AS_DOUBLE(b);
     
-    /* Check for NaN using standard idiom */
-    int a_is_nan = (val_a != val_a);
-    int b_is_nan = (val_b != val_b);
+    /* Check for NaN using compiler intrinsic */
+    int a_is_nan = isnan(val_a);
+    int b_is_nan = isnan(val_b);
     
     if (unlikely(a_is_nan || b_is_nan)) {
       /* NaN handling: NaN is considered "largest" for comparison
