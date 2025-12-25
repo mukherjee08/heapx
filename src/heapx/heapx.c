@@ -4114,6 +4114,53 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
       Py_RETURN_NONE;
     }
     
+    /* ========== BULK PUSH OPTIMIZATION ==========
+     * When inserting many items, a single O(n+k) heapify is faster than
+     * k individual O(log(n+k)) sift-up operations.
+     * Empirical analysis shows heapify wins when k >= n (doubling heap size).
+     * Also use heapify for empty heaps (n=0) since there's no structure to preserve. */
+    if (n_items >= n || n == 0) {
+      int rc = 0;
+      if (likely(cmp == Py_None)) {
+        switch (arity) {
+          case 1:
+            rc = heapify_arity_one_ultra_optimized((PyObject *)listobj, is_max, NULL);
+            break;
+          case 2:
+            rc = list_heapify_floyd_ultra_optimized(listobj, is_max);
+            break;
+          case 3:
+            rc = list_heapify_ternary_ultra_optimized(listobj, is_max);
+            break;
+          case 4:
+            rc = list_heapify_quaternary_ultra_optimized(listobj, is_max);
+            break;
+          default:
+            rc = (total_size < 1000)
+              ? list_heapify_small_ultra_optimized(listobj, is_max, arity)
+              : generic_heapify_ultra_optimized((PyObject *)listobj, is_max, NULL, arity);
+            break;
+        }
+      } else {
+        switch (arity) {
+          case 1:
+            rc = heapify_arity_one_ultra_optimized((PyObject *)listobj, is_max, cmp);
+            break;
+          case 2:
+            rc = list_heapify_with_key_ultra_optimized(listobj, cmp, is_max);
+            break;
+          case 3:
+            rc = list_heapify_ternary_with_key_ultra_optimized(listobj, cmp, is_max);
+            break;
+          default:
+            rc = generic_heapify_ultra_optimized((PyObject *)listobj, is_max, cmp, arity);
+            break;
+        }
+      }
+      if (unlikely(rc < 0)) return NULL;
+      Py_RETURN_NONE;
+    }
+    
     if (likely(cmp == Py_None)) {
       /* No key function path */
       
