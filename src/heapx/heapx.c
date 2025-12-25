@@ -1492,28 +1492,43 @@ list_heapify_homogeneous_float(PyListObject *listobj, int is_max)
 
   PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
   
+  /* Allocate values and indices arrays */
   double stack_values[VALUE_STACK_SIZE];
+  Py_ssize_t stack_indices[VALUE_STACK_SIZE];
   double * HEAPX_RESTRICT values;
+  Py_ssize_t * HEAPX_RESTRICT indices;
   int use_stack = (n <= VALUE_STACK_SIZE);
   
   if (use_stack) {
     values = ASSUME_ALIGNED(stack_values, 16);
+    indices = stack_indices;
   } else {
     values = (double *)PyMem_Malloc(sizeof(double) * (size_t)n);
-    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
+    indices = (Py_ssize_t *)PyMem_Malloc(sizeof(Py_ssize_t) * (size_t)n);
+    if (unlikely(!values || !indices)) {
+      PyMem_Free(values);
+      PyMem_Free(indices);
+      PyErr_NoMemory();
+      return -1;
+    }
   }
 
+  /* PHASE 1: Extract values and initialize indices (GIL held) */
   HEAPX_PRAGMA_SIMD
   for (Py_ssize_t i = 0; i < n; i++) {
     values[i] = PyFloat_AS_DOUBLE(items[i]);
+    indices[i] = i;
   }
 
+  /* PHASE 2: Pure C heapify on values/indices arrays (GIL RELEASED) */
+  Py_BEGIN_ALLOW_THREADS
+  
   for (Py_ssize_t i = (n - 2) >> 1; i >= 0; i--) {
     Py_ssize_t pos = i;
     double val = values[i];
-    PyObject *obj = items[i];
+    Py_ssize_t idx = indices[i];
     
-    /* Phase 1: Descend to leaf, only comparing children */
+    /* Descend to leaf, only comparing children */
     while (1) {
       Py_ssize_t child = (pos << 1) + 1;
       if (child >= n) break;
@@ -1522,23 +1537,51 @@ list_heapify_homogeneous_float(PyListObject *listobj, int is_max)
           child++;
       }
       values[pos] = values[child];
-      items[pos] = items[child];
+      indices[pos] = indices[child];
       pos = child;
     }
     
-    /* Phase 2: Bubble up from leaf position */
+    /* Bubble up from leaf position */
     while (pos > i) {
       Py_ssize_t parent = (pos - 1) >> 1;
       if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
       values[pos] = values[parent];
-      items[pos] = items[parent];
+      indices[pos] = indices[parent];
       pos = parent;
     }
     values[pos] = val;
-    items[pos] = obj;
+    indices[pos] = idx;
   }
   
-  if (!use_stack) PyMem_Free(values);
+  Py_END_ALLOW_THREADS
+
+  /* PHASE 3: Validate and rearrange Python objects (GIL held) */
+  if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+    if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+    PyErr_SetString(PyExc_ValueError,
+        "list modified by another thread during heapify");
+    return -1;
+  }
+  
+  /* Refresh items pointer and rearrange using cycle-following */
+  items = listobj->ob_item;
+  for (Py_ssize_t i = 0; i < n; i++) {
+    if (indices[i] == i || indices[i] < 0) continue;
+    
+    Py_ssize_t j = i;
+    PyObject *temp = items[i];
+    
+    while (indices[j] != i) {
+      Py_ssize_t next = indices[j];
+      items[j] = items[next];
+      indices[j] = -1 - indices[j];
+      j = next;
+    }
+    items[j] = temp;
+    indices[j] = -1 - indices[j];
+  }
+  
+  if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
   return 0;
 }
 
@@ -1551,26 +1594,44 @@ list_heapify_ternary_homogeneous_float(PyListObject *listobj, int is_max)
   if (unlikely(n <= 1)) return 0;
 
   PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
+  
+  /* Allocate values and indices arrays */
   double stack_values[VALUE_STACK_SIZE];
+  Py_ssize_t stack_indices[VALUE_STACK_SIZE];
   double * HEAPX_RESTRICT values;
+  Py_ssize_t * HEAPX_RESTRICT indices;
   int use_stack = (n <= VALUE_STACK_SIZE);
   
   if (use_stack) {
     values = ASSUME_ALIGNED(stack_values, 16);
+    indices = stack_indices;
   } else {
     values = (double *)PyMem_Malloc(sizeof(double) * (size_t)n);
-    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
+    indices = (Py_ssize_t *)PyMem_Malloc(sizeof(Py_ssize_t) * (size_t)n);
+    if (unlikely(!values || !indices)) {
+      PyMem_Free(values);
+      PyMem_Free(indices);
+      PyErr_NoMemory();
+      return -1;
+    }
   }
 
+  /* PHASE 1: Extract values and initialize indices (GIL held) */
   HEAPX_PRAGMA_SIMD
-  for (Py_ssize_t i = 0; i < n; i++) values[i] = PyFloat_AS_DOUBLE(items[i]);
+  for (Py_ssize_t i = 0; i < n; i++) {
+    values[i] = PyFloat_AS_DOUBLE(items[i]);
+    indices[i] = i;
+  }
 
+  /* PHASE 2: Pure C ternary heapify (GIL RELEASED) */
+  Py_BEGIN_ALLOW_THREADS
+  
   for (Py_ssize_t i = (n - 2) / 3; i >= 0; i--) {
     Py_ssize_t pos = i;
     double val = values[i];
-    PyObject *obj = items[i];
+    Py_ssize_t idx = indices[i];
     
-    /* Phase 1: Descend to leaf */
+    /* Descend to leaf */
     while (1) {
       Py_ssize_t c1 = 3 * pos + 1;
       if (c1 >= n) break;
@@ -1578,19 +1639,49 @@ list_heapify_ternary_homogeneous_float(PyListObject *listobj, int is_max)
       double best_val = values[c1];
       if (likely(c1 + 1 < n) && (is_max ? values[c1+1] > best_val : values[c1+1] < best_val)) { best = c1+1; best_val = values[c1+1]; }
       if (likely(c1 + 2 < n) && (is_max ? values[c1+2] > best_val : values[c1+2] < best_val)) { best = c1+2; }
-      values[pos] = values[best]; items[pos] = items[best]; pos = best;
+      values[pos] = values[best];
+      indices[pos] = indices[best];
+      pos = best;
     }
     
-    /* Phase 2: Bubble up */
+    /* Bubble up */
     while (pos > i) {
       Py_ssize_t parent = (pos - 1) / 3;
       if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
-      values[pos] = values[parent]; items[pos] = items[parent]; pos = parent;
+      values[pos] = values[parent];
+      indices[pos] = indices[parent];
+      pos = parent;
     }
-    values[pos] = val; items[pos] = obj;
+    values[pos] = val;
+    indices[pos] = idx;
   }
   
-  if (!use_stack) PyMem_Free(values);
+  Py_END_ALLOW_THREADS
+
+  /* PHASE 3: Validate and rearrange Python objects (GIL held) */
+  if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+    if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+    PyErr_SetString(PyExc_ValueError,
+        "list modified by another thread during heapify");
+    return -1;
+  }
+  
+  items = listobj->ob_item;
+  for (Py_ssize_t i = 0; i < n; i++) {
+    if (indices[i] == i || indices[i] < 0) continue;
+    Py_ssize_t j = i;
+    PyObject *temp = items[i];
+    while (indices[j] != i) {
+      Py_ssize_t next = indices[j];
+      items[j] = items[next];
+      indices[j] = -1 - indices[j];
+      j = next;
+    }
+    items[j] = temp;
+    indices[j] = -1 - indices[j];
+  }
+  
+  if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
   return 0;
 }
 
@@ -1602,30 +1693,52 @@ list_heapify_ternary_homogeneous_int(PyListObject *listobj, int is_max)
   if (unlikely(n <= 1)) return 0;
 
   PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
+  
+  /* Allocate values and indices arrays */
   long stack_values[VALUE_STACK_SIZE];
+  Py_ssize_t stack_indices[VALUE_STACK_SIZE];
   long * HEAPX_RESTRICT values;
+  Py_ssize_t * HEAPX_RESTRICT indices;
   int use_stack = (n <= VALUE_STACK_SIZE);
   
   if (use_stack) {
     values = ASSUME_ALIGNED(stack_values, 16);
+    indices = stack_indices;
   } else {
     values = (long *)PyMem_Malloc(sizeof(long) * (size_t)n);
-    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
+    indices = (Py_ssize_t *)PyMem_Malloc(sizeof(Py_ssize_t) * (size_t)n);
+    if (unlikely(!values || !indices)) {
+      PyMem_Free(values);
+      PyMem_Free(indices);
+      PyErr_NoMemory();
+      return -1;
+    }
   }
 
+  /* PHASE 1: Extract values and initialize indices (GIL held) */
   for (Py_ssize_t i = 0; i < n; i++) {
     int overflow = 0;
     values[i] = PyLong_AsLongAndOverflow(items[i], &overflow);
-    if (unlikely(overflow != 0)) { if (!use_stack) PyMem_Free(values); return 2; }
-    if (unlikely(values[i] == -1 && PyErr_Occurred())) { if (!use_stack) PyMem_Free(values); return -1; }
+    if (unlikely(overflow != 0)) {
+      if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+      return 2;
+    }
+    if (unlikely(values[i] == -1 && PyErr_Occurred())) {
+      if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+      return -1;
+    }
+    indices[i] = i;
   }
 
+  /* PHASE 2: Pure C ternary heapify (GIL RELEASED) */
+  Py_BEGIN_ALLOW_THREADS
+  
   for (Py_ssize_t i = (n - 2) / 3; i >= 0; i--) {
     Py_ssize_t pos = i;
     long val = values[i];
-    PyObject *obj = items[i];
+    Py_ssize_t idx = indices[i];
     
-    /* Phase 1: Descend to leaf */
+    /* Descend to leaf */
     while (1) {
       Py_ssize_t c1 = 3 * pos + 1;
       if (c1 >= n) break;
@@ -1633,19 +1746,49 @@ list_heapify_ternary_homogeneous_int(PyListObject *listobj, int is_max)
       long best_val = values[c1];
       if (likely(c1 + 1 < n) && (is_max ? values[c1+1] > best_val : values[c1+1] < best_val)) { best = c1+1; best_val = values[c1+1]; }
       if (likely(c1 + 2 < n) && (is_max ? values[c1+2] > best_val : values[c1+2] < best_val)) { best = c1+2; }
-      values[pos] = values[best]; items[pos] = items[best]; pos = best;
+      values[pos] = values[best];
+      indices[pos] = indices[best];
+      pos = best;
     }
     
-    /* Phase 2: Bubble up */
+    /* Bubble up */
     while (pos > i) {
       Py_ssize_t parent = (pos - 1) / 3;
       if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
-      values[pos] = values[parent]; items[pos] = items[parent]; pos = parent;
+      values[pos] = values[parent];
+      indices[pos] = indices[parent];
+      pos = parent;
     }
-    values[pos] = val; items[pos] = obj;
+    values[pos] = val;
+    indices[pos] = idx;
   }
   
-  if (!use_stack) PyMem_Free(values);
+  Py_END_ALLOW_THREADS
+
+  /* PHASE 3: Validate and rearrange Python objects (GIL held) */
+  if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+    if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+    PyErr_SetString(PyExc_ValueError,
+        "list modified by another thread during heapify");
+    return -1;
+  }
+  
+  items = listobj->ob_item;
+  for (Py_ssize_t i = 0; i < n; i++) {
+    if (indices[i] == i || indices[i] < 0) continue;
+    Py_ssize_t j = i;
+    PyObject *temp = items[i];
+    while (indices[j] != i) {
+      Py_ssize_t next = indices[j];
+      items[j] = items[next];
+      indices[j] = -1 - indices[j];
+      j = next;
+    }
+    items[j] = temp;
+    indices[j] = -1 - indices[j];
+  }
+  
+  if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
   return 0;
 }
 
@@ -1658,29 +1801,43 @@ list_heapify_quaternary_homogeneous_float(PyListObject *listobj, int is_max)
 
   PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
   
+  /* Allocate values and indices arrays */
   double stack_values[VALUE_STACK_SIZE];
+  Py_ssize_t stack_indices[VALUE_STACK_SIZE];
   double * HEAPX_RESTRICT values;
+  Py_ssize_t * HEAPX_RESTRICT indices;
   int use_stack = (n <= VALUE_STACK_SIZE);
   
   if (use_stack) {
     values = ASSUME_ALIGNED(stack_values, 32);
+    indices = stack_indices;
   } else {
     values = (double *)PyMem_Malloc(sizeof(double) * (size_t)n);
-    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
+    indices = (Py_ssize_t *)PyMem_Malloc(sizeof(Py_ssize_t) * (size_t)n);
+    if (unlikely(!values || !indices)) {
+      PyMem_Free(values);
+      PyMem_Free(indices);
+      PyErr_NoMemory();
+      return -1;
+    }
   }
 
+  /* PHASE 1: Extract values and initialize indices (GIL held) */
   HEAPX_PRAGMA_SIMD
   for (Py_ssize_t i = 0; i < n; i++) {
     values[i] = PyFloat_AS_DOUBLE(items[i]);
+    indices[i] = i;
   }
 
-  /* Bottom-up quaternary heap */
+  /* PHASE 2: Pure C quaternary heapify (GIL RELEASED) */
+  Py_BEGIN_ALLOW_THREADS
+  
   for (Py_ssize_t i = (n - 2) / 4; i >= 0; i--) {
     Py_ssize_t pos = i;
     double val = values[i];
-    PyObject *obj = items[i];
+    Py_ssize_t idx = indices[i];
     
-    /* Phase 1: Descend to leaf */
+    /* Descend to leaf */
     while (1) {
       Py_ssize_t first_child = 4 * pos + 1;
       if (first_child >= n) break;
@@ -1692,24 +1849,49 @@ list_heapify_quaternary_homogeneous_float(PyListObject *listobj, int is_max)
       Py_ssize_t best = first_child + best_offset;
       
       values[pos] = values[best];
-      items[pos] = items[best];
+      indices[pos] = indices[best];
       pos = best;
     }
     
-    /* Phase 2: Bubble up */
+    /* Bubble up */
     while (pos > i) {
       Py_ssize_t parent = (pos - 1) / 4;
       if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
       values[pos] = values[parent];
-      items[pos] = items[parent];
+      indices[pos] = indices[parent];
       pos = parent;
     }
     
     values[pos] = val;
-    items[pos] = obj;
+    indices[pos] = idx;
   }
   
-  if (!use_stack) PyMem_Free(values);
+  Py_END_ALLOW_THREADS
+
+  /* PHASE 3: Validate and rearrange Python objects (GIL held) */
+  if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+    if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+    PyErr_SetString(PyExc_ValueError,
+        "list modified by another thread during heapify");
+    return -1;
+  }
+  
+  items = listobj->ob_item;
+  for (Py_ssize_t i = 0; i < n; i++) {
+    if (indices[i] == i || indices[i] < 0) continue;
+    Py_ssize_t j = i;
+    PyObject *temp = items[i];
+    while (indices[j] != i) {
+      Py_ssize_t next = indices[j];
+      items[j] = items[next];
+      indices[j] = -1 - indices[j];
+      j = next;
+    }
+    items[j] = temp;
+    indices[j] = -1 - indices[j];
+  }
+  
+  if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
   return 0;
 }
 
@@ -1722,37 +1904,51 @@ list_heapify_quaternary_homogeneous_int(PyListObject *listobj, int is_max)
 
   PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
   
+  /* Allocate values and indices arrays */
   long stack_values[VALUE_STACK_SIZE];
+  Py_ssize_t stack_indices[VALUE_STACK_SIZE];
   long * HEAPX_RESTRICT values;
+  Py_ssize_t * HEAPX_RESTRICT indices;
   int use_stack = (n <= VALUE_STACK_SIZE);
   
   if (use_stack) {
     values = ASSUME_ALIGNED(stack_values, 16);
+    indices = stack_indices;
   } else {
     values = (long *)PyMem_Malloc(sizeof(long) * (size_t)n);
-    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
-  }
-
-  for (Py_ssize_t i = 0; i < n; i++) {
-    int overflow = 0;
-    values[i] = PyLong_AsLongAndOverflow(items[i], &overflow);
-    if (unlikely(overflow != 0)) {
-      if (!use_stack) PyMem_Free(values);
-      return 2;
-    }
-    if (unlikely(values[i] == -1 && PyErr_Occurred())) {
-      if (!use_stack) PyMem_Free(values);
+    indices = (Py_ssize_t *)PyMem_Malloc(sizeof(Py_ssize_t) * (size_t)n);
+    if (unlikely(!values || !indices)) {
+      PyMem_Free(values);
+      PyMem_Free(indices);
+      PyErr_NoMemory();
       return -1;
     }
   }
 
-  /* Bottom-up quaternary heap */
+  /* PHASE 1: Extract values and initialize indices (GIL held) */
+  for (Py_ssize_t i = 0; i < n; i++) {
+    int overflow = 0;
+    values[i] = PyLong_AsLongAndOverflow(items[i], &overflow);
+    if (unlikely(overflow != 0)) {
+      if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+      return 2;
+    }
+    if (unlikely(values[i] == -1 && PyErr_Occurred())) {
+      if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+      return -1;
+    }
+    indices[i] = i;
+  }
+
+  /* PHASE 2: Pure C quaternary heapify (GIL RELEASED) */
+  Py_BEGIN_ALLOW_THREADS
+  
   for (Py_ssize_t i = (n - 2) / 4; i >= 0; i--) {
     Py_ssize_t pos = i;
     long val = values[i];
-    PyObject *obj = items[i];
+    Py_ssize_t idx = indices[i];
     
-    /* Phase 1: Descend to leaf */
+    /* Descend to leaf */
     while (1) {
       Py_ssize_t first_child = 4 * pos + 1;
       if (first_child >= n) break;
@@ -1764,24 +1960,49 @@ list_heapify_quaternary_homogeneous_int(PyListObject *listobj, int is_max)
       Py_ssize_t best = first_child + best_offset;
       
       values[pos] = values[best];
-      items[pos] = items[best];
+      indices[pos] = indices[best];
       pos = best;
     }
     
-    /* Phase 2: Bubble up */
+    /* Bubble up */
     while (pos > i) {
       Py_ssize_t parent = (pos - 1) / 4;
       if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
       values[pos] = values[parent];
-      items[pos] = items[parent];
+      indices[pos] = indices[parent];
       pos = parent;
     }
     
     values[pos] = val;
-    items[pos] = obj;
+    indices[pos] = idx;
   }
   
-  if (!use_stack) PyMem_Free(values);
+  Py_END_ALLOW_THREADS
+
+  /* PHASE 3: Validate and rearrange Python objects (GIL held) */
+  if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+    if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+    PyErr_SetString(PyExc_ValueError,
+        "list modified by another thread during heapify");
+    return -1;
+  }
+  
+  items = listobj->ob_item;
+  for (Py_ssize_t i = 0; i < n; i++) {
+    if (indices[i] == i || indices[i] < 0) continue;
+    Py_ssize_t j = i;
+    PyObject *temp = items[i];
+    while (indices[j] != i) {
+      Py_ssize_t next = indices[j];
+      items[j] = items[next];
+      indices[j] = -1 - indices[j];
+      j = next;
+    }
+    items[j] = temp;
+    indices[j] = -1 - indices[j];
+  }
+  
+  if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
   return 0;
 }
 
@@ -1794,28 +2015,43 @@ list_heapify_nary_simd_homogeneous_float(PyListObject *listobj, int is_max, Py_s
 
   PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
   
+  /* Allocate values and indices arrays */
   double stack_values[VALUE_STACK_SIZE];
+  Py_ssize_t stack_indices[VALUE_STACK_SIZE];
   double * HEAPX_RESTRICT values;
+  Py_ssize_t * HEAPX_RESTRICT indices;
   int use_stack = (n <= VALUE_STACK_SIZE);
   
   if (use_stack) {
     values = ASSUME_ALIGNED(stack_values, 32);
+    indices = stack_indices;
   } else {
     values = (double *)PyMem_Malloc(sizeof(double) * (size_t)n);
-    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
+    indices = (Py_ssize_t *)PyMem_Malloc(sizeof(Py_ssize_t) * (size_t)n);
+    if (unlikely(!values || !indices)) {
+      PyMem_Free(values);
+      PyMem_Free(indices);
+      PyErr_NoMemory();
+      return -1;
+    }
   }
 
+  /* PHASE 1: Extract values and initialize indices (GIL held) */
   HEAPX_PRAGMA_SIMD
   for (Py_ssize_t i = 0; i < n; i++) {
     values[i] = PyFloat_AS_DOUBLE(items[i]);
+    indices[i] = i;
   }
 
+  /* PHASE 2: Pure C n-ary heapify (GIL RELEASED) */
+  Py_BEGIN_ALLOW_THREADS
+  
   for (Py_ssize_t i = (n - 2) / arity; i >= 0; i--) {
     Py_ssize_t pos = i;
     double val = values[i];
-    PyObject *obj = items[i];
+    Py_ssize_t idx = indices[i];
     
-    /* Phase 1: Descend to leaf */
+    /* Descend to leaf */
     while (1) {
       Py_ssize_t first_child = arity * pos + 1;
       if (first_child >= n) break;
@@ -1827,24 +2063,49 @@ list_heapify_nary_simd_homogeneous_float(PyListObject *listobj, int is_max, Py_s
       Py_ssize_t best = first_child + best_offset;
       
       values[pos] = values[best];
-      items[pos] = items[best];
+      indices[pos] = indices[best];
       pos = best;
     }
     
-    /* Phase 2: Bubble up */
+    /* Bubble up */
     while (pos > i) {
       Py_ssize_t parent = (pos - 1) / arity;
       if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
       values[pos] = values[parent];
-      items[pos] = items[parent];
+      indices[pos] = indices[parent];
       pos = parent;
     }
     
     values[pos] = val;
-    items[pos] = obj;
+    indices[pos] = idx;
   }
   
-  if (!use_stack) PyMem_Free(values);
+  Py_END_ALLOW_THREADS
+
+  /* PHASE 3: Validate and rearrange Python objects (GIL held) */
+  if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+    if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+    PyErr_SetString(PyExc_ValueError,
+        "list modified by another thread during heapify");
+    return -1;
+  }
+  
+  items = listobj->ob_item;
+  for (Py_ssize_t i = 0; i < n; i++) {
+    if (indices[i] == i || indices[i] < 0) continue;
+    Py_ssize_t j = i;
+    PyObject *temp = items[i];
+    while (indices[j] != i) {
+      Py_ssize_t next = indices[j];
+      items[j] = items[next];
+      indices[j] = -1 - indices[j];
+      j = next;
+    }
+    items[j] = temp;
+    indices[j] = -1 - indices[j];
+  }
+  
+  if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
   return 0;
 }
 
@@ -1857,30 +2118,51 @@ list_heapify_nary_simd_homogeneous_int(PyListObject *listobj, int is_max, Py_ssi
 
   PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
   
+  /* Allocate values and indices arrays */
   long stack_values[VALUE_STACK_SIZE];
+  Py_ssize_t stack_indices[VALUE_STACK_SIZE];
   long * HEAPX_RESTRICT values;
+  Py_ssize_t * HEAPX_RESTRICT indices;
   int use_stack = (n <= VALUE_STACK_SIZE);
   
   if (use_stack) {
     values = ASSUME_ALIGNED(stack_values, 16);
+    indices = stack_indices;
   } else {
     values = (long *)PyMem_Malloc(sizeof(long) * (size_t)n);
-    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
+    indices = (Py_ssize_t *)PyMem_Malloc(sizeof(Py_ssize_t) * (size_t)n);
+    if (unlikely(!values || !indices)) {
+      PyMem_Free(values);
+      PyMem_Free(indices);
+      PyErr_NoMemory();
+      return -1;
+    }
   }
 
+  /* PHASE 1: Extract values and initialize indices (GIL held) */
   for (Py_ssize_t i = 0; i < n; i++) {
     int overflow = 0;
     values[i] = PyLong_AsLongAndOverflow(items[i], &overflow);
-    if (unlikely(overflow != 0)) { if (!use_stack) PyMem_Free(values); return 2; }
-    if (unlikely(values[i] == -1 && PyErr_Occurred())) { if (!use_stack) PyMem_Free(values); return -1; }
+    if (unlikely(overflow != 0)) {
+      if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+      return 2;
+    }
+    if (unlikely(values[i] == -1 && PyErr_Occurred())) {
+      if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+      return -1;
+    }
+    indices[i] = i;
   }
 
+  /* PHASE 2: Pure C n-ary heapify (GIL RELEASED) */
+  Py_BEGIN_ALLOW_THREADS
+  
   for (Py_ssize_t i = (n - 2) / arity; i >= 0; i--) {
     Py_ssize_t pos = i;
     long val = values[i];
-    PyObject *obj = items[i];
+    Py_ssize_t idx = indices[i];
     
-    /* Phase 1: Descend to leaf */
+    /* Descend to leaf */
     while (1) {
       Py_ssize_t first_child = arity * pos + 1;
       if (first_child >= n) break;
@@ -1892,24 +2174,49 @@ list_heapify_nary_simd_homogeneous_int(PyListObject *listobj, int is_max, Py_ssi
       Py_ssize_t best = first_child + best_offset;
       
       values[pos] = values[best];
-      items[pos] = items[best];
+      indices[pos] = indices[best];
       pos = best;
     }
     
-    /* Phase 2: Bubble up */
+    /* Bubble up */
     while (pos > i) {
       Py_ssize_t parent = (pos - 1) / arity;
       if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
       values[pos] = values[parent];
-      items[pos] = items[parent];
+      indices[pos] = indices[parent];
       pos = parent;
     }
     
     values[pos] = val;
-    items[pos] = obj;
+    indices[pos] = idx;
   }
   
-  if (!use_stack) PyMem_Free(values);
+  Py_END_ALLOW_THREADS
+
+  /* PHASE 3: Validate and rearrange Python objects (GIL held) */
+  if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+    if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+    PyErr_SetString(PyExc_ValueError,
+        "list modified by another thread during heapify");
+    return -1;
+  }
+  
+  items = listobj->ob_item;
+  for (Py_ssize_t i = 0; i < n; i++) {
+    if (indices[i] == i || indices[i] < 0) continue;
+    Py_ssize_t j = i;
+    PyObject *temp = items[i];
+    while (indices[j] != i) {
+      Py_ssize_t next = indices[j];
+      items[j] = items[next];
+      indices[j] = -1 - indices[j];
+      j = next;
+    }
+    items[j] = temp;
+    indices[j] = -1 - indices[j];
+  }
+  
+  if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
   return 0;
 }
 
@@ -1923,40 +2230,49 @@ list_heapify_homogeneous_int(PyListObject *listobj, int is_max)
 
   PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
   
+  /* Allocate values and indices arrays */
   long stack_values[VALUE_STACK_SIZE];
+  Py_ssize_t stack_indices[VALUE_STACK_SIZE];
   long * HEAPX_RESTRICT values;
+  Py_ssize_t * HEAPX_RESTRICT indices;
   int use_stack = (n <= VALUE_STACK_SIZE);
   
   if (use_stack) {
     values = ASSUME_ALIGNED(stack_values, 16);
+    indices = stack_indices;
   } else {
     values = (long *)PyMem_Malloc(sizeof(long) * (size_t)n);
-    if (unlikely(!values)) {
+    indices = (Py_ssize_t *)PyMem_Malloc(sizeof(Py_ssize_t) * (size_t)n);
+    if (unlikely(!values || !indices)) {
+      PyMem_Free(values);
+      PyMem_Free(indices);
       PyErr_NoMemory();
       return -1;
     }
   }
   
-  /* Convert Python ints to C longs with overflow check */
+  /* PHASE 1: Extract values and initialize indices (GIL held) */
   for (Py_ssize_t i = 0; i < n; i++) {
     int overflow = 0;
     values[i] = PyLong_AsLongAndOverflow(items[i], &overflow);
     if (unlikely(overflow != 0)) {
-      /* Large integer detected - fallback to generic path */
-      if (!use_stack) PyMem_Free(values);
+      if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
       return 2;
     }
     if (unlikely(values[i] == -1 && PyErr_Occurred())) {
-      if (!use_stack) PyMem_Free(values);
+      if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
       return -1;
     }
+    indices[i] = i;
   }
   
-  /* Floyd's algorithm with direct C integer comparison */
+  /* PHASE 2: Pure C binary heapify (GIL RELEASED) */
+  Py_BEGIN_ALLOW_THREADS
+  
   for (Py_ssize_t i = (n - 2) >> 1; i >= 0; i--) {
     Py_ssize_t pos = i;
-    PyObject *newitem = items[pos];
     long newval = values[pos];
+    Py_ssize_t idx = indices[pos];
     
     /* Sift down */
     while (1) {
@@ -1968,7 +2284,6 @@ list_heapify_homogeneous_int(PyListObject *listobj, int is_max)
       
       Py_ssize_t right = child + 1;
       if (likely(right < n)) {
-        /* Direct C comparison - no Python API overhead */
         int cmp = is_max ? (values[right] > bestval) : (values[right] < bestval);
         if (cmp) {
           best = right;
@@ -1976,8 +2291,8 @@ list_heapify_homogeneous_int(PyListObject *listobj, int is_max)
         }
       }
       
-      items[pos] = items[best];
       values[pos] = values[best];
+      indices[pos] = indices[best];
       pos = best;
     }
     
@@ -1986,16 +2301,41 @@ list_heapify_homogeneous_int(PyListObject *listobj, int is_max)
       Py_ssize_t parent = (pos - 1) >> 1;
       int cmp = is_max ? (newval > values[parent]) : (newval < values[parent]);
       if (!cmp) break;
-      items[pos] = items[parent];
       values[pos] = values[parent];
+      indices[pos] = indices[parent];
       pos = parent;
     }
     
-    items[pos] = newitem;
     values[pos] = newval;
+    indices[pos] = idx;
   }
   
-  if (!use_stack) PyMem_Free(values);
+  Py_END_ALLOW_THREADS
+
+  /* PHASE 3: Validate and rearrange Python objects (GIL held) */
+  if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+    if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+    PyErr_SetString(PyExc_ValueError,
+        "list modified by another thread during heapify");
+    return -1;
+  }
+  
+  items = listobj->ob_item;
+  for (Py_ssize_t i = 0; i < n; i++) {
+    if (indices[i] == i || indices[i] < 0) continue;
+    Py_ssize_t j = i;
+    PyObject *temp = items[i];
+    while (indices[j] != i) {
+      Py_ssize_t next = indices[j];
+      items[j] = items[next];
+      indices[j] = -1 - indices[j];
+      j = next;
+    }
+    items[j] = temp;
+    indices[j] = -1 - indices[j];
+  }
+  
+  if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
   return 0;
 }
 
