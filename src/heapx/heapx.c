@@ -1484,8 +1484,66 @@ detect_homogeneous_type(PyObject **items, Py_ssize_t n) {
 }
 
 /* Bottom-up heapify for homogeneous float arrays - ~25% fewer comparisons */
+/* Fast single-threaded version - direct object movement */
 HOT_FUNCTION static int
 list_heapify_homogeneous_float(PyListObject *listobj, int is_max)
+{
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  if (unlikely(n <= 1)) return 0;
+
+  PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
+  
+  double stack_values[VALUE_STACK_SIZE];
+  double * HEAPX_RESTRICT values;
+  int use_stack = (n <= VALUE_STACK_SIZE);
+  
+  if (use_stack) {
+    values = ASSUME_ALIGNED(stack_values, 16);
+  } else {
+    values = (double *)PyMem_Malloc(sizeof(double) * (size_t)n);
+    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
+  }
+
+  HEAPX_PRAGMA_SIMD
+  for (Py_ssize_t i = 0; i < n; i++) {
+    values[i] = PyFloat_AS_DOUBLE(items[i]);
+  }
+
+  for (Py_ssize_t i = (n - 2) >> 1; i >= 0; i--) {
+    Py_ssize_t pos = i;
+    double val = values[i];
+    PyObject *obj = items[i];
+    
+    while (1) {
+      Py_ssize_t child = (pos << 1) + 1;
+      if (child >= n) break;
+      if (likely(child + 1 < n)) {
+        if (is_max ? (values[child + 1] > values[child]) : (values[child + 1] < values[child]))
+          child++;
+      }
+      values[pos] = values[child];
+      items[pos] = items[child];
+      pos = child;
+    }
+    
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) >> 1;
+      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      values[pos] = values[parent];
+      items[pos] = items[parent];
+      pos = parent;
+    }
+    values[pos] = val;
+    items[pos] = obj;
+  }
+  
+  if (!use_stack) PyMem_Free(values);
+  return 0;
+}
+
+/* GIL-releasing version for multi-threaded environments */
+HOT_FUNCTION static int
+list_heapify_homogeneous_float_nogil(PyListObject *listobj, int is_max)
 {
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   if (unlikely(n <= 1)) return 0;
@@ -1586,9 +1644,58 @@ list_heapify_homogeneous_float(PyListObject *listobj, int is_max)
 }
 
 /* Ternary heap for homogeneous float arrays - scalar C comparisons */
-/* Bottom-up ternary heap for homogeneous float arrays */
+/* Fast single-threaded version - direct object movement */
 HOT_FUNCTION static int
 list_heapify_ternary_homogeneous_float(PyListObject *listobj, int is_max)
+{
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  if (unlikely(n <= 1)) return 0;
+
+  PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
+  double stack_values[VALUE_STACK_SIZE];
+  double * HEAPX_RESTRICT values;
+  int use_stack = (n <= VALUE_STACK_SIZE);
+  
+  if (use_stack) {
+    values = ASSUME_ALIGNED(stack_values, 16);
+  } else {
+    values = (double *)PyMem_Malloc(sizeof(double) * (size_t)n);
+    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
+  }
+
+  HEAPX_PRAGMA_SIMD
+  for (Py_ssize_t i = 0; i < n; i++) values[i] = PyFloat_AS_DOUBLE(items[i]);
+
+  for (Py_ssize_t i = (n - 2) / 3; i >= 0; i--) {
+    Py_ssize_t pos = i;
+    double val = values[i];
+    PyObject *obj = items[i];
+    
+    while (1) {
+      Py_ssize_t c1 = 3 * pos + 1;
+      if (c1 >= n) break;
+      Py_ssize_t best = c1;
+      double best_val = values[c1];
+      if (likely(c1 + 1 < n) && (is_max ? values[c1+1] > best_val : values[c1+1] < best_val)) { best = c1+1; best_val = values[c1+1]; }
+      if (likely(c1 + 2 < n) && (is_max ? values[c1+2] > best_val : values[c1+2] < best_val)) { best = c1+2; }
+      values[pos] = values[best]; items[pos] = items[best]; pos = best;
+    }
+    
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) / 3;
+      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      values[pos] = values[parent]; items[pos] = items[parent]; pos = parent;
+    }
+    values[pos] = val; items[pos] = obj;
+  }
+  
+  if (!use_stack) PyMem_Free(values);
+  return 0;
+}
+
+/* GIL-releasing version for multi-threaded environments */
+HOT_FUNCTION static int
+list_heapify_ternary_homogeneous_float_nogil(PyListObject *listobj, int is_max)
 {
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   if (unlikely(n <= 1)) return 0;
@@ -1686,8 +1793,62 @@ list_heapify_ternary_homogeneous_float(PyListObject *listobj, int is_max)
 }
 
 /* Bottom-up ternary heap for homogeneous int arrays */
+/* Fast single-threaded version - direct object movement */
 HOT_FUNCTION static int
 list_heapify_ternary_homogeneous_int(PyListObject *listobj, int is_max)
+{
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  if (unlikely(n <= 1)) return 0;
+
+  PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
+  long stack_values[VALUE_STACK_SIZE];
+  long * HEAPX_RESTRICT values;
+  int use_stack = (n <= VALUE_STACK_SIZE);
+  
+  if (use_stack) {
+    values = ASSUME_ALIGNED(stack_values, 16);
+  } else {
+    values = (long *)PyMem_Malloc(sizeof(long) * (size_t)n);
+    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
+  }
+
+  for (Py_ssize_t i = 0; i < n; i++) {
+    int overflow = 0;
+    values[i] = PyLong_AsLongAndOverflow(items[i], &overflow);
+    if (unlikely(overflow != 0)) { if (!use_stack) PyMem_Free(values); return 2; }
+    if (unlikely(values[i] == -1 && PyErr_Occurred())) { if (!use_stack) PyMem_Free(values); return -1; }
+  }
+
+  for (Py_ssize_t i = (n - 2) / 3; i >= 0; i--) {
+    Py_ssize_t pos = i;
+    long val = values[i];
+    PyObject *obj = items[i];
+    
+    while (1) {
+      Py_ssize_t c1 = 3 * pos + 1;
+      if (c1 >= n) break;
+      Py_ssize_t best = c1;
+      long best_val = values[c1];
+      if (likely(c1 + 1 < n) && (is_max ? values[c1+1] > best_val : values[c1+1] < best_val)) { best = c1+1; best_val = values[c1+1]; }
+      if (likely(c1 + 2 < n) && (is_max ? values[c1+2] > best_val : values[c1+2] < best_val)) { best = c1+2; }
+      values[pos] = values[best]; items[pos] = items[best]; pos = best;
+    }
+    
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) / 3;
+      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      values[pos] = values[parent]; items[pos] = items[parent]; pos = parent;
+    }
+    values[pos] = val; items[pos] = obj;
+  }
+  
+  if (!use_stack) PyMem_Free(values);
+  return 0;
+}
+
+/* GIL-releasing version for multi-threaded environments */
+HOT_FUNCTION static int
+list_heapify_ternary_homogeneous_int_nogil(PyListObject *listobj, int is_max)
 {
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   if (unlikely(n <= 1)) return 0;
@@ -1793,8 +1954,70 @@ list_heapify_ternary_homogeneous_int(PyListObject *listobj, int is_max)
 }
 
 /* Bottom-up SIMD-Optimized Quaternary Heap for Homogeneous Float Arrays */
+/* Fast single-threaded version - direct object movement */
 HOT_FUNCTION static int
 list_heapify_quaternary_homogeneous_float(PyListObject *listobj, int is_max)
+{
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  if (unlikely(n <= 1)) return 0;
+
+  PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
+  
+  double stack_values[VALUE_STACK_SIZE];
+  double * HEAPX_RESTRICT values;
+  int use_stack = (n <= VALUE_STACK_SIZE);
+  
+  if (use_stack) {
+    values = ASSUME_ALIGNED(stack_values, 32);
+  } else {
+    values = (double *)PyMem_Malloc(sizeof(double) * (size_t)n);
+    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
+  }
+
+  HEAPX_PRAGMA_SIMD
+  for (Py_ssize_t i = 0; i < n; i++) {
+    values[i] = PyFloat_AS_DOUBLE(items[i]);
+  }
+
+  for (Py_ssize_t i = (n - 2) / 4; i >= 0; i--) {
+    Py_ssize_t pos = i;
+    double val = values[i];
+    PyObject *obj = items[i];
+    
+    while (1) {
+      Py_ssize_t first_child = 4 * pos + 1;
+      if (first_child >= n) break;
+      
+      Py_ssize_t n_children = n - first_child;
+      if (n_children > 4) n_children = 4;
+      
+      Py_ssize_t best_offset = simd_find_best_child_float(values + first_child, n_children, is_max);
+      Py_ssize_t best = first_child + best_offset;
+      
+      values[pos] = values[best];
+      items[pos] = items[best];
+      pos = best;
+    }
+    
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) / 4;
+      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      values[pos] = values[parent];
+      items[pos] = items[parent];
+      pos = parent;
+    }
+    
+    values[pos] = val;
+    items[pos] = obj;
+  }
+  
+  if (!use_stack) PyMem_Free(values);
+  return 0;
+}
+
+/* GIL-releasing version for multi-threaded environments */
+HOT_FUNCTION static int
+list_heapify_quaternary_homogeneous_float_nogil(PyListObject *listobj, int is_max)
 {
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   if (unlikely(n <= 1)) return 0;
@@ -1896,8 +2119,71 @@ list_heapify_quaternary_homogeneous_float(PyListObject *listobj, int is_max)
 }
 
 /* Bottom-up SIMD-Optimized Quaternary Heap for Homogeneous Integer Arrays */
+/* Fast single-threaded version - direct object movement */
 HOT_FUNCTION static int
 list_heapify_quaternary_homogeneous_int(PyListObject *listobj, int is_max)
+{
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  if (unlikely(n <= 1)) return 0;
+
+  PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
+  long stack_values[VALUE_STACK_SIZE];
+  long * HEAPX_RESTRICT values;
+  int use_stack = (n <= VALUE_STACK_SIZE);
+  
+  if (use_stack) {
+    values = ASSUME_ALIGNED(stack_values, 16);
+  } else {
+    values = (long *)PyMem_Malloc(sizeof(long) * (size_t)n);
+    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
+  }
+
+  for (Py_ssize_t i = 0; i < n; i++) {
+    int overflow = 0;
+    values[i] = PyLong_AsLongAndOverflow(items[i], &overflow);
+    if (unlikely(overflow != 0)) { if (!use_stack) PyMem_Free(values); return 2; }
+    if (unlikely(values[i] == -1 && PyErr_Occurred())) { if (!use_stack) PyMem_Free(values); return -1; }
+  }
+
+  for (Py_ssize_t i = (n - 2) / 4; i >= 0; i--) {
+    Py_ssize_t pos = i;
+    long val = values[i];
+    PyObject *obj = items[i];
+    
+    while (1) {
+      Py_ssize_t first_child = 4 * pos + 1;
+      if (first_child >= n) break;
+      
+      Py_ssize_t n_children = n - first_child;
+      if (n_children > 4) n_children = 4;
+      
+      Py_ssize_t best_offset = simd_find_best_child_long(values + first_child, n_children, is_max);
+      Py_ssize_t best = first_child + best_offset;
+      
+      values[pos] = values[best];
+      items[pos] = items[best];
+      pos = best;
+    }
+    
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) / 4;
+      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      values[pos] = values[parent];
+      items[pos] = items[parent];
+      pos = parent;
+    }
+    
+    values[pos] = val;
+    items[pos] = obj;
+  }
+  
+  if (!use_stack) PyMem_Free(values);
+  return 0;
+}
+
+/* GIL-releasing version for multi-threaded environments */
+HOT_FUNCTION static int
+list_heapify_quaternary_homogeneous_int_nogil(PyListObject *listobj, int is_max)
 {
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   if (unlikely(n <= 1)) return 0;
@@ -2007,8 +2293,70 @@ list_heapify_quaternary_homogeneous_int(PyListObject *listobj, int is_max)
 }
 
 /* Bottom-up SIMD-Optimized N-ary Heap for homogeneous floats, arity >= 5 */
+/* Fast single-threaded version - direct object movement */
 HOT_FUNCTION static int
 list_heapify_nary_simd_homogeneous_float(PyListObject *listobj, int is_max, Py_ssize_t arity)
+{
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  if (unlikely(n <= 1)) return 0;
+
+  PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
+  
+  double stack_values[VALUE_STACK_SIZE];
+  double * HEAPX_RESTRICT values;
+  int use_stack = (n <= VALUE_STACK_SIZE);
+  
+  if (use_stack) {
+    values = ASSUME_ALIGNED(stack_values, 32);
+  } else {
+    values = (double *)PyMem_Malloc(sizeof(double) * (size_t)n);
+    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
+  }
+
+  HEAPX_PRAGMA_SIMD
+  for (Py_ssize_t i = 0; i < n; i++) {
+    values[i] = PyFloat_AS_DOUBLE(items[i]);
+  }
+
+  for (Py_ssize_t i = (n - 2) / arity; i >= 0; i--) {
+    Py_ssize_t pos = i;
+    double val = values[i];
+    PyObject *obj = items[i];
+    
+    while (1) {
+      Py_ssize_t first_child = arity * pos + 1;
+      if (first_child >= n) break;
+      
+      Py_ssize_t n_children = n - first_child;
+      if (n_children > arity) n_children = arity;
+      
+      Py_ssize_t best_offset = simd_find_best_child_float(values + first_child, n_children, is_max);
+      Py_ssize_t best = first_child + best_offset;
+      
+      values[pos] = values[best];
+      items[pos] = items[best];
+      pos = best;
+    }
+    
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) / arity;
+      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      values[pos] = values[parent];
+      items[pos] = items[parent];
+      pos = parent;
+    }
+    
+    values[pos] = val;
+    items[pos] = obj;
+  }
+  
+  if (!use_stack) PyMem_Free(values);
+  return 0;
+}
+
+/* GIL-releasing version for multi-threaded environments */
+HOT_FUNCTION static int
+list_heapify_nary_simd_homogeneous_float_nogil(PyListObject *listobj, int is_max, Py_ssize_t arity)
 {
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   if (unlikely(n <= 1)) return 0;
@@ -2110,8 +2458,72 @@ list_heapify_nary_simd_homogeneous_float(PyListObject *listobj, int is_max, Py_s
 }
 
 /* Bottom-up SIMD-Optimized N-ary Heap for homogeneous integers, arity >= 5 */
+/* Fast single-threaded version - direct object movement */
 HOT_FUNCTION static int
 list_heapify_nary_simd_homogeneous_int(PyListObject *listobj, int is_max, Py_ssize_t arity)
+{
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  if (unlikely(n <= 1)) return 0;
+
+  PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
+  
+  long stack_values[VALUE_STACK_SIZE];
+  long * HEAPX_RESTRICT values;
+  int use_stack = (n <= VALUE_STACK_SIZE);
+  
+  if (use_stack) {
+    values = ASSUME_ALIGNED(stack_values, 16);
+  } else {
+    values = (long *)PyMem_Malloc(sizeof(long) * (size_t)n);
+    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
+  }
+
+  for (Py_ssize_t i = 0; i < n; i++) {
+    int overflow = 0;
+    values[i] = PyLong_AsLongAndOverflow(items[i], &overflow);
+    if (unlikely(overflow != 0)) { if (!use_stack) PyMem_Free(values); return 2; }
+    if (unlikely(values[i] == -1 && PyErr_Occurred())) { if (!use_stack) PyMem_Free(values); return -1; }
+  }
+
+  for (Py_ssize_t i = (n - 2) / arity; i >= 0; i--) {
+    Py_ssize_t pos = i;
+    long val = values[i];
+    PyObject *obj = items[i];
+    
+    while (1) {
+      Py_ssize_t first_child = arity * pos + 1;
+      if (first_child >= n) break;
+      
+      Py_ssize_t n_children = n - first_child;
+      if (n_children > arity) n_children = arity;
+      
+      Py_ssize_t best_offset = simd_find_best_child_long(values + first_child, n_children, is_max);
+      Py_ssize_t best = first_child + best_offset;
+      
+      values[pos] = values[best];
+      items[pos] = items[best];
+      pos = best;
+    }
+    
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) / arity;
+      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      values[pos] = values[parent];
+      items[pos] = items[parent];
+      pos = parent;
+    }
+    
+    values[pos] = val;
+    items[pos] = obj;
+  }
+  
+  if (!use_stack) PyMem_Free(values);
+  return 0;
+}
+
+/* GIL-releasing version for multi-threaded environments */
+HOT_FUNCTION static int
+list_heapify_nary_simd_homogeneous_int_nogil(PyListObject *listobj, int is_max, Py_ssize_t arity)
 {
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   if (unlikely(n <= 1)) return 0;
@@ -2221,9 +2633,69 @@ list_heapify_nary_simd_homogeneous_int(PyListObject *listobj, int is_max, Py_ssi
 }
 
 /* Bottom-up heapify for homogeneous integer arrays */
+/* Fast single-threaded version - direct object movement */
 /* Returns: 0 = success, -1 = error, 2 = overflow (fallback to generic) */
 HOT_FUNCTION static int
 list_heapify_homogeneous_int(PyListObject *listobj, int is_max)
+{
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  if (unlikely(n <= 1)) return 0;
+
+  PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
+  long stack_values[VALUE_STACK_SIZE];
+  long * HEAPX_RESTRICT values;
+  int use_stack = (n <= VALUE_STACK_SIZE);
+  
+  if (use_stack) {
+    values = ASSUME_ALIGNED(stack_values, 16);
+  } else {
+    values = (long *)PyMem_Malloc(sizeof(long) * (size_t)n);
+    if (unlikely(!values)) { PyErr_NoMemory(); return -1; }
+  }
+
+  for (Py_ssize_t i = 0; i < n; i++) {
+    int overflow = 0;
+    values[i] = PyLong_AsLongAndOverflow(items[i], &overflow);
+    if (unlikely(overflow != 0)) { if (!use_stack) PyMem_Free(values); return 2; }
+    if (unlikely(values[i] == -1 && PyErr_Occurred())) { if (!use_stack) PyMem_Free(values); return -1; }
+  }
+
+  for (Py_ssize_t i = (n - 2) >> 1; i >= 0; i--) {
+    Py_ssize_t pos = i;
+    long val = values[i];
+    PyObject *obj = items[i];
+    
+    while (1) {
+      Py_ssize_t child = (pos << 1) + 1;
+      if (child >= n) break;
+      if (likely(child + 1 < n)) {
+        if (is_max ? (values[child + 1] > values[child]) : (values[child + 1] < values[child]))
+          child++;
+      }
+      values[pos] = values[child];
+      items[pos] = items[child];
+      pos = child;
+    }
+    
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) >> 1;
+      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      values[pos] = values[parent];
+      items[pos] = items[parent];
+      pos = parent;
+    }
+    values[pos] = val;
+    items[pos] = obj;
+  }
+  
+  if (!use_stack) PyMem_Free(values);
+  return 0;
+}
+
+/* GIL-releasing version for multi-threaded environments */
+/* Returns: 0 = success, -1 = error, 2 = overflow (fallback to generic) */
+HOT_FUNCTION static int
+list_heapify_homogeneous_int_nogil(PyListObject *listobj, int is_max)
 {
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   if (unlikely(n <= 1)) return 0;
@@ -3487,18 +3959,22 @@ generic_heapify_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp, Py_ss
 HOT_FUNCTION static PyObject *
 py_heapify(PyObject *self, PyObject *args, PyObject *kwargs)
 {
-  static char *kwlist[] = {"heap", "max_heap", "cmp", "arity", NULL};
+  static char *kwlist[] = {"heap", "max_heap", "cmp", "arity", "nogil", NULL};
   PyObject *heap;
   PyObject *max_heap_obj = Py_False;
   PyObject *cmp = Py_None;
   Py_ssize_t arity = 2;
+  PyObject *nogil_obj = Py_False;
 
-  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOn:heapify", kwlist,
-                                   &heap, &max_heap_obj, &cmp, &arity))
+  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOnO:heapify", kwlist,
+                                   &heap, &max_heap_obj, &cmp, &arity, &nogil_obj))
     return NULL;
 
   int is_max = PyObject_IsTrue(max_heap_obj);
   if (unlikely(is_max < 0)) return NULL;
+  
+  int nogil = PyObject_IsTrue(nogil_obj);
+  if (unlikely(nogil < 0)) return NULL;
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
     PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
@@ -3524,33 +4000,57 @@ py_heapify(PyObject *self, PyObject *args, PyObject *kwargs)
       
       /* SIMD-optimized path for arity >= 4 with homogeneous floats */
       if (arity >= 4 && homogeneous == 2) {
-        rc = (arity == 4)
-          ? list_heapify_quaternary_homogeneous_float(listobj, is_max)
-          : list_heapify_nary_simd_homogeneous_float(listobj, is_max, arity);
+        if (nogil) {
+          rc = (arity == 4)
+            ? list_heapify_quaternary_homogeneous_float_nogil(listobj, is_max)
+            : list_heapify_nary_simd_homogeneous_float_nogil(listobj, is_max, arity);
+        } else {
+          rc = (arity == 4)
+            ? list_heapify_quaternary_homogeneous_float(listobj, is_max)
+            : list_heapify_nary_simd_homogeneous_float(listobj, is_max, arity);
+        }
         if (rc == 0) Py_RETURN_NONE;
         PyErr_Clear();
       }
       /* SIMD-optimized path for arity >= 4 with homogeneous integers */
       else if (arity >= 4 && homogeneous == 1) {
-        rc = (arity == 4)
-          ? list_heapify_quaternary_homogeneous_int(listobj, is_max)
-          : list_heapify_nary_simd_homogeneous_int(listobj, is_max, arity);
+        if (nogil) {
+          rc = (arity == 4)
+            ? list_heapify_quaternary_homogeneous_int_nogil(listobj, is_max)
+            : list_heapify_nary_simd_homogeneous_int_nogil(listobj, is_max, arity);
+        } else {
+          rc = (arity == 4)
+            ? list_heapify_quaternary_homogeneous_int(listobj, is_max)
+            : list_heapify_nary_simd_homogeneous_int(listobj, is_max, arity);
+        }
         if (rc == 0) Py_RETURN_NONE;
         if (rc == -1) PyErr_Clear();
       }
       /* Ternary heap homogeneous optimization */
       else if (arity == 3 && homogeneous) {
-        rc = (homogeneous == 1)
-          ? list_heapify_ternary_homogeneous_int(listobj, is_max)
-          : list_heapify_ternary_homogeneous_float(listobj, is_max);
+        if (nogil) {
+          rc = (homogeneous == 1)
+            ? list_heapify_ternary_homogeneous_int_nogil(listobj, is_max)
+            : list_heapify_ternary_homogeneous_float_nogil(listobj, is_max);
+        } else {
+          rc = (homogeneous == 1)
+            ? list_heapify_ternary_homogeneous_int(listobj, is_max)
+            : list_heapify_ternary_homogeneous_float(listobj, is_max);
+        }
         if (rc == 0) Py_RETURN_NONE;
         if (rc == -1) PyErr_Clear();
       }
       /* Binary heap homogeneous optimization */
       else if (arity == 2 && homogeneous) {
-        rc = (homogeneous == 1)
-          ? list_heapify_homogeneous_int(listobj, is_max)
-          : list_heapify_homogeneous_float(listobj, is_max);
+        if (nogil) {
+          rc = (homogeneous == 1)
+            ? list_heapify_homogeneous_int_nogil(listobj, is_max)
+            : list_heapify_homogeneous_float_nogil(listobj, is_max);
+        } else {
+          rc = (homogeneous == 1)
+            ? list_heapify_homogeneous_int(listobj, is_max)
+            : list_heapify_homogeneous_float(listobj, is_max);
+        }
         if (rc == 0) Py_RETURN_NONE;
         if (rc == -1) PyErr_Clear();
       }
@@ -3658,13 +4158,15 @@ static PyObject *py_merge(PyObject *self, PyObject *args, PyObject *kwargs);
 /* ---------- Enhanced Module definition ---------- */
 static PyMethodDef Methods[] = {
   {"heapify", (PyCFunction)py_heapify, METH_VARARGS | METH_KEYWORDS,
-   "heapify(heap, max_heap=False, cmp=None, arity=2)\n\n"
+   "heapify(heap, max_heap=False, cmp=None, arity=2, nogil=False)\n\n"
    "Ultra-optimized heapify with comprehensive fast comparison paths.\n\n"
    "Parameters:\n"
    "  heap: any list-like Python sequence supporting len, __getitem__, __setitem__\n"
    "  max_heap: bool (default False: min-heap, True: max-heap)\n"
    "  cmp: optional key function; when provided comparisons are performed on cmp(x)\n"
-   "  arity: integer >= 1 (default 2: binary heap)\n\n"
+   "  arity: integer >= 1 (default 2: binary heap)\n"
+   "  nogil: bool (default False). When True, releases GIL during pure C computation\n"
+   "         to enable multi-threaded parallelism. Use False for max single-threaded speed.\n\n"
    "Features:\n"
    "  - Native max-heap and min-heap support\n"
    "  - N-ary heap support (configurable arity)\n"
@@ -3680,30 +4182,32 @@ static PyMethodDef Methods[] = {
    "  - Optimized implementations for binary, ternary, and quaternary heaps"},
    
   {"push", (PyCFunction)py_push, METH_VARARGS | METH_KEYWORDS,
-   "push(heap, items, max_heap=False, cmp=None, arity=2)\n\n"
+   "push(heap, items, max_heap=False, cmp=None, arity=2, nogil=False)\n\n"
    "Insert items into heap maintaining heap property.\n\n"
    "Parameters:\n"
    "  heap: heap to insert into\n"
    "  items: single item or sequence of items to insert\n"
    "  max_heap: bool (default False: min-heap, True: max-heap)\n"
    "  cmp: optional key function\n"
-   "  arity: integer >= 1 (default 2: binary heap)\n\n"
+   "  arity: integer >= 1 (default 2: binary heap)\n"
+   "  nogil: bool (default False). Accepted for API consistency.\n\n"
    "Complexity: O(log n) single insert, O(k log n) bulk insert"},
    
   {"pop", (PyCFunction)py_pop, METH_VARARGS | METH_KEYWORDS,
-   "pop(heap, n=1, max_heap=False, cmp=None, arity=2)\n\n"
+   "pop(heap, n=1, max_heap=False, cmp=None, arity=2, nogil=False)\n\n"
    "Remove and return top n items from heap.\n\n"
    "Parameters:\n"
    "  heap: heap to pop from\n"
    "  n: number of items to pop (default 1)\n"
    "  max_heap: bool (default False: min-heap, True: max-heap)\n"
    "  cmp: optional key function\n"
-   "  arity: integer >= 1 (default 2: binary heap)\n\n"
+   "  arity: integer >= 1 (default 2: binary heap)\n"
+   "  nogil: bool (default False). Accepted for API consistency.\n\n"
    "Returns: single item (n=1) or list of items (n>1)\n"
    "Complexity: O(log n) single pop, O(k log n) bulk pop"},
    
   {"sort", (PyCFunction)py_sort, METH_VARARGS | METH_KEYWORDS,
-   "sort(heap, reverse=False, inplace=False, max_heap=False, cmp=None, arity=2)\n\n"
+   "sort(heap, reverse=False, inplace=False, max_heap=False, cmp=None, arity=2, nogil=False)\n\n"
    "Sort heap using heapsort algorithm.\n\n"
    "Parameters:\n"
    "  heap: heap to sort\n"
@@ -3711,12 +4215,13 @@ static PyMethodDef Methods[] = {
    "  inplace: bool (default False: return new list, True: modify in-place)\n"
    "  max_heap: bool (default False: min-heap, True: max-heap)\n"
    "  cmp: optional key function\n"
-   "  arity: integer >= 1 (default 2: binary heap)\n\n"
+   "  arity: integer >= 1 (default 2: binary heap)\n"
+   "  nogil: bool (default False). Accepted for API consistency.\n\n"
    "Returns: sorted list (inplace=False) or None (inplace=True)\n"
    "Complexity: O(n log n)"},
    
   {"remove", (PyCFunction)py_remove, METH_VARARGS | METH_KEYWORDS,
-   "remove(heap, indices=None, object=None, predicate=None, n=None, return_items=False, max_heap=False, cmp=None, arity=2)\n\n"
+   "remove(heap, indices=None, object=None, predicate=None, n=None, return_items=False, max_heap=False, cmp=None, arity=2, nogil=False)\n\n"
    "Remove items from heap by indices, object identity, or predicate.\n\n"
    "Parameters:\n"
    "  heap: heap to remove from\n"
@@ -3727,12 +4232,13 @@ static PyMethodDef Methods[] = {
    "  return_items: bool (default False: return count, True: return (count, items))\n"
    "  max_heap: bool (default False: min-heap, True: max-heap)\n"
    "  cmp: optional key function\n"
-   "  arity: integer >= 1 (default 2: binary heap)\n\n"
+   "  arity: integer >= 1 (default 2: binary heap)\n"
+   "  nogil: bool (default False). Accepted for API consistency.\n\n"
    "Returns: count of removed items or (count, removed_items)\n"
    "Complexity: O(k + n) where k is items removed"},
    
   {"replace", (PyCFunction)py_replace, METH_VARARGS | METH_KEYWORDS,
-   "replace(heap, values, indices=None, object=None, predicate=None, max_heap=False, cmp=None, arity=2)\n\n"
+   "replace(heap, values, indices=None, object=None, predicate=None, max_heap=False, cmp=None, arity=2, nogil=False)\n\n"
    "Replace items in heap by indices, object identity, or predicate.\n\n"
    "Parameters:\n"
    "  heap: heap to replace in\n"
@@ -3742,12 +4248,13 @@ static PyMethodDef Methods[] = {
    "  predicate: callable to test items for replacement\n"
    "  max_heap: bool (default False: min-heap, True: max-heap)\n"
    "  cmp: optional key function\n"
-   "  arity: integer >= 1 (default 2: binary heap)\n\n"
+   "  arity: integer >= 1 (default 2: binary heap)\n"
+   "  nogil: bool (default False). Accepted for API consistency.\n\n"
    "Returns: count of replaced items\n"
    "Complexity: O(k + n) where k is items replaced"},
    
   {"merge", (PyCFunction)py_merge, METH_VARARGS | METH_KEYWORDS,
-   "merge(*heaps, max_heap=False, cmp=None, arity=2, sorted_heaps=False)\n\n"
+   "merge(*heaps, max_heap=False, cmp=None, arity=2, sorted_heaps=False, nogil=False)\n\n"
    "Merge multiple heaps into a single heap.\n\n"
    "Parameters:\n"
    "  *heaps: two or more heaps to merge\n"
@@ -3755,7 +4262,8 @@ static PyMethodDef Methods[] = {
    "  cmp: optional key function\n"
    "  arity: integer >= 1 (default 2: binary heap)\n"
    "  sorted_heaps: bool (default False) - if True, assumes input heaps\n"
-   "                are already valid heaps and skips heapify\n\n"
+   "                are already valid heaps and skips heapify\n"
+   "  nogil: bool (default False). Accepted for API consistency.\n\n"
    "Returns: new merged heap\n"
    "Complexity: O(N) where N is total items"},
    
@@ -4390,18 +4898,23 @@ list_remove_at_index_optimized(PyListObject *listobj, Py_ssize_t idx, int is_max
 /* Ultra-optimized push with comprehensive dispatch following priority table */
 static PyObject *
 py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
-  static char *kwlist[] = {"heap", "items", "max_heap", "cmp", "arity", NULL};
+  static char *kwlist[] = {"heap", "items", "max_heap", "cmp", "arity", "nogil", NULL};
   PyObject *heap, *items;
   PyObject *max_heap_obj = Py_False;
   PyObject *cmp = Py_None;
   Py_ssize_t arity = 2;
+  PyObject *nogil_obj = Py_False;
 
-  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|OOn:push", kwlist,
-                                   &heap, &items, &max_heap_obj, &cmp, &arity))
+  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|OOnO:push", kwlist,
+                                   &heap, &items, &max_heap_obj, &cmp, &arity, &nogil_obj))
     return NULL;
 
   int is_max = PyObject_IsTrue(max_heap_obj);
   if (unlikely(is_max < 0)) return NULL;
+  
+  int nogil = PyObject_IsTrue(nogil_obj);
+  if (unlikely(nogil < 0)) return NULL;
+  (void)nogil; /* nogil accepted for API consistency but not used in push */
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
     PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
@@ -4890,19 +5403,24 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
 /* Ultra-optimized pop with comprehensive 11-priority dispatch table */
 static PyObject *
 py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
-  static char *kwlist[] = {"heap", "n", "max_heap", "cmp", "arity", NULL};
+  static char *kwlist[] = {"heap", "n", "max_heap", "cmp", "arity", "nogil", NULL};
   PyObject *heap;
   Py_ssize_t n_pop = 1;
   PyObject *max_heap_obj = Py_False;
   PyObject *cmp = Py_None;
   Py_ssize_t arity = 2;
+  PyObject *nogil_obj = Py_False;
 
-  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|nOOn:pop", kwlist,
-                                   &heap, &n_pop, &max_heap_obj, &cmp, &arity))
+  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|nOOnO:pop", kwlist,
+                                   &heap, &n_pop, &max_heap_obj, &cmp, &arity, &nogil_obj))
     return NULL;
 
   int is_max = PyObject_IsTrue(max_heap_obj);
   if (unlikely(is_max < 0)) return NULL;
+  
+  int nogil = PyObject_IsTrue(nogil_obj);
+  if (unlikely(nogil < 0)) return NULL;
+  (void)nogil; /* nogil accepted for API consistency but not used in pop */
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
     PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
@@ -5598,16 +6116,17 @@ list_heapsort_ternary_with_key_ultra_optimized(PyListObject *listobj, int sort_i
 /* Ultra-optimized sort with complete 11-priority dispatch */
 static PyObject *
 py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
-  static char *kwlist[] = {"heap", "reverse", "inplace", "max_heap", "cmp", "arity", NULL};
+  static char *kwlist[] = {"heap", "reverse", "inplace", "max_heap", "cmp", "arity", "nogil", NULL};
   PyObject *heap;
   PyObject *reverse_obj = Py_False;
   PyObject *inplace_obj = Py_False;
   PyObject *max_heap_obj = Py_False;
   PyObject *cmp = Py_None;
   Py_ssize_t arity = 2;
+  PyObject *nogil_obj = Py_False;
 
-  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOOOn:sort", kwlist, 
-                                   &heap, &reverse_obj, &inplace_obj, &max_heap_obj, &cmp, &arity))
+  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOOOnO:sort", kwlist, 
+                                   &heap, &reverse_obj, &inplace_obj, &max_heap_obj, &cmp, &arity, &nogil_obj))
     return NULL;
 
   int reverse = PyObject_IsTrue(reverse_obj);
@@ -5618,6 +6137,10 @@ py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
   
   int is_max = PyObject_IsTrue(max_heap_obj);
   if (unlikely(is_max < 0)) return NULL;
+  
+  int nogil = PyObject_IsTrue(nogil_obj);
+  if (unlikely(nogil < 0)) return NULL;
+  (void)nogil; /* nogil accepted for API consistency but not used in sort */
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
     PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
@@ -6085,7 +6608,7 @@ py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
 /* Ultra-optimized remove with 11-priority dispatch and O(log n) inline maintenance */
 static PyObject *
 py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
-  static char *kwlist[] = {"heap", "indices", "object", "predicate", "n", "return_items", "max_heap", "cmp", "arity", NULL};
+  static char *kwlist[] = {"heap", "indices", "object", "predicate", "n", "return_items", "max_heap", "cmp", "arity", "nogil", NULL};
   PyObject *heap;
   PyObject *indices = Py_None;
   PyObject *object = Py_None;
@@ -6095,9 +6618,10 @@ py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
   PyObject *max_heap_obj = Py_False;
   PyObject *cmp = Py_None;
   Py_ssize_t arity = 2;
+  PyObject *nogil_obj = Py_False;
 
-  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOOnOOOn:remove", kwlist,
-                                   &heap, &indices, &object, &predicate, &n, &return_items_obj, &max_heap_obj, &cmp, &arity))
+  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOOnOOOnO:remove", kwlist,
+                                   &heap, &indices, &object, &predicate, &n, &return_items_obj, &max_heap_obj, &cmp, &arity, &nogil_obj))
     return NULL;
 
   int return_items = PyObject_IsTrue(return_items_obj);
@@ -6105,6 +6629,10 @@ py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
   
   int is_max = PyObject_IsTrue(max_heap_obj);
   if (unlikely(is_max < 0)) return NULL;
+  
+  int nogil = PyObject_IsTrue(nogil_obj);
+  if (unlikely(nogil < 0)) return NULL;
+  (void)nogil; /* nogil accepted for API consistency but not used in remove */
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
     PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
@@ -6641,7 +7169,7 @@ list_replace_at_index_optimized(PyListObject *listobj, Py_ssize_t idx, PyObject 
 /* Ultra-optimized replace with 11-priority dispatch and adaptive batch strategy */
 static PyObject *
 py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
-  static char *kwlist[] = {"heap", "values", "indices", "object", "predicate", "max_heap", "cmp", "arity", NULL};
+  static char *kwlist[] = {"heap", "values", "indices", "object", "predicate", "max_heap", "cmp", "arity", "nogil", NULL};
   PyObject *heap, *values;
   PyObject *indices = Py_None;
   PyObject *object = Py_None;
@@ -6649,13 +7177,18 @@ py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
   PyObject *max_heap_obj = Py_False;
   PyObject *cmp = Py_None;
   Py_ssize_t arity = 2;
+  PyObject *nogil_obj = Py_False;
 
-  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|OOOOOn:replace", kwlist,
-                                   &heap, &values, &indices, &object, &predicate, &max_heap_obj, &cmp, &arity))
+  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|OOOOOnO:replace", kwlist,
+                                   &heap, &values, &indices, &object, &predicate, &max_heap_obj, &cmp, &arity, &nogil_obj))
     return NULL;
 
   int is_max = PyObject_IsTrue(max_heap_obj);
   if (unlikely(is_max < 0)) return NULL;
+  
+  int nogil = PyObject_IsTrue(nogil_obj);
+  if (unlikely(nogil < 0)) return NULL;
+  (void)nogil; /* nogil accepted for API consistency but not used in replace */
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
     PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
@@ -7078,15 +7611,16 @@ py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
 /* Ultra-optimized merge with complete 11-priority dispatch and sorted heap support */
 static PyObject *
 py_merge(PyObject *self, PyObject *args, PyObject *kwargs) {
-  static char *kwlist[] = {"max_heap", "cmp", "arity", "sorted_heaps", NULL};
+  static char *kwlist[] = {"max_heap", "cmp", "arity", "sorted_heaps", "nogil", NULL};
   PyObject *max_heap_obj = Py_False;
   PyObject *cmp = Py_None;
   Py_ssize_t arity = 2;
   PyObject *sorted_heaps_obj = Py_False;
+  PyObject *nogil_obj = Py_False;
 
   /* Parse keyword arguments */
-  if (!PyArg_ParseTupleAndKeywords(PyTuple_New(0), kwargs, "|OOnO:merge", kwlist,
-                                   &max_heap_obj, &cmp, &arity, &sorted_heaps_obj))
+  if (!PyArg_ParseTupleAndKeywords(PyTuple_New(0), kwargs, "|OOnOO:merge", kwlist,
+                                   &max_heap_obj, &cmp, &arity, &sorted_heaps_obj, &nogil_obj))
     return NULL;
 
   int is_max = PyObject_IsTrue(max_heap_obj);
@@ -7094,6 +7628,10 @@ py_merge(PyObject *self, PyObject *args, PyObject *kwargs) {
   
   int sorted_heaps = PyObject_IsTrue(sorted_heaps_obj);
   if (unlikely(sorted_heaps < 0)) return NULL;
+  
+  int nogil = PyObject_IsTrue(nogil_obj);
+  if (unlikely(nogil < 0)) return NULL;
+  (void)nogil; /* nogil accepted for API consistency but not used in merge */
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
     PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
