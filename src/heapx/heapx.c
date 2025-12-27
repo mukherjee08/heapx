@@ -330,33 +330,6 @@ python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtu
   #endif
 #endif
 
-/* Runtime cache detection for dynamic optimization (optional) */
-#ifdef HEAPX_ENABLE_RUNTIME_DETECTION
-static int detected_cache_line_size = 0;
-static int detected_prefetch_distance = 0;
-
-static inline void detect_cache_parameters(void) {
-  if (unlikely(!detected_cache_line_size)) {
-    #if defined(__x86_64__) || defined(_M_X64)
-      /* Use CPUID to detect cache parameters */
-      detected_cache_line_size = 64; /* Standard for x86-64 */
-      detected_prefetch_distance = PREFETCH_DISTANCE;
-    #elif defined(__APPLE__)
-      /* Apple Silicon has 128-byte cache lines */
-      detected_cache_line_size = 128;
-      detected_prefetch_distance = PREFETCH_DISTANCE;
-    #else
-      detected_cache_line_size = 64;
-      detected_prefetch_distance = PREFETCH_DISTANCE;
-    #endif
-  }
-}
-
-#define DYNAMIC_PREFETCH_DISTANCE (detected_prefetch_distance ? detected_prefetch_distance : PREFETCH_DISTANCE)
-#else
-#define DYNAMIC_PREFETCH_DISTANCE PREFETCH_DISTANCE
-#endif
-
 /* Advanced prefetching with stride-aware optimization */
 #define PREFETCH_MULTIPLE_STRIDE(base, start, n, max, stride) do { \
   for (Py_ssize_t _i = 0; _i < PREFETCH_DISTANCE && (start) + (_i * (stride)) < (max); _i++) { \
@@ -375,20 +348,6 @@ COLD_FUNCTION static void
 set_list_modified_error(Py_ssize_t expected, Py_ssize_t actual) {
   PyErr_Format(PyExc_ValueError, 
       "list modified during heap operation (expected size %zd, got %zd)",
-      expected, actual);
-}
-
-COLD_FUNCTION static void
-set_list_modified_error_sort(Py_ssize_t expected, Py_ssize_t actual) {
-  PyErr_Format(PyExc_ValueError, 
-      "list modified during sort (expected size %zd, got %zd)",
-      expected, actual);
-}
-
-COLD_FUNCTION static void
-set_list_modified_error_pop(Py_ssize_t expected, Py_ssize_t actual) {
-  PyErr_Format(PyExc_ValueError, 
-      "list modified during pop (expected size %zd, got %zd)",
       expected, actual);
 }
 
@@ -481,7 +440,6 @@ simd_find_min_index_4_doubles(const double * HEAPX_RESTRICT values) {
   float64x2_t v23 = vld1q_f64(values + 2);
   
   /* Compare pairs: find min of each pair */
-  float64x2_t min_pair = vminq_f64(v01, v23);
   double min01 = vgetq_lane_f64(v01, 0) <= vgetq_lane_f64(v01, 1) ? vgetq_lane_f64(v01, 0) : vgetq_lane_f64(v01, 1);
   double min23 = vgetq_lane_f64(v23, 0) <= vgetq_lane_f64(v23, 1) ? vgetq_lane_f64(v23, 0) : vgetq_lane_f64(v23, 1);
   Py_ssize_t idx01 = vgetq_lane_f64(v01, 0) <= vgetq_lane_f64(v01, 1) ? 0 : 1;
@@ -1621,22 +1579,30 @@ list_heapify_homogeneous_float_nogil(PyListObject *listobj, int is_max)
     return -1;
   }
   
-  /* Refresh items pointer and rearrange using cycle-following */
-  items = listobj->ob_item;
+  /* Quick check: if no elements moved, skip permutation entirely */
+  int needs_permutation = 0;
   for (Py_ssize_t i = 0; i < n; i++) {
-    if (indices[i] == i || indices[i] < 0) continue;
-    
-    Py_ssize_t j = i;
-    PyObject *temp = items[i];
-    
-    while (indices[j] != i) {
-      Py_ssize_t next = indices[j];
-      items[j] = items[next];
+    if (indices[i] != i) { needs_permutation = 1; break; }
+  }
+  
+  if (needs_permutation) {
+    /* Refresh items pointer and rearrange using cycle-following */
+    items = listobj->ob_item;
+    for (Py_ssize_t i = 0; i < n; i++) {
+      if (indices[i] == i || indices[i] < 0) continue;
+      
+      Py_ssize_t j = i;
+      PyObject *temp = items[i];
+      
+      while (indices[j] != i) {
+        Py_ssize_t next = indices[j];
+        items[j] = items[next];
+        indices[j] = -1 - indices[j];
+        j = next;
+      }
+      items[j] = temp;
       indices[j] = -1 - indices[j];
-      j = next;
     }
-    items[j] = temp;
-    indices[j] = -1 - indices[j];
   }
   
   if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
@@ -1773,19 +1739,27 @@ list_heapify_ternary_homogeneous_float_nogil(PyListObject *listobj, int is_max)
     return -1;
   }
   
-  items = listobj->ob_item;
+  /* Quick check: if no elements moved, skip permutation entirely */
+  int needs_permutation = 0;
   for (Py_ssize_t i = 0; i < n; i++) {
-    if (indices[i] == i || indices[i] < 0) continue;
-    Py_ssize_t j = i;
-    PyObject *temp = items[i];
-    while (indices[j] != i) {
-      Py_ssize_t next = indices[j];
-      items[j] = items[next];
+    if (indices[i] != i) { needs_permutation = 1; break; }
+  }
+  
+  if (needs_permutation) {
+    items = listobj->ob_item;
+    for (Py_ssize_t i = 0; i < n; i++) {
+      if (indices[i] == i || indices[i] < 0) continue;
+      Py_ssize_t j = i;
+      PyObject *temp = items[i];
+      while (indices[j] != i) {
+        Py_ssize_t next = indices[j];
+        items[j] = items[next];
+        indices[j] = -1 - indices[j];
+        j = next;
+      }
+      items[j] = temp;
       indices[j] = -1 - indices[j];
-      j = next;
     }
-    items[j] = temp;
-    indices[j] = -1 - indices[j];
   }
   
   if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
@@ -1934,19 +1908,27 @@ list_heapify_ternary_homogeneous_int_nogil(PyListObject *listobj, int is_max)
     return -1;
   }
   
-  items = listobj->ob_item;
+  /* Quick check: if no elements moved, skip permutation entirely */
+  int needs_permutation = 0;
   for (Py_ssize_t i = 0; i < n; i++) {
-    if (indices[i] == i || indices[i] < 0) continue;
-    Py_ssize_t j = i;
-    PyObject *temp = items[i];
-    while (indices[j] != i) {
-      Py_ssize_t next = indices[j];
-      items[j] = items[next];
+    if (indices[i] != i) { needs_permutation = 1; break; }
+  }
+  
+  if (needs_permutation) {
+    items = listobj->ob_item;
+    for (Py_ssize_t i = 0; i < n; i++) {
+      if (indices[i] == i || indices[i] < 0) continue;
+      Py_ssize_t j = i;
+      PyObject *temp = items[i];
+      while (indices[j] != i) {
+        Py_ssize_t next = indices[j];
+        items[j] = items[next];
+        indices[j] = -1 - indices[j];
+        j = next;
+      }
+      items[j] = temp;
       indices[j] = -1 - indices[j];
-      j = next;
     }
-    items[j] = temp;
-    indices[j] = -1 - indices[j];
   }
   
   if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
@@ -2099,19 +2081,27 @@ list_heapify_quaternary_homogeneous_float_nogil(PyListObject *listobj, int is_ma
     return -1;
   }
   
-  items = listobj->ob_item;
+  /* Quick check: if no elements moved, skip permutation entirely */
+  int needs_permutation = 0;
   for (Py_ssize_t i = 0; i < n; i++) {
-    if (indices[i] == i || indices[i] < 0) continue;
-    Py_ssize_t j = i;
-    PyObject *temp = items[i];
-    while (indices[j] != i) {
-      Py_ssize_t next = indices[j];
-      items[j] = items[next];
+    if (indices[i] != i) { needs_permutation = 1; break; }
+  }
+  
+  if (needs_permutation) {
+    items = listobj->ob_item;
+    for (Py_ssize_t i = 0; i < n; i++) {
+      if (indices[i] == i || indices[i] < 0) continue;
+      Py_ssize_t j = i;
+      PyObject *temp = items[i];
+      while (indices[j] != i) {
+        Py_ssize_t next = indices[j];
+        items[j] = items[next];
+        indices[j] = -1 - indices[j];
+        j = next;
+      }
+      items[j] = temp;
       indices[j] = -1 - indices[j];
-      j = next;
     }
-    items[j] = temp;
-    indices[j] = -1 - indices[j];
   }
   
   if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
@@ -2273,19 +2263,27 @@ list_heapify_quaternary_homogeneous_int_nogil(PyListObject *listobj, int is_max)
     return -1;
   }
   
-  items = listobj->ob_item;
+  /* Quick check: if no elements moved, skip permutation entirely */
+  int needs_permutation = 0;
   for (Py_ssize_t i = 0; i < n; i++) {
-    if (indices[i] == i || indices[i] < 0) continue;
-    Py_ssize_t j = i;
-    PyObject *temp = items[i];
-    while (indices[j] != i) {
-      Py_ssize_t next = indices[j];
-      items[j] = items[next];
+    if (indices[i] != i) { needs_permutation = 1; break; }
+  }
+  
+  if (needs_permutation) {
+    items = listobj->ob_item;
+    for (Py_ssize_t i = 0; i < n; i++) {
+      if (indices[i] == i || indices[i] < 0) continue;
+      Py_ssize_t j = i;
+      PyObject *temp = items[i];
+      while (indices[j] != i) {
+        Py_ssize_t next = indices[j];
+        items[j] = items[next];
+        indices[j] = -1 - indices[j];
+        j = next;
+      }
+      items[j] = temp;
       indices[j] = -1 - indices[j];
-      j = next;
     }
-    items[j] = temp;
-    indices[j] = -1 - indices[j];
   }
   
   if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
@@ -2438,19 +2436,27 @@ list_heapify_nary_simd_homogeneous_float_nogil(PyListObject *listobj, int is_max
     return -1;
   }
   
-  items = listobj->ob_item;
+  /* Quick check: if no elements moved, skip permutation entirely */
+  int needs_permutation = 0;
   for (Py_ssize_t i = 0; i < n; i++) {
-    if (indices[i] == i || indices[i] < 0) continue;
-    Py_ssize_t j = i;
-    PyObject *temp = items[i];
-    while (indices[j] != i) {
-      Py_ssize_t next = indices[j];
-      items[j] = items[next];
+    if (indices[i] != i) { needs_permutation = 1; break; }
+  }
+  
+  if (needs_permutation) {
+    items = listobj->ob_item;
+    for (Py_ssize_t i = 0; i < n; i++) {
+      if (indices[i] == i || indices[i] < 0) continue;
+      Py_ssize_t j = i;
+      PyObject *temp = items[i];
+      while (indices[j] != i) {
+        Py_ssize_t next = indices[j];
+        items[j] = items[next];
+        indices[j] = -1 - indices[j];
+        j = next;
+      }
+      items[j] = temp;
       indices[j] = -1 - indices[j];
-      j = next;
     }
-    items[j] = temp;
-    indices[j] = -1 - indices[j];
   }
   
   if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
@@ -2613,19 +2619,27 @@ list_heapify_nary_simd_homogeneous_int_nogil(PyListObject *listobj, int is_max, 
     return -1;
   }
   
-  items = listobj->ob_item;
+  /* Quick check: if no elements moved, skip permutation entirely */
+  int needs_permutation = 0;
   for (Py_ssize_t i = 0; i < n; i++) {
-    if (indices[i] == i || indices[i] < 0) continue;
-    Py_ssize_t j = i;
-    PyObject *temp = items[i];
-    while (indices[j] != i) {
-      Py_ssize_t next = indices[j];
-      items[j] = items[next];
+    if (indices[i] != i) { needs_permutation = 1; break; }
+  }
+  
+  if (needs_permutation) {
+    items = listobj->ob_item;
+    for (Py_ssize_t i = 0; i < n; i++) {
+      if (indices[i] == i || indices[i] < 0) continue;
+      Py_ssize_t j = i;
+      PyObject *temp = items[i];
+      while (indices[j] != i) {
+        Py_ssize_t next = indices[j];
+        items[j] = items[next];
+        indices[j] = -1 - indices[j];
+        j = next;
+      }
+      items[j] = temp;
       indices[j] = -1 - indices[j];
-      j = next;
     }
-    items[j] = temp;
-    indices[j] = -1 - indices[j];
   }
   
   if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
@@ -2792,19 +2806,27 @@ list_heapify_homogeneous_int_nogil(PyListObject *listobj, int is_max)
     return -1;
   }
   
-  items = listobj->ob_item;
+  /* Quick check: if no elements moved, skip permutation entirely */
+  int needs_permutation = 0;
   for (Py_ssize_t i = 0; i < n; i++) {
-    if (indices[i] == i || indices[i] < 0) continue;
-    Py_ssize_t j = i;
-    PyObject *temp = items[i];
-    while (indices[j] != i) {
-      Py_ssize_t next = indices[j];
-      items[j] = items[next];
+    if (indices[i] != i) { needs_permutation = 1; break; }
+  }
+  
+  if (needs_permutation) {
+    items = listobj->ob_item;
+    for (Py_ssize_t i = 0; i < n; i++) {
+      if (indices[i] == i || indices[i] < 0) continue;
+      Py_ssize_t j = i;
+      PyObject *temp = items[i];
+      while (indices[j] != i) {
+        Py_ssize_t next = indices[j];
+        items[j] = items[next];
+        indices[j] = -1 - indices[j];
+        j = next;
+      }
+      items[j] = temp;
       indices[j] = -1 - indices[j];
-      j = next;
     }
-    items[j] = temp;
-    indices[j] = -1 - indices[j];
   }
   
   if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
@@ -3959,6 +3981,7 @@ generic_heapify_ultra_optimized(PyObject *heap, int is_max, PyObject *cmp, Py_ss
 HOT_FUNCTION static PyObject *
 py_heapify(PyObject *self, PyObject *args, PyObject *kwargs)
 {
+  (void)self;  /* Module method, self is unused */
   static char *kwlist[] = {"heap", "max_heap", "cmp", "arity", "nogil", NULL};
   PyObject *heap;
   PyObject *max_heap_obj = Py_False;
@@ -4898,6 +4921,7 @@ list_remove_at_index_optimized(PyListObject *listobj, Py_ssize_t idx, int is_max
 /* Ultra-optimized push with comprehensive dispatch following priority table */
 static PyObject *
 py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
+  (void)self;  /* Module method, self is unused */
   static char *kwlist[] = {"heap", "items", "max_heap", "cmp", "arity", "nogil", NULL};
   PyObject *heap, *items;
   PyObject *max_heap_obj = Py_False;
@@ -5403,6 +5427,7 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
 /* Ultra-optimized pop with comprehensive 11-priority dispatch table */
 static PyObject *
 py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
+  (void)self;  /* Module method, self is unused */
   static char *kwlist[] = {"heap", "n", "max_heap", "cmp", "arity", "nogil", NULL};
   PyObject *heap;
   Py_ssize_t n_pop = 1;
@@ -6116,6 +6141,7 @@ list_heapsort_ternary_with_key_ultra_optimized(PyListObject *listobj, int sort_i
 /* Ultra-optimized sort with complete 11-priority dispatch */
 static PyObject *
 py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
+  (void)self;  /* Module method, self is unused */
   static char *kwlist[] = {"heap", "reverse", "inplace", "max_heap", "cmp", "arity", "nogil", NULL};
   PyObject *heap;
   PyObject *reverse_obj = Py_False;
@@ -6608,6 +6634,7 @@ py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
 /* Ultra-optimized remove with 11-priority dispatch and O(log n) inline maintenance */
 static PyObject *
 py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
+  (void)self;  /* Module method, self is unused */
   static char *kwlist[] = {"heap", "indices", "object", "predicate", "n", "return_items", "max_heap", "cmp", "arity", "nogil", NULL};
   PyObject *heap;
   PyObject *indices = Py_None;
@@ -7169,6 +7196,7 @@ list_replace_at_index_optimized(PyListObject *listobj, Py_ssize_t idx, PyObject 
 /* Ultra-optimized replace with 11-priority dispatch and adaptive batch strategy */
 static PyObject *
 py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
+  (void)self;  /* Module method, self is unused */
   static char *kwlist[] = {"heap", "values", "indices", "object", "predicate", "max_heap", "cmp", "arity", "nogil", NULL};
   PyObject *heap, *values;
   PyObject *indices = Py_None;
@@ -7611,6 +7639,7 @@ py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
 /* Ultra-optimized merge with complete 11-priority dispatch and sorted heap support */
 static PyObject *
 py_merge(PyObject *self, PyObject *args, PyObject *kwargs) {
+  (void)self;  /* Module method, self is unused */
   static char *kwlist[] = {"max_heap", "cmp", "arity", "sorted_heaps", "nogil", NULL};
   PyObject *max_heap_obj = Py_False;
   PyObject *cmp = Py_None;
