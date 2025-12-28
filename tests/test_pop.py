@@ -1119,3 +1119,243 @@ class TestPerformanceBenchmark:
     
     print(f"\nSmall heap (n=16): {avg*1000000:.2f} ± {std*1000000:.2f} microseconds per pop")
 
+
+
+# ============================================================================
+# NoGIL Tests
+# ============================================================================
+
+class TestNoGILPop:
+  """Test pop with nogil=True for homogeneous arrays."""
+
+  def test_nogil_bulk_pop_floats_min_heap(self):
+    """Test nogil bulk pop with homogeneous floats (min-heap)."""
+    data = [float(i) for i in range(100, 0, -1)]
+    heapx.heapify(data)
+    results = heapx.pop(data, n=10, nogil=True)
+    assert results == [float(i) for i in range(1, 11)]
+    assert len(data) == 90
+    assert is_valid_heap(data)
+
+  def test_nogil_bulk_pop_floats_max_heap(self):
+    """Test nogil bulk pop with homogeneous floats (max-heap)."""
+    data = [float(i) for i in range(1, 101)]
+    heapx.heapify(data, max_heap=True)
+    results = heapx.pop(data, n=10, max_heap=True, nogil=True)
+    assert results == [float(i) for i in range(100, 90, -1)]
+    assert len(data) == 90
+    assert is_valid_heap(data, max_heap=True)
+
+  def test_nogil_bulk_pop_integers_min_heap(self):
+    """Test nogil bulk pop with homogeneous integers (min-heap)."""
+    data = list(range(100, 0, -1))
+    heapx.heapify(data)
+    results = heapx.pop(data, n=10, nogil=True)
+    assert results == list(range(1, 11))
+    assert len(data) == 90
+    assert is_valid_heap(data)
+
+  def test_nogil_bulk_pop_integers_max_heap(self):
+    """Test nogil bulk pop with homogeneous integers (max-heap)."""
+    data = list(range(1, 101))
+    heapx.heapify(data, max_heap=True)
+    results = heapx.pop(data, n=10, max_heap=True, nogil=True)
+    assert results == list(range(100, 90, -1))
+    assert len(data) == 90
+    assert is_valid_heap(data, max_heap=True)
+
+  @pytest.mark.parametrize("arity", [2, 3, 4, 5])
+  def test_nogil_bulk_pop_various_arity(self, arity):
+    """Test nogil bulk pop with various arity values."""
+    data = [float(i) for i in range(100, 0, -1)]
+    heapx.heapify(data, arity=arity)
+    results = heapx.pop(data, n=10, arity=arity, nogil=True)
+    assert results == [float(i) for i in range(1, 11)]
+    assert len(data) == 90
+    assert is_valid_heap(data, arity=arity)
+
+  def test_nogil_single_pop_fallback(self):
+    """Test that single pop (n=1) works with nogil=True (uses standard path)."""
+    data = [float(i) for i in range(100, 0, -1)]
+    heapx.heapify(data)
+    result = heapx.pop(data, nogil=True)
+    assert result == 1.0
+    assert len(data) == 99
+    assert is_valid_heap(data)
+
+  def test_nogil_false_backwards_compatibility(self):
+    """Test that nogil=False maintains backwards compatibility."""
+    data = [float(i) for i in range(100, 0, -1)]
+    heapx.heapify(data)
+    results = heapx.pop(data, n=10, nogil=False)
+    assert results == [float(i) for i in range(1, 11)]
+    assert len(data) == 90
+    assert is_valid_heap(data)
+
+  def test_nogil_mixed_types_fallback(self):
+    """Test that nogil falls back to standard path for mixed types."""
+    data = [1, 2.0, 3, 4.0, 5]  # Mixed int/float
+    heapx.heapify(data)
+    results = heapx.pop(data, n=2, nogil=True)
+    assert len(results) == 2
+    assert len(data) == 3
+
+  def test_nogil_strings_fallback(self):
+    """Test that nogil falls back to standard path for strings."""
+    data = ['e', 'b', 'a', 'd', 'c']
+    heapx.heapify(data)
+    results = heapx.pop(data, n=2, nogil=True)
+    assert results == ['a', 'b']
+    assert len(data) == 3
+
+  def test_nogil_small_heap_fallback(self):
+    """Test that nogil falls back for small heaps (n<8)."""
+    data = [5.0, 3.0, 7.0, 1.0, 4.0]
+    heapx.heapify(data)
+    results = heapx.pop(data, n=2, nogil=True)
+    assert results == [1.0, 3.0]
+    assert len(data) == 3
+
+  def test_nogil_with_key_function_fallback(self):
+    """Test that nogil falls back when key function is provided."""
+    data = [float(i) for i in range(100, 0, -1)]
+    heapx.heapify(data, cmp=abs)
+    results = heapx.pop(data, n=5, cmp=abs, nogil=True)
+    assert len(results) == 5
+    assert len(data) == 95
+
+  def test_nogil_pop_all_elements(self):
+    """Test nogil bulk pop of all elements."""
+    data = [float(i) for i in range(50, 0, -1)]
+    heapx.heapify(data)
+    results = heapx.pop(data, n=50, nogil=True)
+    assert results == [float(i) for i in range(1, 51)]
+    assert len(data) == 0
+
+  def test_nogil_pop_more_than_size(self):
+    """Test nogil bulk pop requesting more than heap size."""
+    data = [float(i) for i in range(20, 0, -1)]
+    heapx.heapify(data)
+    results = heapx.pop(data, n=100, nogil=True)
+    assert results == [float(i) for i in range(1, 21)]
+    assert len(data) == 0
+
+  @pytest.mark.parametrize("n", [100, 1000, 10000])
+  def test_nogil_correctness_floats(self, n):
+    """Test nogil correctness with various sizes (floats)."""
+    data = [float(i) for i in range(n, 0, -1)]
+    heapx.heapify(data)
+    k = n // 10
+    results = heapx.pop(data, n=k, nogil=True)
+    assert results == [float(i) for i in range(1, k + 1)]
+    assert len(data) == n - k
+    assert is_valid_heap(data)
+
+  @pytest.mark.parametrize("n", [100, 1000, 10000])
+  def test_nogil_correctness_integers(self, n):
+    """Test nogil correctness with various sizes (integers)."""
+    data = list(range(n, 0, -1))
+    heapx.heapify(data)
+    k = n // 10
+    results = heapx.pop(data, n=k, nogil=True)
+    assert results == list(range(1, k + 1))
+    assert len(data) == n - k
+    assert is_valid_heap(data)
+
+  def test_nogil_negative_floats(self):
+    """Test nogil with negative floats."""
+    data = [float(i) for i in range(-50, 50)]
+    heapx.heapify(data)
+    results = heapx.pop(data, n=10, nogil=True)
+    assert results == [float(i) for i in range(-50, -40)]
+    assert is_valid_heap(data)
+
+  def test_nogil_negative_integers(self):
+    """Test nogil with negative integers."""
+    data = list(range(-50, 50))
+    heapx.heapify(data)
+    results = heapx.pop(data, n=10, nogil=True)
+    assert results == list(range(-50, -40))
+    assert is_valid_heap(data)
+
+  def test_nogil_large_integers_fallback(self):
+    """Test that nogil falls back for integers exceeding C long range."""
+    large_int = 10**20
+    data = [large_int, large_int + 1, large_int + 2]
+    heapx.heapify(data)
+    # Should fall back to standard path due to overflow
+    results = heapx.pop(data, n=2, nogil=True)
+    assert len(results) == 2
+    assert len(data) == 1
+
+  def test_nogil_heap_property_maintained(self):
+    """Test that heap property is maintained after nogil pop."""
+    for _ in range(10):
+      data = [float(random.randint(1, 1000)) for _ in range(100)]
+      heapx.heapify(data)
+      heapx.pop(data, n=20, nogil=True)
+      assert is_valid_heap(data)
+
+  def test_nogil_repeated_pops(self):
+    """Test repeated nogil bulk pops."""
+    data = [float(i) for i in range(1000, 0, -1)]
+    heapx.heapify(data)
+    
+    all_results = []
+    for _ in range(10):
+      results = heapx.pop(data, n=50, nogil=True)
+      all_results.extend(results)
+      assert is_valid_heap(data)
+    
+    assert all_results == [float(i) for i in range(1, 501)]
+    assert len(data) == 500
+
+
+class TestNoGILPopPerformance:
+  """Performance benchmarks for nogil pop."""
+
+  @pytest.mark.benchmark
+  def test_nogil_vs_standard_performance(self, capsys):
+    """Compare nogil vs standard bulk pop performance."""
+    output = []
+    output.append("\n" + "="*80)
+    output.append("NOGIL BULK POP PERFORMANCE COMPARISON")
+    output.append("="*80)
+    
+    sizes = [10_000, 50_000, 100_000, 500_000]
+    k = 1000  # Pop 1000 elements each time
+    repetitions = 5
+    
+    for n in sizes:
+      nogil_times = []
+      standard_times = []
+      
+      for _ in range(repetitions):
+        # Test nogil
+        data = [float(i) for i in range(n, 0, -1)]
+        heapx.heapify(data)
+        start = time.perf_counter()
+        heapx.pop(data, n=k, nogil=True)
+        nogil_times.append(time.perf_counter() - start)
+        
+        # Test standard
+        data = [float(i) for i in range(n, 0, -1)]
+        heapx.heapify(data)
+        start = time.perf_counter()
+        heapx.pop(data, n=k, nogil=False)
+        standard_times.append(time.perf_counter() - start)
+      
+      nogil_avg = mean(nogil_times)
+      standard_avg = mean(standard_times)
+      speedup = standard_avg / nogil_avg if nogil_avg > 0 else 0
+      
+      output.append(f"n={n:>7,}: nogil={nogil_avg*1000:.3f}ms, "
+                   f"standard={standard_avg*1000:.3f}ms, "
+                   f"speedup={speedup:.2f}x")
+    
+    output.append("="*80 + "\n")
+    final_output = '\n'.join(output)
+    print(final_output)
+    
+    with capsys.disabled():
+      print(final_output)

@@ -2833,6 +2833,313 @@ list_heapify_homogeneous_int_nogil(PyListObject *listobj, int is_max)
   return 0;
 }
 
+/* ============================================================================
+ * NoGIL Sort Functions for Homogeneous Arrays
+ * ============================================================================
+ * These functions perform complete heapsort with GIL released.
+ * Pattern: Extract values -> heapify+sort with GIL released -> permute objects
+ */
+
+/* NoGIL heapsort for homogeneous float arrays */
+HOT_FUNCTION static int
+list_sort_homogeneous_float_nogil(PyListObject *listobj, int reverse, Py_ssize_t arity)
+{
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  if (unlikely(n <= 1)) return 0;
+
+  PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
+  
+  double stack_values[VALUE_STACK_SIZE];
+  Py_ssize_t stack_indices[VALUE_STACK_SIZE];
+  double * HEAPX_RESTRICT values;
+  Py_ssize_t * HEAPX_RESTRICT indices;
+  int use_stack = (n <= VALUE_STACK_SIZE);
+  
+  if (use_stack) {
+    values = ASSUME_ALIGNED(stack_values, 32);
+    indices = stack_indices;
+  } else {
+    values = (double *)PyMem_Malloc(sizeof(double) * (size_t)n);
+    indices = (Py_ssize_t *)PyMem_Malloc(sizeof(Py_ssize_t) * (size_t)n);
+    if (unlikely(!values || !indices)) {
+      PyMem_Free(values); PyMem_Free(indices);
+      PyErr_NoMemory(); return -1;
+    }
+  }
+
+  /* PHASE 1: Extract values (GIL held) */
+  HEAPX_PRAGMA_SIMD
+  for (Py_ssize_t i = 0; i < n; i++) {
+    values[i] = PyFloat_AS_DOUBLE(items[i]);
+    indices[i] = i;
+  }
+
+  /* PHASE 2: Heapsort with GIL released */
+  /* For ascending sort: use max-heap. For descending: use min-heap */
+  int is_max = reverse ? 0 : 1;
+  
+  Py_BEGIN_ALLOW_THREADS
+  
+  /* Heapify phase */
+  for (Py_ssize_t i = (n - 2) / arity; i >= 0; i--) {
+    Py_ssize_t pos = i;
+    double val = values[i];
+    Py_ssize_t idx = indices[i];
+    
+    while (1) {
+      Py_ssize_t first_child = arity * pos + 1;
+      if (first_child >= n) break;
+      
+      Py_ssize_t n_children = n - first_child;
+      if (n_children > arity) n_children = arity;
+      
+      Py_ssize_t best = first_child;
+      double best_val = values[first_child];
+      for (Py_ssize_t j = 1; j < n_children; j++) {
+        if (is_max ? (values[first_child + j] > best_val) : (values[first_child + j] < best_val)) {
+          best = first_child + j;
+          best_val = values[best];
+        }
+      }
+      
+      values[pos] = values[best];
+      indices[pos] = indices[best];
+      pos = best;
+    }
+    
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) / arity;
+      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      values[pos] = values[parent];
+      indices[pos] = indices[parent];
+      pos = parent;
+    }
+    values[pos] = val;
+    indices[pos] = idx;
+  }
+  
+  /* Heapsort extraction phase */
+  for (Py_ssize_t heap_size = n - 1; heap_size > 0; heap_size--) {
+    /* Swap root with last element */
+    double tmp_val = values[0];
+    Py_ssize_t tmp_idx = indices[0];
+    values[0] = values[heap_size];
+    indices[0] = indices[heap_size];
+    values[heap_size] = tmp_val;
+    indices[heap_size] = tmp_idx;
+    
+    /* Sift down the new root */
+    Py_ssize_t pos = 0;
+    double val = values[0];
+    Py_ssize_t idx = indices[0];
+    
+    while (1) {
+      Py_ssize_t first_child = arity * pos + 1;
+      if (first_child >= heap_size) break;
+      
+      Py_ssize_t n_children = heap_size - first_child;
+      if (n_children > arity) n_children = arity;
+      
+      Py_ssize_t best = first_child;
+      double best_val = values[first_child];
+      for (Py_ssize_t j = 1; j < n_children; j++) {
+        if (is_max ? (values[first_child + j] > best_val) : (values[first_child + j] < best_val)) {
+          best = first_child + j;
+          best_val = values[best];
+        }
+      }
+      
+      if (is_max ? (val >= best_val) : (val <= best_val)) break;
+      
+      values[pos] = values[best];
+      indices[pos] = indices[best];
+      pos = best;
+    }
+    values[pos] = val;
+    indices[pos] = idx;
+  }
+  
+  Py_END_ALLOW_THREADS
+
+  /* PHASE 3: Validate and rearrange (GIL held) */
+  if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+    if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+    PyErr_SetString(PyExc_ValueError, "list modified by another thread during sort");
+    return -1;
+  }
+  
+  /* Apply permutation via cycle-following */
+  items = listobj->ob_item;
+  for (Py_ssize_t i = 0; i < n; i++) {
+    if (indices[i] == i || indices[i] < 0) continue;
+    Py_ssize_t j = i;
+    PyObject *temp = items[i];
+    while (indices[j] != i) {
+      Py_ssize_t next = indices[j];
+      items[j] = items[next];
+      indices[j] = -1 - indices[j];
+      j = next;
+    }
+    items[j] = temp;
+    indices[j] = -1 - indices[j];
+  }
+  
+  if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+  return 0;
+}
+
+/* NoGIL heapsort for homogeneous integer arrays */
+HOT_FUNCTION static int
+list_sort_homogeneous_int_nogil(PyListObject *listobj, int reverse, Py_ssize_t arity)
+{
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  if (unlikely(n <= 1)) return 0;
+
+  PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
+  
+  long stack_values[VALUE_STACK_SIZE];
+  Py_ssize_t stack_indices[VALUE_STACK_SIZE];
+  long * HEAPX_RESTRICT values;
+  Py_ssize_t * HEAPX_RESTRICT indices;
+  int use_stack = (n <= VALUE_STACK_SIZE);
+  
+  if (use_stack) {
+    values = ASSUME_ALIGNED(stack_values, 16);
+    indices = stack_indices;
+  } else {
+    values = (long *)PyMem_Malloc(sizeof(long) * (size_t)n);
+    indices = (Py_ssize_t *)PyMem_Malloc(sizeof(Py_ssize_t) * (size_t)n);
+    if (unlikely(!values || !indices)) {
+      PyMem_Free(values); PyMem_Free(indices);
+      PyErr_NoMemory(); return -1;
+    }
+  }
+
+  /* PHASE 1: Extract values (GIL held) */
+  for (Py_ssize_t i = 0; i < n; i++) {
+    int overflow = 0;
+    values[i] = PyLong_AsLongAndOverflow(items[i], &overflow);
+    if (unlikely(overflow != 0)) {
+      if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+      return 2; /* Overflow - fallback to generic */
+    }
+    if (unlikely(values[i] == -1 && PyErr_Occurred())) {
+      if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+      return -1;
+    }
+    indices[i] = i;
+  }
+
+  /* PHASE 2: Heapsort with GIL released */
+  int is_max = reverse ? 0 : 1;
+  
+  Py_BEGIN_ALLOW_THREADS
+  
+  /* Heapify phase */
+  for (Py_ssize_t i = (n - 2) / arity; i >= 0; i--) {
+    Py_ssize_t pos = i;
+    long val = values[i];
+    Py_ssize_t idx = indices[i];
+    
+    while (1) {
+      Py_ssize_t first_child = arity * pos + 1;
+      if (first_child >= n) break;
+      
+      Py_ssize_t n_children = n - first_child;
+      if (n_children > arity) n_children = arity;
+      
+      Py_ssize_t best = first_child;
+      long best_val = values[first_child];
+      for (Py_ssize_t j = 1; j < n_children; j++) {
+        if (is_max ? (values[first_child + j] > best_val) : (values[first_child + j] < best_val)) {
+          best = first_child + j;
+          best_val = values[best];
+        }
+      }
+      
+      values[pos] = values[best];
+      indices[pos] = indices[best];
+      pos = best;
+    }
+    
+    while (pos > i) {
+      Py_ssize_t parent = (pos - 1) / arity;
+      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      values[pos] = values[parent];
+      indices[pos] = indices[parent];
+      pos = parent;
+    }
+    values[pos] = val;
+    indices[pos] = idx;
+  }
+  
+  /* Heapsort extraction phase */
+  for (Py_ssize_t heap_size = n - 1; heap_size > 0; heap_size--) {
+    long tmp_val = values[0];
+    Py_ssize_t tmp_idx = indices[0];
+    values[0] = values[heap_size];
+    indices[0] = indices[heap_size];
+    values[heap_size] = tmp_val;
+    indices[heap_size] = tmp_idx;
+    
+    Py_ssize_t pos = 0;
+    long val = values[0];
+    Py_ssize_t idx = indices[0];
+    
+    while (1) {
+      Py_ssize_t first_child = arity * pos + 1;
+      if (first_child >= heap_size) break;
+      
+      Py_ssize_t n_children = heap_size - first_child;
+      if (n_children > arity) n_children = arity;
+      
+      Py_ssize_t best = first_child;
+      long best_val = values[first_child];
+      for (Py_ssize_t j = 1; j < n_children; j++) {
+        if (is_max ? (values[first_child + j] > best_val) : (values[first_child + j] < best_val)) {
+          best = first_child + j;
+          best_val = values[best];
+        }
+      }
+      
+      if (is_max ? (val >= best_val) : (val <= best_val)) break;
+      
+      values[pos] = values[best];
+      indices[pos] = indices[best];
+      pos = best;
+    }
+    values[pos] = val;
+    indices[pos] = idx;
+  }
+  
+  Py_END_ALLOW_THREADS
+
+  /* PHASE 3: Validate and rearrange (GIL held) */
+  if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+    if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+    PyErr_SetString(PyExc_ValueError, "list modified by another thread during sort");
+    return -1;
+  }
+  
+  items = listobj->ob_item;
+  for (Py_ssize_t i = 0; i < n; i++) {
+    if (indices[i] == i || indices[i] < 0) continue;
+    Py_ssize_t j = i;
+    PyObject *temp = items[i];
+    while (indices[j] != i) {
+      Py_ssize_t next = indices[j];
+      items[j] = items[next];
+      indices[j] = -1 - indices[j];
+      j = next;
+    }
+    items[j] = temp;
+    indices[j] = -1 - indices[j];
+  }
+  
+  if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); }
+  return 0;
+}
+
 /* ---------- Ultra-optimized Bottom-Up Floyd's heapify: binary min/max heap ---------- */
 /* Bottom-up heapify (Wegener 1993): reduces comparisons by ~25% vs standard Floyd.
  * Phase 1: Descend to leaf comparing only children (no comparison with item)
@@ -4938,7 +5245,6 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
   
   int nogil = PyObject_IsTrue(nogil_obj);
   if (unlikely(nogil < 0)) return NULL;
-  (void)nogil; /* nogil accepted for API consistency but not used in push */
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
     PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
@@ -4999,25 +5305,67 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
      * Also use heapify for empty heaps (n=0) since there's no structure to preserve. */
     if (n_items >= n || n == 0) {
       int rc = 0;
+      int homogeneous = (total_size >= 8 && cmp == Py_None) ? detect_homogeneous_type(listobj->ob_item, total_size) : 0;
+      
       if (likely(cmp == Py_None)) {
-        switch (arity) {
-          case 1:
-            rc = heapify_arity_one_ultra_optimized((PyObject *)listobj, is_max, NULL);
-            break;
-          case 2:
+        if (arity == 1) {
+          rc = heapify_arity_one_ultra_optimized((PyObject *)listobj, is_max, NULL);
+        } else if (arity == 2) {
+          if (nogil && homogeneous == 2) {
+            rc = list_heapify_homogeneous_float_nogil(listobj, is_max);
+          } else if (nogil && homogeneous == 1) {
+            rc = list_heapify_homogeneous_int_nogil(listobj, is_max);
+            if (rc == 2) { PyErr_Clear(); rc = list_heapify_floyd_ultra_optimized(listobj, is_max); }
+          } else if (homogeneous == 2) {
+            rc = list_heapify_homogeneous_float(listobj, is_max);
+          } else if (homogeneous == 1) {
+            rc = list_heapify_homogeneous_int(listobj, is_max);
+            if (rc == 2) { PyErr_Clear(); rc = list_heapify_floyd_ultra_optimized(listobj, is_max); }
+          } else {
             rc = list_heapify_floyd_ultra_optimized(listobj, is_max);
-            break;
-          case 3:
+          }
+        } else if (arity == 3) {
+          if (nogil && homogeneous == 2) {
+            rc = list_heapify_ternary_homogeneous_float_nogil(listobj, is_max);
+          } else if (nogil && homogeneous == 1) {
+            rc = list_heapify_ternary_homogeneous_int_nogil(listobj, is_max);
+            if (rc == 2) { PyErr_Clear(); rc = list_heapify_ternary_ultra_optimized(listobj, is_max); }
+          } else if (homogeneous == 2) {
+            rc = list_heapify_ternary_homogeneous_float(listobj, is_max);
+          } else if (homogeneous == 1) {
+            rc = list_heapify_ternary_homogeneous_int(listobj, is_max);
+            if (rc == 2) { PyErr_Clear(); rc = list_heapify_ternary_ultra_optimized(listobj, is_max); }
+          } else {
             rc = list_heapify_ternary_ultra_optimized(listobj, is_max);
-            break;
-          case 4:
+          }
+        } else if (arity == 4) {
+          if (nogil && homogeneous == 2) {
+            rc = list_heapify_quaternary_homogeneous_float_nogil(listobj, is_max);
+          } else if (nogil && homogeneous == 1) {
+            rc = list_heapify_quaternary_homogeneous_int_nogil(listobj, is_max);
+            if (rc == 2) { PyErr_Clear(); rc = list_heapify_quaternary_ultra_optimized(listobj, is_max); }
+          } else if (homogeneous == 2) {
+            rc = list_heapify_quaternary_homogeneous_float(listobj, is_max);
+          } else if (homogeneous == 1) {
+            rc = list_heapify_quaternary_homogeneous_int(listobj, is_max);
+            if (rc == 2) { PyErr_Clear(); rc = list_heapify_quaternary_ultra_optimized(listobj, is_max); }
+          } else {
             rc = list_heapify_quaternary_ultra_optimized(listobj, is_max);
-            break;
-          default:
-            rc = (total_size < 1000)
-              ? list_heapify_small_ultra_optimized(listobj, is_max, arity)
-              : generic_heapify_ultra_optimized((PyObject *)listobj, is_max, NULL, arity);
-            break;
+          }
+        } else {
+          if (nogil && homogeneous == 2) {
+            rc = list_heapify_nary_simd_homogeneous_float_nogil(listobj, is_max, arity);
+          } else if (nogil && homogeneous == 1) {
+            rc = list_heapify_nary_simd_homogeneous_int_nogil(listobj, is_max, arity);
+            if (rc == 2) { PyErr_Clear(); rc = (total_size < 1000) ? list_heapify_small_ultra_optimized(listobj, is_max, arity) : generic_heapify_ultra_optimized((PyObject *)listobj, is_max, NULL, arity); }
+          } else if (homogeneous == 2) {
+            rc = list_heapify_nary_simd_homogeneous_float(listobj, is_max, arity);
+          } else if (homogeneous == 1) {
+            rc = list_heapify_nary_simd_homogeneous_int(listobj, is_max, arity);
+            if (rc == 2) { PyErr_Clear(); rc = (total_size < 1000) ? list_heapify_small_ultra_optimized(listobj, is_max, arity) : generic_heapify_ultra_optimized((PyObject *)listobj, is_max, NULL, arity); }
+          } else {
+            rc = (total_size < 1000) ? list_heapify_small_ultra_optimized(listobj, is_max, arity) : generic_heapify_ultra_optimized((PyObject *)listobj, is_max, NULL, arity);
+          }
         }
       } else {
         switch (arity) {
@@ -5424,6 +5772,304 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
   Py_RETURN_NONE;
 }
 
+/* NoGIL bulk pop for homogeneous float arrays */
+HOT_FUNCTION static PyObject *
+list_pop_bulk_homogeneous_float_nogil(PyListObject *listobj, Py_ssize_t k, int is_max, Py_ssize_t arity)
+{
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  if (unlikely(k > n)) k = n;
+  if (unlikely(k <= 0 || n <= 0)) return PyList_New(0);
+
+  PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
+  
+  double stack_values[VALUE_STACK_SIZE];
+  Py_ssize_t stack_indices[VALUE_STACK_SIZE];
+  Py_ssize_t stack_popped[VALUE_STACK_SIZE];
+  double * HEAPX_RESTRICT values;
+  Py_ssize_t * HEAPX_RESTRICT indices;
+  Py_ssize_t * HEAPX_RESTRICT popped_indices;
+  int use_stack = (n <= VALUE_STACK_SIZE);
+  
+  if (use_stack) {
+    values = ASSUME_ALIGNED(stack_values, 32);
+    indices = stack_indices;
+    popped_indices = stack_popped;
+  } else {
+    values = (double *)PyMem_Malloc(sizeof(double) * (size_t)n);
+    indices = (Py_ssize_t *)PyMem_Malloc(sizeof(Py_ssize_t) * (size_t)n);
+    popped_indices = (Py_ssize_t *)PyMem_Malloc(sizeof(Py_ssize_t) * (size_t)k);
+    if (unlikely(!values || !indices || !popped_indices)) {
+      PyMem_Free(values); PyMem_Free(indices); PyMem_Free(popped_indices);
+      PyErr_NoMemory(); return NULL;
+    }
+  }
+
+  /* PHASE 1: Extract values (GIL held) */
+  HEAPX_PRAGMA_SIMD
+  for (Py_ssize_t i = 0; i < n; i++) {
+    values[i] = PyFloat_AS_DOUBLE(items[i]);
+    indices[i] = i;
+  }
+
+  /* PHASE 2: Bulk pop with GIL released */
+  Py_BEGIN_ALLOW_THREADS
+  
+  Py_ssize_t heap_size = n;
+  for (Py_ssize_t pop_idx = 0; pop_idx < k; pop_idx++) {
+    popped_indices[pop_idx] = indices[0];
+    heap_size--;
+    
+    if (heap_size > 0) {
+      values[0] = values[heap_size];
+      indices[0] = indices[heap_size];
+      
+      /* Sift-down */
+      Py_ssize_t pos = 0;
+      double val = values[0];
+      Py_ssize_t idx = indices[0];
+      
+      while (1) {
+        Py_ssize_t first_child = arity * pos + 1;
+        if (first_child >= heap_size) break;
+        
+        Py_ssize_t n_children = heap_size - first_child;
+        if (n_children > arity) n_children = arity;
+        
+        Py_ssize_t best = first_child;
+        double best_val = values[first_child];
+        for (Py_ssize_t j = 1; j < n_children; j++) {
+          double child_val = values[first_child + j];
+          if (is_max ? (child_val > best_val) : (child_val < best_val)) {
+            best = first_child + j;
+            best_val = child_val;
+          }
+        }
+        
+        if (is_max ? (val >= best_val) : (val <= best_val)) break;
+        
+        values[pos] = values[best];
+        indices[pos] = indices[best];
+        pos = best;
+      }
+      values[pos] = val;
+      indices[pos] = idx;
+    }
+  }
+  
+  Py_END_ALLOW_THREADS
+
+  /* PHASE 3: Validate and build result (GIL held) */
+  if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+    if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); PyMem_Free(popped_indices); }
+    PyErr_SetString(PyExc_ValueError, "list modified by another thread during pop");
+    return NULL;
+  }
+  
+  /* Build result list from popped indices */
+  PyObject *results = PyList_New(k);
+  if (unlikely(!results)) {
+    if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); PyMem_Free(popped_indices); }
+    return NULL;
+  }
+  
+  items = listobj->ob_item;
+  for (Py_ssize_t i = 0; i < k; i++) {
+    PyObject *item = items[popped_indices[i]];
+    Py_INCREF(item);
+    PyList_SET_ITEM(results, i, item);
+  }
+  
+  /* Rearrange remaining elements: indices[0..new_size-1] tells us which original
+     items should be at each position in the final heap */
+  Py_ssize_t new_size = n - k;
+  if (new_size > 0) {
+    /* Use temporary array to hold references during rearrangement */
+    PyObject **temp = (PyObject **)PyMem_Malloc(sizeof(PyObject *) * (size_t)new_size);
+    if (unlikely(!temp)) {
+      if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); PyMem_Free(popped_indices); }
+      Py_DECREF(results);
+      PyErr_NoMemory();
+      return NULL;
+    }
+    
+    /* Copy references to temp in new order */
+    for (Py_ssize_t i = 0; i < new_size; i++) {
+      temp[i] = items[indices[i]];
+      Py_INCREF(temp[i]);
+    }
+    
+    /* Copy back to list */
+    for (Py_ssize_t i = 0; i < new_size; i++) {
+      Py_SETREF(items[i], temp[i]);
+    }
+    
+    PyMem_Free(temp);
+  }
+  
+  /* Shrink the list - this will DECREF the removed items */
+  if (unlikely(PyList_SetSlice((PyObject *)listobj, new_size, n, NULL) < 0)) {
+    if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); PyMem_Free(popped_indices); }
+    Py_DECREF(results);
+    return NULL;
+  }
+  
+  if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); PyMem_Free(popped_indices); }
+  return results;
+}
+
+/* NoGIL bulk pop for homogeneous integer arrays */
+HOT_FUNCTION static PyObject *
+list_pop_bulk_homogeneous_int_nogil(PyListObject *listobj, Py_ssize_t k, int is_max, Py_ssize_t arity)
+{
+  Py_ssize_t n = PyList_GET_SIZE(listobj);
+  if (unlikely(k > n)) k = n;
+  if (unlikely(k <= 0 || n <= 0)) return PyList_New(0);
+
+  PyObject ** HEAPX_RESTRICT items = listobj->ob_item;
+  
+  long stack_values[VALUE_STACK_SIZE];
+  Py_ssize_t stack_indices[VALUE_STACK_SIZE];
+  Py_ssize_t stack_popped[VALUE_STACK_SIZE];
+  long * HEAPX_RESTRICT values;
+  Py_ssize_t * HEAPX_RESTRICT indices;
+  Py_ssize_t * HEAPX_RESTRICT popped_indices;
+  int use_stack = (n <= VALUE_STACK_SIZE);
+  
+  if (use_stack) {
+    values = ASSUME_ALIGNED(stack_values, 16);
+    indices = stack_indices;
+    popped_indices = stack_popped;
+  } else {
+    values = (long *)PyMem_Malloc(sizeof(long) * (size_t)n);
+    indices = (Py_ssize_t *)PyMem_Malloc(sizeof(Py_ssize_t) * (size_t)n);
+    popped_indices = (Py_ssize_t *)PyMem_Malloc(sizeof(Py_ssize_t) * (size_t)k);
+    if (unlikely(!values || !indices || !popped_indices)) {
+      PyMem_Free(values); PyMem_Free(indices); PyMem_Free(popped_indices);
+      PyErr_NoMemory(); return NULL;
+    }
+  }
+
+  /* PHASE 1: Extract values (GIL held) */
+  for (Py_ssize_t i = 0; i < n; i++) {
+    int overflow = 0;
+    values[i] = PyLong_AsLongAndOverflow(items[i], &overflow);
+    if (unlikely(overflow != 0)) {
+      if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); PyMem_Free(popped_indices); }
+      return NULL; /* Overflow - caller should fallback */
+    }
+    if (unlikely(values[i] == -1 && PyErr_Occurred())) {
+      if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); PyMem_Free(popped_indices); }
+      return NULL;
+    }
+    indices[i] = i;
+  }
+
+  /* PHASE 2: Bulk pop with GIL released */
+  Py_BEGIN_ALLOW_THREADS
+  
+  Py_ssize_t heap_size = n;
+  for (Py_ssize_t pop_idx = 0; pop_idx < k; pop_idx++) {
+    popped_indices[pop_idx] = indices[0];
+    heap_size--;
+    
+    if (heap_size > 0) {
+      values[0] = values[heap_size];
+      indices[0] = indices[heap_size];
+      
+      /* Sift-down */
+      Py_ssize_t pos = 0;
+      long val = values[0];
+      Py_ssize_t idx = indices[0];
+      
+      while (1) {
+        Py_ssize_t first_child = arity * pos + 1;
+        if (first_child >= heap_size) break;
+        
+        Py_ssize_t n_children = heap_size - first_child;
+        if (n_children > arity) n_children = arity;
+        
+        Py_ssize_t best = first_child;
+        long best_val = values[first_child];
+        for (Py_ssize_t j = 1; j < n_children; j++) {
+          long child_val = values[first_child + j];
+          if (is_max ? (child_val > best_val) : (child_val < best_val)) {
+            best = first_child + j;
+            best_val = child_val;
+          }
+        }
+        
+        if (is_max ? (val >= best_val) : (val <= best_val)) break;
+        
+        values[pos] = values[best];
+        indices[pos] = indices[best];
+        pos = best;
+      }
+      values[pos] = val;
+      indices[pos] = idx;
+    }
+  }
+  
+  Py_END_ALLOW_THREADS
+
+  /* PHASE 3: Validate and build result (GIL held) */
+  if (unlikely(PyList_GET_SIZE(listobj) != n)) {
+    if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); PyMem_Free(popped_indices); }
+    PyErr_SetString(PyExc_ValueError, "list modified by another thread during pop");
+    return NULL;
+  }
+  
+  /* Build result list from popped indices */
+  PyObject *results = PyList_New(k);
+  if (unlikely(!results)) {
+    if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); PyMem_Free(popped_indices); }
+    return NULL;
+  }
+  
+  items = listobj->ob_item;
+  for (Py_ssize_t i = 0; i < k; i++) {
+    PyObject *item = items[popped_indices[i]];
+    Py_INCREF(item);
+    PyList_SET_ITEM(results, i, item);
+  }
+  
+  /* Rearrange remaining elements: indices[0..new_size-1] tells us which original
+     items should be at each position in the final heap */
+  Py_ssize_t new_size = n - k;
+  if (new_size > 0) {
+    /* Use temporary array to hold references during rearrangement */
+    PyObject **temp = (PyObject **)PyMem_Malloc(sizeof(PyObject *) * (size_t)new_size);
+    if (unlikely(!temp)) {
+      if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); PyMem_Free(popped_indices); }
+      Py_DECREF(results);
+      PyErr_NoMemory();
+      return NULL;
+    }
+    
+    /* Copy references to temp in new order */
+    for (Py_ssize_t i = 0; i < new_size; i++) {
+      temp[i] = items[indices[i]];
+      Py_INCREF(temp[i]);
+    }
+    
+    /* Copy back to list */
+    for (Py_ssize_t i = 0; i < new_size; i++) {
+      Py_SETREF(items[i], temp[i]);
+    }
+    
+    PyMem_Free(temp);
+  }
+  
+  /* Shrink the list - this will DECREF the removed items */
+  if (unlikely(PyList_SetSlice((PyObject *)listobj, new_size, n, NULL) < 0)) {
+    if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); PyMem_Free(popped_indices); }
+    Py_DECREF(results);
+    return NULL;
+  }
+  
+  if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); PyMem_Free(popped_indices); }
+  return results;
+}
+
 /* Ultra-optimized pop with comprehensive 11-priority dispatch table */
 static PyObject *
 py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
@@ -5445,7 +6091,7 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
   
   int nogil = PyObject_IsTrue(nogil_obj);
   if (unlikely(nogil < 0)) return NULL;
-  (void)nogil; /* nogil accepted for API consistency but not used in pop */
+  /* Note: nogil not yet implemented for pop - accepted for API consistency */
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
     PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
@@ -5575,14 +6221,33 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
   }
   
   /* BULK POP PATH (n>1) */
-  PyObject *results = PyList_New(n_pop);
-  if (unlikely(!results)) return NULL;
-  
   if (likely(PyList_CheckExact(heap))) {
     PyListObject *listobj = (PyListObject *)heap;
     
+    /* NoGIL dispatch for homogeneous arrays */
+    if (nogil && cmp == Py_None && heap_size >= 8) {
+      int homogeneous = detect_homogeneous_type(listobj->ob_item, heap_size);
+      if (homogeneous == 2) {
+        /* Homogeneous floats */
+        PyObject *result = list_pop_bulk_homogeneous_float_nogil(listobj, n_pop, is_max, arity);
+        if (result) return result;
+        if (PyErr_Occurred()) return NULL;
+        /* Fall through to standard path if nogil failed */
+      } else if (homogeneous == 1) {
+        /* Homogeneous integers */
+        PyErr_Clear(); /* Clear any overflow error from detection */
+        PyObject *result = list_pop_bulk_homogeneous_int_nogil(listobj, n_pop, is_max, arity);
+        if (result) return result;
+        if (PyErr_Occurred()) return NULL;
+        /* Fall through to standard path if nogil failed */
+      }
+    }
+    
     if (likely(cmp == Py_None)) {
       /* Optimized bulk pop without key function */
+      PyObject *results = PyList_New(n_pop);
+      if (unlikely(!results)) return NULL;
+      
       for (Py_ssize_t i = 0; i < n_pop; i++) {
         Py_ssize_t current_size = PyList_GET_SIZE(heap);
         if (unlikely(current_size <= 0)) break;
@@ -5705,6 +6370,9 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
       return results;
     } else {
       /* Bulk pop with key function */
+      PyObject *results = PyList_New(n_pop);
+      if (unlikely(!results)) return NULL;
+      
       for (Py_ssize_t i = 0; i < n_pop; i++) {
         Py_ssize_t current_size = PyList_GET_SIZE(heap);
         if (unlikely(current_size <= 0)) break;
@@ -5744,6 +6412,9 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
   }
   
   /* Generic sequence bulk pop */
+  PyObject *results = PyList_New(n_pop);
+  if (unlikely(!results)) return NULL;
+  
   for (Py_ssize_t i = 0; i < n_pop; i++) {
     Py_ssize_t current_size = PySequence_Size(heap);
     if (unlikely(current_size <= 0)) break;
@@ -6166,7 +6837,6 @@ py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
   
   int nogil = PyObject_IsTrue(nogil_obj);
   if (unlikely(nogil < 0)) return NULL;
-  (void)nogil; /* nogil accepted for API consistency but not used in sort */
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
     PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
@@ -6205,6 +6875,20 @@ py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyListObject *listobj = (PyListObject *)work_heap;
     int homogeneous = detect_homogeneous_type(listobj->ob_item, n);
     if (homogeneous) {
+      int rc = 0;
+      if (nogil) {
+        /* Use nogil heapsort for homogeneous arrays */
+        if (homogeneous == 2) {
+          rc = list_sort_homogeneous_float_nogil(listobj, reverse, arity);
+        } else {
+          rc = list_sort_homogeneous_int_nogil(listobj, reverse, arity);
+          if (rc == 2) { PyErr_Clear(); rc = 0; goto use_timsort; }
+        }
+        if (unlikely(rc < 0)) { Py_DECREF(work_heap); return NULL; }
+        if (inplace) { Py_DECREF(work_heap); Py_RETURN_NONE; }
+        return work_heap;
+      }
+use_timsort:
       /* Use Python's optimized Timsort on homogeneous numeric arrays */
       if (unlikely(PyList_Sort(work_heap) < 0)) {
         Py_DECREF(work_heap);
@@ -6659,7 +7343,6 @@ py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
   
   int nogil = PyObject_IsTrue(nogil_obj);
   if (unlikely(nogil < 0)) return NULL;
-  (void)nogil; /* nogil accepted for API consistency but not used in remove */
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
     PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
@@ -7076,29 +7759,69 @@ py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
         Py_SETREF(items[j + 1], key);
       }
     } else if (PyList_CheckExact(heap) && cmp == Py_None) {
-      /* Priorities 3-7: Arity-specific heapify without key */
+      /* Priorities 3-7: Arity-specific heapify without key - with nogil support */
       PyListObject *listobj = (PyListObject *)heap;
+      int homogeneous = (new_size >= 8) ? detect_homogeneous_type(listobj->ob_item, new_size) : 0;
+      int rc = 0;
+      
       if (likely(arity == 2)) {
-        if (unlikely(list_heapify_floyd_ultra_optimized(listobj, is_max) < 0)) {
-          Py_XDECREF(removed_items);
-          return NULL;
+        if (nogil && homogeneous == 2) {
+          rc = list_heapify_homogeneous_float_nogil(listobj, is_max);
+        } else if (nogil && homogeneous == 1) {
+          rc = list_heapify_homogeneous_int_nogil(listobj, is_max);
+          if (rc == 2) { PyErr_Clear(); rc = list_heapify_floyd_ultra_optimized(listobj, is_max); }
+        } else if (homogeneous == 2) {
+          rc = list_heapify_homogeneous_float(listobj, is_max);
+        } else if (homogeneous == 1) {
+          rc = list_heapify_homogeneous_int(listobj, is_max);
+          if (rc == 2) { PyErr_Clear(); rc = list_heapify_floyd_ultra_optimized(listobj, is_max); }
+        } else {
+          rc = list_heapify_floyd_ultra_optimized(listobj, is_max);
         }
       } else if (arity == 3) {
-        if (unlikely(list_heapify_ternary_ultra_optimized(listobj, is_max) < 0)) {
-          Py_XDECREF(removed_items);
-          return NULL;
+        if (nogil && homogeneous == 2) {
+          rc = list_heapify_ternary_homogeneous_float_nogil(listobj, is_max);
+        } else if (nogil && homogeneous == 1) {
+          rc = list_heapify_ternary_homogeneous_int_nogil(listobj, is_max);
+          if (rc == 2) { PyErr_Clear(); rc = list_heapify_ternary_ultra_optimized(listobj, is_max); }
+        } else if (homogeneous == 2) {
+          rc = list_heapify_ternary_homogeneous_float(listobj, is_max);
+        } else if (homogeneous == 1) {
+          rc = list_heapify_ternary_homogeneous_int(listobj, is_max);
+          if (rc == 2) { PyErr_Clear(); rc = list_heapify_ternary_ultra_optimized(listobj, is_max); }
+        } else {
+          rc = list_heapify_ternary_ultra_optimized(listobj, is_max);
         }
       } else if (arity == 4) {
-        if (unlikely(list_heapify_quaternary_ultra_optimized(listobj, is_max) < 0)) {
-          Py_XDECREF(removed_items);
-          return NULL;
+        if (nogil && homogeneous == 2) {
+          rc = list_heapify_quaternary_homogeneous_float_nogil(listobj, is_max);
+        } else if (nogil && homogeneous == 1) {
+          rc = list_heapify_quaternary_homogeneous_int_nogil(listobj, is_max);
+          if (rc == 2) { PyErr_Clear(); rc = list_heapify_quaternary_ultra_optimized(listobj, is_max); }
+        } else if (homogeneous == 2) {
+          rc = list_heapify_quaternary_homogeneous_float(listobj, is_max);
+        } else if (homogeneous == 1) {
+          rc = list_heapify_quaternary_homogeneous_int(listobj, is_max);
+          if (rc == 2) { PyErr_Clear(); rc = list_heapify_quaternary_ultra_optimized(listobj, is_max); }
+        } else {
+          rc = list_heapify_quaternary_ultra_optimized(listobj, is_max);
         }
       } else {
-        if (unlikely(list_heapify_small_ultra_optimized(listobj, is_max, arity) < 0)) {
-          Py_XDECREF(removed_items);
-          return NULL;
+        if (nogil && homogeneous == 2) {
+          rc = list_heapify_nary_simd_homogeneous_float_nogil(listobj, is_max, arity);
+        } else if (nogil && homogeneous == 1) {
+          rc = list_heapify_nary_simd_homogeneous_int_nogil(listobj, is_max, arity);
+          if (rc == 2) { PyErr_Clear(); rc = list_heapify_small_ultra_optimized(listobj, is_max, arity); }
+        } else if (homogeneous == 2) {
+          rc = list_heapify_nary_simd_homogeneous_float(listobj, is_max, arity);
+        } else if (homogeneous == 1) {
+          rc = list_heapify_nary_simd_homogeneous_int(listobj, is_max, arity);
+          if (rc == 2) { PyErr_Clear(); rc = list_heapify_small_ultra_optimized(listobj, is_max, arity); }
+        } else {
+          rc = list_heapify_small_ultra_optimized(listobj, is_max, arity);
         }
       }
+      if (unlikely(rc < 0)) { Py_XDECREF(removed_items); return NULL; }
     } else {
       /* Fallback: generic heapify */
       if (unlikely(generic_heapify_ultra_optimized(heap, is_max, (cmp == Py_None ? NULL : cmp), arity) < 0)) {
@@ -7216,7 +7939,6 @@ py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
   
   int nogil = PyObject_IsTrue(nogil_obj);
   if (unlikely(nogil < 0)) return NULL;
-  (void)nogil; /* nogil accepted for API consistency but not used in replace */
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
     PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
@@ -7605,25 +8327,69 @@ py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
       return PyLong_FromSsize_t(replace_count);
     }
     
-    /* Priorities 3-7: Arity-specific heapify without key */
+    /* Priorities 3-7: Arity-specific heapify without key - with nogil support */
     if (cmp == Py_None) {
+      int homogeneous = (new_size >= 8) ? detect_homogeneous_type(listobj->ob_item, new_size) : 0;
+      int rc = 0;
+      
       if (likely(arity == 2)) {
-        if (unlikely(list_heapify_floyd_ultra_optimized(listobj, is_max) < 0)) {
-          return NULL;
+        if (nogil && homogeneous == 2) {
+          rc = list_heapify_homogeneous_float_nogil(listobj, is_max);
+        } else if (nogil && homogeneous == 1) {
+          rc = list_heapify_homogeneous_int_nogil(listobj, is_max);
+          if (rc == 2) { PyErr_Clear(); rc = list_heapify_floyd_ultra_optimized(listobj, is_max); }
+        } else if (homogeneous == 2) {
+          rc = list_heapify_homogeneous_float(listobj, is_max);
+        } else if (homogeneous == 1) {
+          rc = list_heapify_homogeneous_int(listobj, is_max);
+          if (rc == 2) { PyErr_Clear(); rc = list_heapify_floyd_ultra_optimized(listobj, is_max); }
+        } else {
+          rc = list_heapify_floyd_ultra_optimized(listobj, is_max);
         }
       } else if (arity == 3) {
-        if (unlikely(list_heapify_ternary_ultra_optimized(listobj, is_max) < 0)) {
-          return NULL;
+        if (nogil && homogeneous == 2) {
+          rc = list_heapify_ternary_homogeneous_float_nogil(listobj, is_max);
+        } else if (nogil && homogeneous == 1) {
+          rc = list_heapify_ternary_homogeneous_int_nogil(listobj, is_max);
+          if (rc == 2) { PyErr_Clear(); rc = list_heapify_ternary_ultra_optimized(listobj, is_max); }
+        } else if (homogeneous == 2) {
+          rc = list_heapify_ternary_homogeneous_float(listobj, is_max);
+        } else if (homogeneous == 1) {
+          rc = list_heapify_ternary_homogeneous_int(listobj, is_max);
+          if (rc == 2) { PyErr_Clear(); rc = list_heapify_ternary_ultra_optimized(listobj, is_max); }
+        } else {
+          rc = list_heapify_ternary_ultra_optimized(listobj, is_max);
         }
       } else if (arity == 4) {
-        if (unlikely(list_heapify_quaternary_ultra_optimized(listobj, is_max) < 0)) {
-          return NULL;
+        if (nogil && homogeneous == 2) {
+          rc = list_heapify_quaternary_homogeneous_float_nogil(listobj, is_max);
+        } else if (nogil && homogeneous == 1) {
+          rc = list_heapify_quaternary_homogeneous_int_nogil(listobj, is_max);
+          if (rc == 2) { PyErr_Clear(); rc = list_heapify_quaternary_ultra_optimized(listobj, is_max); }
+        } else if (homogeneous == 2) {
+          rc = list_heapify_quaternary_homogeneous_float(listobj, is_max);
+        } else if (homogeneous == 1) {
+          rc = list_heapify_quaternary_homogeneous_int(listobj, is_max);
+          if (rc == 2) { PyErr_Clear(); rc = list_heapify_quaternary_ultra_optimized(listobj, is_max); }
+        } else {
+          rc = list_heapify_quaternary_ultra_optimized(listobj, is_max);
         }
       } else {
-        if (unlikely(list_heapify_small_ultra_optimized(listobj, is_max, arity) < 0)) {
-          return NULL;
+        if (nogil && homogeneous == 2) {
+          rc = list_heapify_nary_simd_homogeneous_float_nogil(listobj, is_max, arity);
+        } else if (nogil && homogeneous == 1) {
+          rc = list_heapify_nary_simd_homogeneous_int_nogil(listobj, is_max, arity);
+          if (rc == 2) { PyErr_Clear(); rc = list_heapify_small_ultra_optimized(listobj, is_max, arity); }
+        } else if (homogeneous == 2) {
+          rc = list_heapify_nary_simd_homogeneous_float(listobj, is_max, arity);
+        } else if (homogeneous == 1) {
+          rc = list_heapify_nary_simd_homogeneous_int(listobj, is_max, arity);
+          if (rc == 2) { PyErr_Clear(); rc = list_heapify_small_ultra_optimized(listobj, is_max, arity); }
+        } else {
+          rc = list_heapify_small_ultra_optimized(listobj, is_max, arity);
         }
       }
+      if (unlikely(rc < 0)) return NULL;
       return PyLong_FromSsize_t(replace_count);
     }
   }
@@ -7660,7 +8426,6 @@ py_merge(PyObject *self, PyObject *args, PyObject *kwargs) {
   
   int nogil = PyObject_IsTrue(nogil_obj);
   if (unlikely(nogil < 0)) return NULL;
-  (void)nogil; /* nogil accepted for API consistency but not used in merge */
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
     PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
@@ -7864,48 +8629,109 @@ py_merge(PyObject *self, PyObject *args, PyObject *kwargs) {
     return result;
   }
   
+  /* Homogeneous detection for nogil optimization */
+  int homogeneous = 0;
+  if (likely(keyfunc == NULL && total_size >= 8)) {
+    homogeneous = detect_homogeneous_type(result_list->ob_item, total_size);
+  }
+  
   /* Priority 3: Binary heap (arity=2, no key) */
   if (likely(arity == 2 && keyfunc == NULL)) {
-    if (unlikely(list_heapify_floyd_ultra_optimized(result_list, is_max) < 0)) {
-      Py_DECREF(result);
-      return NULL;
+    int rc = 0;
+    if (nogil && homogeneous == 2) {
+      rc = list_heapify_homogeneous_float_nogil(result_list, is_max);
+    } else if (nogil && homogeneous == 1) {
+      rc = list_heapify_homogeneous_int_nogil(result_list, is_max);
+      if (rc == 2) { PyErr_Clear(); rc = list_heapify_floyd_ultra_optimized(result_list, is_max); }
+    } else if (homogeneous == 2) {
+      rc = list_heapify_homogeneous_float(result_list, is_max);
+    } else if (homogeneous == 1) {
+      rc = list_heapify_homogeneous_int(result_list, is_max);
+      if (rc == 2) { PyErr_Clear(); rc = list_heapify_floyd_ultra_optimized(result_list, is_max); }
+    } else {
+      rc = list_heapify_floyd_ultra_optimized(result_list, is_max);
     }
+    if (unlikely(rc < 0)) { Py_DECREF(result); return NULL; }
     return result;
   }
   
   /* Priority 4: Ternary heap (arity=3, no key) */
   if (unlikely(arity == 3 && keyfunc == NULL)) {
-    if (unlikely(list_heapify_ternary_ultra_optimized(result_list, is_max) < 0)) {
-      Py_DECREF(result);
-      return NULL;
+    int rc = 0;
+    if (nogil && homogeneous == 2) {
+      rc = list_heapify_ternary_homogeneous_float_nogil(result_list, is_max);
+    } else if (nogil && homogeneous == 1) {
+      rc = list_heapify_ternary_homogeneous_int_nogil(result_list, is_max);
+      if (rc == 2) { PyErr_Clear(); rc = list_heapify_ternary_ultra_optimized(result_list, is_max); }
+    } else if (homogeneous == 2) {
+      rc = list_heapify_ternary_homogeneous_float(result_list, is_max);
+    } else if (homogeneous == 1) {
+      rc = list_heapify_ternary_homogeneous_int(result_list, is_max);
+      if (rc == 2) { PyErr_Clear(); rc = list_heapify_ternary_ultra_optimized(result_list, is_max); }
+    } else {
+      rc = list_heapify_ternary_ultra_optimized(result_list, is_max);
     }
+    if (unlikely(rc < 0)) { Py_DECREF(result); return NULL; }
     return result;
   }
   
   /* Priority 5: Quaternary heap (arity=4, no key) */
   if (unlikely(arity == 4 && keyfunc == NULL)) {
-    if (unlikely(list_heapify_quaternary_ultra_optimized(result_list, is_max) < 0)) {
-      Py_DECREF(result);
-      return NULL;
+    int rc = 0;
+    if (nogil && homogeneous == 2) {
+      rc = list_heapify_quaternary_homogeneous_float_nogil(result_list, is_max);
+    } else if (nogil && homogeneous == 1) {
+      rc = list_heapify_quaternary_homogeneous_int_nogil(result_list, is_max);
+      if (rc == 2) { PyErr_Clear(); rc = list_heapify_quaternary_ultra_optimized(result_list, is_max); }
+    } else if (homogeneous == 2) {
+      rc = list_heapify_quaternary_homogeneous_float(result_list, is_max);
+    } else if (homogeneous == 1) {
+      rc = list_heapify_quaternary_homogeneous_int(result_list, is_max);
+      if (rc == 2) { PyErr_Clear(); rc = list_heapify_quaternary_ultra_optimized(result_list, is_max); }
+    } else {
+      rc = list_heapify_quaternary_ultra_optimized(result_list, is_max);
     }
+    if (unlikely(rc < 0)) { Py_DECREF(result); return NULL; }
     return result;
   }
   
   /* Priority 6: N-ary heap (arity≥5, no key, n<1000) */
   if (unlikely(arity >= 5 && keyfunc == NULL && total_size < 1000)) {
-    if (unlikely(list_heapify_small_ultra_optimized(result_list, is_max, arity) < 0)) {
-      Py_DECREF(result);
-      return NULL;
+    int rc = 0;
+    if (nogil && homogeneous == 2) {
+      rc = list_heapify_nary_simd_homogeneous_float_nogil(result_list, is_max, arity);
+    } else if (nogil && homogeneous == 1) {
+      rc = list_heapify_nary_simd_homogeneous_int_nogil(result_list, is_max, arity);
+      if (rc == 2) { PyErr_Clear(); rc = list_heapify_small_ultra_optimized(result_list, is_max, arity); }
+    } else if (homogeneous == 2) {
+      rc = list_heapify_nary_simd_homogeneous_float(result_list, is_max, arity);
+    } else if (homogeneous == 1) {
+      rc = list_heapify_nary_simd_homogeneous_int(result_list, is_max, arity);
+      if (rc == 2) { PyErr_Clear(); rc = list_heapify_small_ultra_optimized(result_list, is_max, arity); }
+    } else {
+      rc = list_heapify_small_ultra_optimized(result_list, is_max, arity);
     }
+    if (unlikely(rc < 0)) { Py_DECREF(result); return NULL; }
     return result;
   }
   
   /* Priority 7: N-ary heap (arity≥5, no key, n≥1000) */
   if (unlikely(arity >= 5 && keyfunc == NULL && total_size >= 1000)) {
-    if (unlikely(generic_heapify_ultra_optimized(result, is_max, NULL, arity) < 0)) {
-      Py_DECREF(result);
-      return NULL;
+    int rc = 0;
+    if (nogil && homogeneous == 2) {
+      rc = list_heapify_nary_simd_homogeneous_float_nogil(result_list, is_max, arity);
+    } else if (nogil && homogeneous == 1) {
+      rc = list_heapify_nary_simd_homogeneous_int_nogil(result_list, is_max, arity);
+      if (rc == 2) { PyErr_Clear(); rc = generic_heapify_ultra_optimized(result, is_max, NULL, arity); }
+    } else if (homogeneous == 2) {
+      rc = list_heapify_nary_simd_homogeneous_float(result_list, is_max, arity);
+    } else if (homogeneous == 1) {
+      rc = list_heapify_nary_simd_homogeneous_int(result_list, is_max, arity);
+      if (rc == 2) { PyErr_Clear(); rc = generic_heapify_ultra_optimized(result, is_max, NULL, arity); }
+    } else {
+      rc = generic_heapify_ultra_optimized(result, is_max, NULL, arity);
     }
+    if (unlikely(rc < 0)) { Py_DECREF(result); return NULL; }
     return result;
   }
   
