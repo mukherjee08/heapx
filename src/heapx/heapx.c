@@ -198,13 +198,6 @@ python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtu
  * ============================================================================
  * Optimal prefetch distances based on CPU/GPU cache hierarchy analysis.
  * Compile-time detection ensures zero runtime cost while maximizing performance.
- */
-
-/* ============================================================================
- * ADAPTIVE PREFETCHING OPTIMIZATION - Zero Runtime Overhead
- * ============================================================================
- * Optimal prefetch distances based on CPU/GPU cache hierarchy analysis.
- * Compile-time detection ensures zero runtime cost while maximizing performance.
  * 
  * ARCHITECTURE-SPECIFIC OPTIMIZATIONS:
  * 
@@ -363,13 +356,7 @@ python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtu
 /* Stack buffer size for homogeneous value arrays (2048 elements = 16KB for doubles) */
 #define VALUE_STACK_SIZE 2048
 
-/* Cold error handling functions - marked to keep off hot path */
-COLD_FUNCTION static void
-set_list_modified_error(Py_ssize_t expected, Py_ssize_t actual) {
-  PyErr_Format(PyExc_ValueError, 
-      "list modified during heap operation (expected size %zd, got %zd)",
-      expected, actual);
-}
+
 
 /* ============================================================================
  * SIMD Helper Functions for Quaternary Heap Operations
@@ -379,9 +366,22 @@ set_list_modified_error(Py_ssize_t expected, Py_ssize_t actual) {
  */
 
 #if defined(HEAPX_HAS_AVX)
-/* AVX implementation - processes all 4 doubles in parallel */
+/* AVX implementation - processes all 4 doubles in parallel
+ * Note: _CMP_LE_OQ and _CMP_GE_OQ are "ordered quiet" comparisons that
+ * return false when either operand is NaN, which matches IEEE 754 semantics.
+ * However, for heap correctness we need NaN to sink to the bottom (min-heap)
+ * or rise to the top (max-heap). We handle this with post-SIMD NaN checks. */
 static FORCE_INLINE Py_ssize_t
 simd_find_min_index_4_doubles(const double * HEAPX_RESTRICT values) {
+  /* Check for NaN - if any value is NaN, fall back to scalar with proper NaN handling */
+  if (unlikely(isnan(values[0]) || isnan(values[1]) || isnan(values[2]) || isnan(values[3]))) {
+    Py_ssize_t best = 0;
+    double best_val = values[0];
+    for (Py_ssize_t i = 1; i < 4; i++) {
+      if (HEAPX_FLOAT_LT(values[i], best_val)) { best_val = values[i]; best = i; }
+    }
+    return best;
+  }
   __m256d v = _mm256_loadu_pd(values);
   __m256d v_shuffled = _mm256_permute_pd(v, 0x05);
   __m256d cmp1 = _mm256_cmp_pd(v, v_shuffled, _CMP_LE_OQ);
@@ -397,6 +397,15 @@ simd_find_min_index_4_doubles(const double * HEAPX_RESTRICT values) {
 
 static FORCE_INLINE Py_ssize_t
 simd_find_max_index_4_doubles(const double * HEAPX_RESTRICT values) {
+  /* Check for NaN - if any value is NaN, fall back to scalar with proper NaN handling */
+  if (unlikely(isnan(values[0]) || isnan(values[1]) || isnan(values[2]) || isnan(values[3]))) {
+    Py_ssize_t best = 0;
+    double best_val = values[0];
+    for (Py_ssize_t i = 1; i < 4; i++) {
+      if (HEAPX_FLOAT_GT(values[i], best_val)) { best_val = values[i]; best = i; }
+    }
+    return best;
+  }
   __m256d v = _mm256_loadu_pd(values);
   __m256d v_shuffled = _mm256_permute_pd(v, 0x05);
   __m256d cmp1 = _mm256_cmp_pd(v, v_shuffled, _CMP_GE_OQ);
@@ -411,9 +420,19 @@ simd_find_max_index_4_doubles(const double * HEAPX_RESTRICT values) {
 }
 
 #elif defined(HEAPX_HAS_SSE2)
-/* SSE2 implementation - processes 2 doubles at a time */
+/* SSE2 implementation - processes 2 doubles at a time
+ * Falls back to scalar for NaN handling to ensure correct heap ordering. */
 static FORCE_INLINE Py_ssize_t
 simd_find_min_index_4_doubles(const double * HEAPX_RESTRICT values) {
+  /* Check for NaN - if any value is NaN, fall back to scalar with proper NaN handling */
+  if (unlikely(isnan(values[0]) || isnan(values[1]) || isnan(values[2]) || isnan(values[3]))) {
+    Py_ssize_t best = 0;
+    double best_val = values[0];
+    for (Py_ssize_t i = 1; i < 4; i++) {
+      if (HEAPX_FLOAT_LT(values[i], best_val)) { best_val = values[i]; best = i; }
+    }
+    return best;
+  }
   __m128d v01 = _mm_loadu_pd(values);
   __m128d v23 = _mm_loadu_pd(values + 2);
   
@@ -434,6 +453,15 @@ simd_find_min_index_4_doubles(const double * HEAPX_RESTRICT values) {
 
 static FORCE_INLINE Py_ssize_t
 simd_find_max_index_4_doubles(const double * HEAPX_RESTRICT values) {
+  /* Check for NaN - if any value is NaN, fall back to scalar with proper NaN handling */
+  if (unlikely(isnan(values[0]) || isnan(values[1]) || isnan(values[2]) || isnan(values[3]))) {
+    Py_ssize_t best = 0;
+    double best_val = values[0];
+    for (Py_ssize_t i = 1; i < 4; i++) {
+      if (HEAPX_FLOAT_GT(values[i], best_val)) { best_val = values[i]; best = i; }
+    }
+    return best;
+  }
   __m128d v01 = _mm_loadu_pd(values);
   __m128d v23 = _mm_loadu_pd(values + 2);
   
@@ -453,9 +481,19 @@ simd_find_max_index_4_doubles(const double * HEAPX_RESTRICT values) {
 }
 
 #elif defined(HEAPX_HAS_NEON)
-/* ARM NEON implementation - uses 128-bit float64x2_t vectors */
+/* ARM NEON implementation - uses 128-bit float64x2_t vectors
+ * Falls back to scalar for NaN handling to ensure correct heap ordering. */
 static FORCE_INLINE Py_ssize_t
 simd_find_min_index_4_doubles(const double * HEAPX_RESTRICT values) {
+  /* Check for NaN - if any value is NaN, fall back to scalar with proper NaN handling */
+  if (unlikely(isnan(values[0]) || isnan(values[1]) || isnan(values[2]) || isnan(values[3]))) {
+    Py_ssize_t best = 0;
+    double best_val = values[0];
+    for (Py_ssize_t i = 1; i < 4; i++) {
+      if (HEAPX_FLOAT_LT(values[i], best_val)) { best_val = values[i]; best = i; }
+    }
+    return best;
+  }
   float64x2_t v01 = vld1q_f64(values);
   float64x2_t v23 = vld1q_f64(values + 2);
   
@@ -470,6 +508,15 @@ simd_find_min_index_4_doubles(const double * HEAPX_RESTRICT values) {
 
 static FORCE_INLINE Py_ssize_t
 simd_find_max_index_4_doubles(const double * HEAPX_RESTRICT values) {
+  /* Check for NaN - if any value is NaN, fall back to scalar with proper NaN handling */
+  if (unlikely(isnan(values[0]) || isnan(values[1]) || isnan(values[2]) || isnan(values[3]))) {
+    Py_ssize_t best = 0;
+    double best_val = values[0];
+    for (Py_ssize_t i = 1; i < 4; i++) {
+      if (HEAPX_FLOAT_GT(values[i], best_val)) { best_val = values[i]; best = i; }
+    }
+    return best;
+  }
   float64x2_t v01 = vld1q_f64(values);
   float64x2_t v23 = vld1q_f64(values + 2);
   
@@ -3198,7 +3245,7 @@ list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
       /* Check list size before assignment to prevent refcount corruption */
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(item);
-        set_list_modified_error(n, PyList_GET_SIZE(listobj));
+        PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       items = listobj->ob_item;
@@ -3223,7 +3270,7 @@ list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
       /* Check list size before assignment to prevent refcount corruption */
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(item);
-        set_list_modified_error(n, PyList_GET_SIZE(listobj));
+        PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       items = listobj->ob_item;
@@ -3238,7 +3285,7 @@ list_heapify_floyd_ultra_optimized(PyListObject *listobj, int is_max)
     /* Check list size before final assignment */
     if (unlikely(PyList_GET_SIZE(listobj) != n)) {
       Py_DECREF(item);
-      set_list_modified_error(n, PyList_GET_SIZE(listobj));
+      PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
       return -1;
     }
     items = listobj->ob_item;
@@ -3436,7 +3483,7 @@ list_heapify_ternary_ultra_optimized(PyListObject *listobj, int is_max)
         /* Check list size before accessing items[best] */
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
           Py_DECREF(item);
-          set_list_modified_error(n, PyList_GET_SIZE(listobj));
+          PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
           return -1;
         }
         items = listobj->ob_item;
@@ -3452,7 +3499,7 @@ list_heapify_ternary_ultra_optimized(PyListObject *listobj, int is_max)
       /* Check list size before assignment to prevent refcount corruption */
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(item);
-        set_list_modified_error(n, PyList_GET_SIZE(listobj));
+        PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       items = listobj->ob_item;
@@ -3477,7 +3524,7 @@ list_heapify_ternary_ultra_optimized(PyListObject *listobj, int is_max)
       /* Check list size before assignment to prevent refcount corruption */
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(item);
-        set_list_modified_error(n, PyList_GET_SIZE(listobj));
+        PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       items = listobj->ob_item;
@@ -3492,7 +3539,7 @@ list_heapify_ternary_ultra_optimized(PyListObject *listobj, int is_max)
     /* Check list size before final assignment */
     if (unlikely(PyList_GET_SIZE(listobj) != n)) {
       Py_DECREF(item);
-      set_list_modified_error(n, PyList_GET_SIZE(listobj));
+      PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
       return -1;
     }
     items = listobj->ob_item;
@@ -3548,7 +3595,7 @@ list_heapify_quaternary_ultra_optimized(PyListObject *listobj, int is_max)
         /* Check list size after comparison - list might have been modified */
         if (unlikely(PyList_GET_SIZE(listobj) != n)) {
           Py_DECREF(cj); Py_DECREF(bestobj); Py_DECREF(item);
-          set_list_modified_error(n, PyList_GET_SIZE(listobj));
+          PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
           return -1;
         }
         if (cmp) { Py_DECREF(bestobj); best = j; bestobj = cj; }
@@ -3559,7 +3606,7 @@ list_heapify_quaternary_ultra_optimized(PyListObject *listobj, int is_max)
       /* Check list size before assignment to prevent refcount corruption */
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(item);
-        set_list_modified_error(n, PyList_GET_SIZE(listobj));
+        PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       items = listobj->ob_item;
@@ -3584,7 +3631,7 @@ list_heapify_quaternary_ultra_optimized(PyListObject *listobj, int is_max)
       /* Check list size before assignment to prevent refcount corruption */
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(item);
-        set_list_modified_error(n, PyList_GET_SIZE(listobj));
+        PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
       items = listobj->ob_item;
@@ -3599,7 +3646,7 @@ list_heapify_quaternary_ultra_optimized(PyListObject *listobj, int is_max)
     /* Check list size before final assignment */
     if (unlikely(PyList_GET_SIZE(listobj) != n)) {
       Py_DECREF(item);
-      set_list_modified_error(n, PyList_GET_SIZE(listobj));
+      PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
       return -1;
     }
     items = listobj->ob_item;
@@ -3619,8 +3666,18 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   if (unlikely(n <= 1)) return 0;
 
-  PyObject **keys = PyMem_Malloc(sizeof(PyObject *) * (size_t)n);
-  if (unlikely(!keys)) { PyErr_NoMemory(); return -1; }
+  /* Stack-first allocation pattern for small heaps */
+  PyObject *stack_keys[KEY_STACK_SIZE];
+  PyObject **keys = NULL;
+  int keys_on_heap = 0;
+
+  if (n <= KEY_STACK_SIZE) {
+    keys = stack_keys;
+  } else {
+    keys = (PyObject **)PyMem_Malloc(sizeof(PyObject *) * (size_t)n);
+    if (unlikely(!keys)) { PyErr_NoMemory(); return -1; }
+    keys_on_heap = 1;
+  }
 
   /* Precompute all keys */
   for (Py_ssize_t i = 0; i < n; i++) {
@@ -3628,13 +3685,13 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
     PyObject *k = call_key_function(keyfunc, items[i]);
     if (unlikely(!k)) {
       for (Py_ssize_t j = 0; j < i; j++) Py_DECREF(keys[j]);
-      PyMem_Free(keys);
+      if (keys_on_heap) PyMem_Free(keys);
       return -1;
     }
     if (unlikely(PyList_GET_SIZE(listobj) != n)) {
       Py_DECREF(k);
       for (Py_ssize_t j = 0; j < i; j++) Py_DECREF(keys[j]);
-      PyMem_Free(keys);
+      if (keys_on_heap) PyMem_Free(keys);
       PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
       return -1;
     }
@@ -3662,7 +3719,7 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
         if (unlikely(cmp < 0)) {
           Py_DECREF(newitem); Py_DECREF(newkey);
           for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-          PyMem_Free(keys);
+          if (keys_on_heap) PyMem_Free(keys);
           return -1;
         }
         if (cmp) best = child + 1;
@@ -3673,7 +3730,7 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
         if (unlikely(cmp < 0)) {
           Py_DECREF(newitem); Py_DECREF(newkey);
           for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-          PyMem_Free(keys);
+          if (keys_on_heap) PyMem_Free(keys);
           return -1;
         }
         if (cmp) best = child + 2;
@@ -3683,7 +3740,7 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(newitem); Py_DECREF(newkey);
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-        PyMem_Free(keys);
+        if (keys_on_heap) PyMem_Free(keys);
         PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
@@ -3707,7 +3764,7 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
       if (unlikely(cmp < 0)) {
         Py_DECREF(newitem); Py_DECREF(newkey);
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-        PyMem_Free(keys);
+        if (keys_on_heap) PyMem_Free(keys);
         return -1;
       }
       if (!cmp) break;
@@ -3716,7 +3773,7 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(newitem); Py_DECREF(newkey);
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-        PyMem_Free(keys);
+        if (keys_on_heap) PyMem_Free(keys);
         PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
@@ -3737,7 +3794,7 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
     if (unlikely(PyList_GET_SIZE(listobj) != n)) {
       Py_DECREF(newitem); Py_DECREF(newkey);
       for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-      PyMem_Free(keys);
+      if (keys_on_heap) PyMem_Free(keys);
       PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
       return -1;
     }
@@ -3751,7 +3808,7 @@ list_heapify_ternary_with_key_ultra_optimized(PyListObject *listobj, PyObject *k
   }
 
   for (Py_ssize_t i = 0; i < n; i++) Py_DECREF(keys[i]);
-  PyMem_Free(keys);
+  if (keys_on_heap) PyMem_Free(keys);
   return 0;
 }
 
@@ -3762,8 +3819,18 @@ list_heapify_quaternary_with_key_ultra_optimized(PyListObject *listobj, PyObject
   Py_ssize_t n = PyList_GET_SIZE(listobj);
   if (unlikely(n <= 1)) return 0;
 
-  PyObject **keys = PyMem_Malloc(sizeof(PyObject *) * (size_t)n);
-  if (unlikely(!keys)) { PyErr_NoMemory(); return -1; }
+  /* Stack-first allocation pattern for small heaps */
+  PyObject *stack_keys[KEY_STACK_SIZE];
+  PyObject **keys = NULL;
+  int keys_on_heap = 0;
+
+  if (n <= KEY_STACK_SIZE) {
+    keys = stack_keys;
+  } else {
+    keys = (PyObject **)PyMem_Malloc(sizeof(PyObject *) * (size_t)n);
+    if (unlikely(!keys)) { PyErr_NoMemory(); return -1; }
+    keys_on_heap = 1;
+  }
 
   /* Pre-compute all keys once */
   for (Py_ssize_t i = 0; i < n; i++) {
@@ -3771,13 +3838,13 @@ list_heapify_quaternary_with_key_ultra_optimized(PyListObject *listobj, PyObject
     PyObject *k = call_key_function(keyfunc, items[i]);
     if (unlikely(!k)) {
       for (Py_ssize_t j = 0; j < i; j++) Py_DECREF(keys[j]);
-      PyMem_Free(keys);
+      if (keys_on_heap) PyMem_Free(keys);
       return -1;
     }
     if (unlikely(PyList_GET_SIZE(listobj) != n)) {
       Py_DECREF(k);
       for (Py_ssize_t j = 0; j < i; j++) Py_DECREF(keys[j]);
-      PyMem_Free(keys);
+      if (keys_on_heap) PyMem_Free(keys);
       PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
       return -1;
     }
@@ -3806,7 +3873,7 @@ list_heapify_quaternary_with_key_ultra_optimized(PyListObject *listobj, PyObject
         if (unlikely(cmp < 0)) {
           Py_DECREF(newitem); Py_DECREF(newkey);
           for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-          PyMem_Free(keys);
+          if (keys_on_heap) PyMem_Free(keys);
           return -1;
         }
         if (cmp) best = child + j;
@@ -3816,7 +3883,7 @@ list_heapify_quaternary_with_key_ultra_optimized(PyListObject *listobj, PyObject
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(newitem); Py_DECREF(newkey);
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-        PyMem_Free(keys);
+        if (keys_on_heap) PyMem_Free(keys);
         PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
@@ -3841,7 +3908,7 @@ list_heapify_quaternary_with_key_ultra_optimized(PyListObject *listobj, PyObject
       if (unlikely(cmp < 0)) {
         Py_DECREF(newitem); Py_DECREF(newkey);
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-        PyMem_Free(keys);
+        if (keys_on_heap) PyMem_Free(keys);
         return -1;
       }
       if (!cmp) break;
@@ -3850,7 +3917,7 @@ list_heapify_quaternary_with_key_ultra_optimized(PyListObject *listobj, PyObject
       if (unlikely(PyList_GET_SIZE(listobj) != n)) {
         Py_DECREF(newitem); Py_DECREF(newkey);
         for (Py_ssize_t t = 0; t < n; t++) Py_DECREF(keys[t]);
-        PyMem_Free(keys);
+        if (keys_on_heap) PyMem_Free(keys);
         PyErr_Format(PyExc_ValueError, "list modified during heapify (expected size %zd, got %zd)", n, PyList_GET_SIZE(listobj));
         return -1;
       }
@@ -3878,7 +3945,7 @@ list_heapify_quaternary_with_key_ultra_optimized(PyListObject *listobj, PyObject
   }
 
   for (Py_ssize_t i = 0; i < n; i++) Py_DECREF(keys[i]);
-  PyMem_Free(keys);
+  if (keys_on_heap) PyMem_Free(keys);
   return 0;
 }
 
@@ -7716,6 +7783,13 @@ py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
   }
   Py_DECREF(iterator);
   Py_DECREF(to_remove);
+
+  /* Check if iteration ended due to error */
+  if (unlikely(PyErr_Occurred())) {
+    Py_DECREF(remove_list);
+    Py_XDECREF(removed_items);
+    return NULL;
+  }
 
   if (unlikely(PyList_Sort(remove_list) < 0)) {
     Py_DECREF(remove_list);
