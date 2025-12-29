@@ -46,7 +46,7 @@ Data structures are the foundation of reliable, high‑performance software: the
 
 7. **In-Place and Copy Modes for Memory Control**: The `sort` operation offers both in-place modification (minimal memory overhead) and copy-based sorting (preserves original heap). This gives users explicit control over memory usage patterns crucial for large-scale or embedded applications.
 
-8. **Efficient Multi-Heap Merging with Sorted Heap Optimization**: The `merge` function combines multiple heaps in linear time with automatic algorithm selection based on input characteristics. The optional `sorted_heaps` parameter allows skipping heapification when inputs are already valid heaps, providing optimal performance for streaming aggregation scenarios.
+8. **Efficient Multi-Heap Merging**: The `merge` function combines multiple heaps in linear time with automatic algorithm selection based on input characteristics, providing optimal performance for streaming aggregation scenarios.
 
 9. **Automatic Algorithm Selection via $11$-Priority Dispatch Table**: `heapx` chooses the optimal implementation based on heap size, arity, presence of key functions, and data type homogeneity. This eliminates manual optimization decisions while ensuring each operation uses the most efficient algorithm for the specific context.
 
@@ -269,7 +269,7 @@ heap1 = [1, 3, 5]
 heap2 = [2, 4, 6]
 heapx.heapify(heap1)
 heapx.heapify(heap2)
-merged = heapx.merge(heap1, heap2, sorted_heaps=True)
+merged = heapx.merge(heap1, heap2)
 
 # Sort using heapsort
 data = [5, 2, 8, 1, 9]
@@ -1469,10 +1469,10 @@ result = heapx.sort(data, arity=1)
 
 ### **7. Merge**
 
-Merge multiple sequences into a single heap with optimal O(N) time complexity. Supports pre-heapified input optimization, custom comparison functions, and all heap arities.
+Merge multiple sequences into a single heap with optimal O(N) time complexity. Supports custom comparison functions and all heap arities.
 
 ```python
-heapx.merge(*heaps, max_heap=False, cmp=None, arity=2, sorted_heaps=False)
+heapx.merge(*heaps, max_heap=False, cmp=None, arity=2, nogil=False)
 ```
 
 **Parameters:**
@@ -1484,8 +1484,6 @@ heapx.merge(*heaps, max_heap=False, cmp=None, arity=2, sorted_heaps=False)
   Controls heap ordering:
   - `False`: Creates a **min-heap** where the smallest element is at index 0
   - `True`: Creates a **max-heap** where the largest element is at index 0
-  
-  Must match the heap type of input sequences when `sorted_heaps=True`.
 
 - **`cmp`** *(optional, callable or None, default=None)*  
   Custom key function for element comparison. When provided:
@@ -1507,12 +1505,8 @@ heapx.merge(*heaps, max_heap=False, cmp=None, arity=2, sorted_heaps=False)
   
   Higher arity reduces tree height but increases comparison overhead per level. Binary heaps (arity=2) are optimal for most use cases.
 
-- **`sorted_heaps`** *(optional, bool, default=False)*  
-  Optimization flag for pre-heapified input:
-  - `False`: Performs heapify on concatenated result (default, safe for any input)
-  - `True`: Skips heapify phase, assumes all input sequences are already valid heaps
-  
-  When `True`, provides ~2x speedup by skipping the O(N) heapify operation. Only use when all input sequences are already valid heaps with matching `max_heap`, `cmp`, and `arity` parameters.
+- **`nogil`** *(optional, bool, default=False)*  
+  Accepted for API consistency.
 
 **Returns:** New list containing all elements from input sequences, organized as a valid heap
 
@@ -1522,9 +1516,8 @@ heapx.merge(*heaps, max_heap=False, cmp=None, arity=2, sorted_heaps=False)
 
 **Time Complexity:** 
 - Concatenation: O(N) where N is the total number of elements
-- Heapify: O(N) when `sorted_heaps=False`
+- Heapify: O(N)
 - Total: O(N) for merge operation
-- With `sorted_heaps=True`: O(N) concatenation only (skips heapify)
 
 **Space Complexity:** O(N) for the new merged list
 
@@ -1550,7 +1543,6 @@ The merge operation follows an 11-priority dispatch table for optimal performanc
 - **Direct pointer concatenation:** Uses `memcpy()` for bulk element copying instead of Python API calls
 - **Empty heap skipping:** Automatically skips empty input sequences during concatenation
 - **Single non-empty optimization:** Returns direct copy when only one non-empty sequence exists
-- **sorted_heaps parameter:** Skips O(N) heapify when inputs are already valid heaps (~2x speedup)
 - **Bit-shift optimization:** Binary (arity=2) and quaternary (arity=4) heaps use fast bit-shift operations
 - **On-demand key computation:** Keys computed only when needed during heapify (O(1) space)
 - **Size-based dispatch:** Separate paths for n<1000 vs n≥1000 with arity≥5
@@ -1599,14 +1591,6 @@ heap2 = list(range(50, 100))
 result = heapx.merge(heap1, heap2, arity=3)
 # result is a ternary heap with reduced height
 
-# Optimized merge with sorted_heaps=True
-heap1 = [1, 3, 5, 7, 9]
-heap2 = [2, 4, 6, 8, 10]
-heapx.heapify(heap1)
-heapx.heapify(heap2)
-result = heapx.merge(heap1, heap2, sorted_heaps=True)
-# ~2x faster - skips heapify since inputs are already heaps
-
 # Merge with key and arity
 heap1 = list(range(-25, 0))
 heap2 = list(range(0, 25))
@@ -1646,7 +1630,7 @@ sorted3 = [3, 6, 9, 12]
 heapx.heapify(sorted1, arity=1)
 heapx.heapify(sorted2, arity=1)
 heapx.heapify(sorted3, arity=1)
-result = heapx.merge(sorted1, sorted2, sorted3, arity=1, sorted_heaps=True)
+result = heapx.merge(sorted1, sorted2, sorted3, arity=1)
 # Efficient k-way merge maintaining sorted order
 
 # Large dataset merge
@@ -1665,7 +1649,6 @@ result = heapx.merge(heap1, heap2, arity=4)
 **Performance Notes:**
 
 - Merge is O(N) where N is the total number of elements across all input sequences
-- `sorted_heaps=True` provides ~2x speedup by skipping heapify (use only when inputs are valid heaps)
 - Binary heaps (arity=2) are fastest for most use cases due to bit-shift optimizations
 - Key functions add ~3x overhead due to function call costs
 - Empty input sequences are automatically skipped with no performance penalty

@@ -273,7 +273,7 @@ class TestDispatchPriorities:
         """Priority 1: Small heap (n≤16) unsorted."""
         heap1 = [5, 2, 8, 1]
         heap2 = [9, 3, 7, 4]
-        result = heapx.merge(heap1, heap2, sorted_heaps=False)
+        result = heapx.merge(heap1, heap2)
         assert len(result) == 8
         assert is_valid_heap(result)
 
@@ -283,7 +283,7 @@ class TestDispatchPriorities:
         heap2 = [3, 4, 7, 9]
         heapx.heapify(heap1)
         heapx.heapify(heap2)
-        result = heapx.merge(heap1, heap2, sorted_heaps=True)
+        result = heapx.merge(heap1, heap2)
         assert len(result) == 8
 
     def test_priority_2_arity_1_unsorted(self):
@@ -299,7 +299,7 @@ class TestDispatchPriorities:
         heap2 = [4, 5, 6]
         heapx.heapify(heap1, arity=1)
         heapx.heapify(heap2, arity=1)
-        result = heapx.merge(heap1, heap2, arity=1, sorted_heaps=True)
+        result = heapx.merge(heap1, heap2, arity=1)
         assert len(result) == 6
 
     def test_priority_3_binary_unsorted(self):
@@ -316,7 +316,7 @@ class TestDispatchPriorities:
         heap2 = list(range(50, 100))
         heapx.heapify(heap1)
         heapx.heapify(heap2)
-        result = heapx.merge(heap1, heap2, sorted_heaps=True)
+        result = heapx.merge(heap1, heap2)
         assert len(result) == 100
 
     def test_priority_4_ternary_unsorted(self):
@@ -333,7 +333,7 @@ class TestDispatchPriorities:
         heap2 = list(range(50, 100))
         heapx.heapify(heap1, arity=3)
         heapx.heapify(heap2, arity=3)
-        result = heapx.merge(heap1, heap2, arity=3, sorted_heaps=True)
+        result = heapx.merge(heap1, heap2, arity=3)
         assert len(result) == 100
 
     def test_priority_5_quaternary_unsorted(self):
@@ -350,7 +350,7 @@ class TestDispatchPriorities:
         heap2 = list(range(50, 100))
         heapx.heapify(heap1, arity=4)
         heapx.heapify(heap2, arity=4)
-        result = heapx.merge(heap1, heap2, arity=4, sorted_heaps=True)
+        result = heapx.merge(heap1, heap2, arity=4)
         assert len(result) == 100
 
     def test_priority_6_nary_small_unsorted(self):
@@ -367,7 +367,7 @@ class TestDispatchPriorities:
         heap2 = list(range(300, 600))
         heapx.heapify(heap1, arity=5)
         heapx.heapify(heap2, arity=5)
-        result = heapx.merge(heap1, heap2, arity=5, sorted_heaps=True)
+        result = heapx.merge(heap1, heap2, arity=5)
         assert len(result) == 600
 
     def test_priority_7_nary_large_unsorted(self):
@@ -384,7 +384,7 @@ class TestDispatchPriorities:
         heap2 = list(range(600, 1200))
         heapx.heapify(heap1, arity=8)
         heapx.heapify(heap2, arity=8)
-        result = heapx.merge(heap1, heap2, arity=8, sorted_heaps=True)
+        result = heapx.merge(heap1, heap2, arity=8)
         assert len(result) == 1200
 
     def test_priority_8_binary_key_unsorted(self):
@@ -401,7 +401,7 @@ class TestDispatchPriorities:
         heap2 = [9, -3, 7, -4]
         heapx.heapify(heap1, cmp=abs)
         heapx.heapify(heap2, cmp=abs)
-        result = heapx.merge(heap1, heap2, cmp=abs, sorted_heaps=True)
+        result = heapx.merge(heap1, heap2, cmp=abs)
         assert len(result) == 8
 
     def test_priority_9_ternary_key_unsorted(self):
@@ -418,7 +418,7 @@ class TestDispatchPriorities:
         heap2 = list(range(0, 25))
         heapx.heapify(heap1, arity=3, cmp=abs)
         heapx.heapify(heap2, arity=3, cmp=abs)
-        result = heapx.merge(heap1, heap2, arity=3, cmp=abs, sorted_heaps=True)
+        result = heapx.merge(heap1, heap2, arity=3, cmp=abs)
         assert len(result) == 50
 
     def test_priority_10_nary_key_unsorted(self):
@@ -435,7 +435,7 @@ class TestDispatchPriorities:
         heap2 = list(range(0, 50))
         heapx.heapify(heap1, arity=5, cmp=abs)
         heapx.heapify(heap2, arity=5, cmp=abs)
-        result = heapx.merge(heap1, heap2, arity=5, cmp=abs, sorted_heaps=True)
+        result = heapx.merge(heap1, heap2, arity=5, cmp=abs)
         assert len(result) == 100
 
     def test_priority_11_generic_sequence(self):
@@ -752,56 +752,60 @@ class TestEdgeCases:
             heapx.merge([1, 2], 123)
 
 # ============================================================================
-# Sorted Heaps Parameter Tests (20 tests)
+# Merge Heapify Behavior Tests (5 tests)
 # ============================================================================
 
-class TestSortedHeapsParameter:
-    """Test sorted_heaps parameter."""
+class TestMergeHeapifyBehavior:
+    """Test that merge always produces valid heaps."""
 
-    def test_sorted_heaps_true_skips_heapify(self):
-        """Test sorted_heaps=True skips heapify."""
+    def test_merge_heapifies_pre_heapified_inputs(self):
+        """Test merge heapifies even when inputs are already heaps."""
         heap1 = [1, 3, 5, 7, 9]
         heap2 = [2, 4, 6, 8, 10]
         heapx.heapify(heap1)
         heapx.heapify(heap2)
-        result = heapx.merge(heap1, heap2, sorted_heaps=True)
+        result = heapx.merge(heap1, heap2)
         assert len(result) == 10
+        assert is_valid_heap(result)
 
-    def test_sorted_heaps_false_performs_heapify(self):
-        """Test sorted_heaps=False performs heapify."""
+    def test_merge_heapifies_unsorted_inputs(self):
+        """Test merge heapifies unsorted inputs."""
         heap1 = [5, 3, 1, 7, 9]
         heap2 = [6, 4, 2, 8, 10]
-        result = heapx.merge(heap1, heap2, sorted_heaps=False)
+        result = heapx.merge(heap1, heap2)
         assert len(result) == 10
         assert is_valid_heap(result)
 
     @pytest.mark.parametrize("arity", [2, 3, 4, 5])
-    def test_sorted_heaps_various_arities(self, arity):
-        """Test sorted_heaps with various arities."""
+    def test_merge_heapifies_various_arities(self, arity):
+        """Test merge heapifies with various arities."""
         heap1 = list(range(50))
         heap2 = list(range(50, 100))
         heapx.heapify(heap1, arity=arity)
         heapx.heapify(heap2, arity=arity)
-        result = heapx.merge(heap1, heap2, arity=arity, sorted_heaps=True)
+        result = heapx.merge(heap1, heap2, arity=arity)
         assert len(result) == 100
+        assert is_valid_heap(result, arity=arity)
 
-    def test_sorted_heaps_with_key(self):
-        """Test sorted_heaps with key function."""
+    def test_merge_heapifies_with_key(self):
+        """Test merge heapifies with key function."""
         heap1 = [-5, 2, -8, 1]
         heap2 = [9, -3, 7, -4]
         heapx.heapify(heap1, cmp=abs)
         heapx.heapify(heap2, cmp=abs)
-        result = heapx.merge(heap1, heap2, cmp=abs, sorted_heaps=True)
+        result = heapx.merge(heap1, heap2, cmp=abs)
         assert len(result) == 8
+        assert is_valid_heap(result, cmp=abs)
 
-    def test_sorted_heaps_max_heap(self):
-        """Test sorted_heaps with max heap."""
+    def test_merge_heapifies_max_heap(self):
+        """Test merge heapifies max heap."""
         heap1 = [9, 7, 5, 3, 1]
         heap2 = [8, 6, 4, 2, 0]
         heapx.heapify(heap1, max_heap=True)
         heapx.heapify(heap2, max_heap=True)
-        result = heapx.merge(heap1, heap2, max_heap=True, sorted_heaps=True)
+        result = heapx.merge(heap1, heap2, max_heap=True)
         assert len(result) == 10
+        assert is_valid_heap(result, max_heap=True)
 
 # ============================================================================
 # Stress Tests (20 tests)
@@ -1060,45 +1064,32 @@ class TestPerformanceBenchmarks:
         with capsys.disabled():
             print(final_output)
 
-    def test_benchmark_sorted_heaps_speedup(self):
-        """Benchmark sorted_heaps parameter speedup."""
+    def test_benchmark_merge_performance(self):
+        """Benchmark merge performance across sizes."""
         sizes = [100, 1000, 10000]
         results = []
         
         for size in sizes:
             heap1 = list(range(size // 2))
             heap2 = list(range(size // 2, size))
-            heapx.heapify(heap1)
-            heapx.heapify(heap2)
             
-            # With heapify
-            times_unsorted = []
+            times = []
             for _ in range(10):
                 h1, h2 = heap1.copy(), heap2.copy()
                 start = time.perf_counter()
-                heapx.merge(h1, h2, sorted_heaps=False)
-                times_unsorted.append(time.perf_counter() - start)
+                heapx.merge(h1, h2)
+                times.append(time.perf_counter() - start)
             
-            # Without heapify
-            times_sorted = []
-            for _ in range(10):
-                h1, h2 = heap1.copy(), heap2.copy()
-                start = time.perf_counter()
-                heapx.merge(h1, h2, sorted_heaps=True)
-                times_sorted.append(time.perf_counter() - start)
-            
-            avg_unsorted = mean(times_unsorted) * 1000
-            avg_sorted = mean(times_sorted) * 1000
-            speedup = avg_unsorted / avg_sorted
-            results.append((size, avg_unsorted, avg_sorted, speedup))
+            avg_time = mean(times) * 1000
+            results.append((size, avg_time))
         
         print("\n" + "=" * 80)
-        print("sorted_heaps Parameter Speedup")
+        print("Merge Performance by Size")
         print("=" * 80)
-        print(f"{'Size':<15} {'Unsorted (ms)':<20} {'Sorted (ms)':<20} {'Speedup':<15}")
+        print(f"{'Size':<15} {'Time (ms)':<20}")
         print("-" * 80)
-        for size, unsorted, sorted_time, speedup in results:
-            print(f"{size:<15} {unsorted:<20.6f} {sorted_time:<20.6f} {speedup:<15.2f}x")
+        for size, avg_time in results:
+            print(f"{size:<15} {avg_time:<20.6f}")
         print("=" * 80)
 
     def test_benchmark_arity_comparison(self):
@@ -1317,12 +1308,12 @@ class TestMixedMerge:
     assert len(result) == 100
     assert is_valid_heap(result, max_heap=True)
 
-  def test_merge_mixed_sorted_heaps(self):
-    """Test merging mixed heaps with sorted_heaps=False (default)."""
+  def test_merge_mixed_heaps(self):
+    """Test merging mixed heaps."""
     heap1 = generate_mixed(50)
     heap2 = generate_mixed(50, seed=43)
     heapx.heapify(heap1)
     heapx.heapify(heap2)
-    result = heapx.merge(heap1, heap2, sorted_heaps=False)
+    result = heapx.merge(heap1, heap2)
     assert len(result) == 100
     assert is_valid_heap(result)

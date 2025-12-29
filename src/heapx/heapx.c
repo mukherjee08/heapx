@@ -151,9 +151,6 @@ python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtu
 /* Note: SIMD helper functions are defined after FORCE_INLINE macro below */
 
 /* Optimization macros with enhanced compiler support */
-#define PyList_GET_ITEM_FAST(op, i) (((PyListObject *)(op))->ob_item[i])
-#define PyList_SET_ITEM_FAST(op, i, v) (((PyListObject *)(op))->ob_item[i] = v)
-
 #if defined(__GNUC__) || defined(__clang__)
   #define likely(x)   __builtin_expect(!!(x), 1)
   #define unlikely(x) __builtin_expect(!!(x), 0)
@@ -4563,8 +4560,7 @@ py_heapify(PyObject *self, PyObject *args, PyObject *kwargs)
   Py_RETURN_NONE;
 }
 
-/* ---------- Function declarations ---------- */
-static PyObject *py_heapify(PyObject *self, PyObject *args, PyObject *kwargs);
+/* Forward declarations for functions defined after PyMethodDef array */
 static PyObject *py_push(PyObject *self, PyObject *args, PyObject *kwargs);
 static PyObject *py_pop(PyObject *self, PyObject *args, PyObject *kwargs);
 static PyObject *py_sort(PyObject *self, PyObject *args, PyObject *kwargs);
@@ -4671,15 +4667,13 @@ static PyMethodDef Methods[] = {
    "Complexity: O(k + n) where k is items replaced"},
    
   {"merge", (PyCFunction)py_merge, METH_VARARGS | METH_KEYWORDS,
-   "merge(*heaps, max_heap=False, cmp=None, arity=2, sorted_heaps=False, nogil=False)\n\n"
+   "merge(*heaps, max_heap=False, cmp=None, arity=2, nogil=False)\n\n"
    "Merge multiple heaps into a single heap.\n\n"
    "Parameters:\n"
    "  *heaps: two or more heaps to merge\n"
    "  max_heap: bool (default False: min-heap, True: max-heap)\n"
    "  cmp: optional key function\n"
    "  arity: integer >= 1 (default 2: binary heap)\n"
-   "  sorted_heaps: bool (default False) - if True, assumes input heaps\n"
-   "                are already valid heaps and skips heapify\n"
    "  nogil: bool (default False). Accepted for API consistency.\n\n"
    "Returns: new merged heap\n"
    "Complexity: O(N) where N is total items"},
@@ -8494,27 +8488,23 @@ py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
   return PyLong_FromSsize_t(replace_count);
 }
 
-/* Ultra-optimized merge with complete 11-priority dispatch and sorted heap support */
+/* Ultra-optimized merge with complete 11-priority dispatch */
 static PyObject *
 py_merge(PyObject *self, PyObject *args, PyObject *kwargs) {
   (void)self;  /* Module method, self is unused */
-  static char *kwlist[] = {"max_heap", "cmp", "arity", "sorted_heaps", "nogil", NULL};
+  static char *kwlist[] = {"max_heap", "cmp", "arity", "nogil", NULL};
   PyObject *max_heap_obj = Py_False;
   PyObject *cmp = Py_None;
   Py_ssize_t arity = 2;
-  PyObject *sorted_heaps_obj = Py_False;
   PyObject *nogil_obj = Py_False;
 
   /* Parse keyword arguments */
-  if (!PyArg_ParseTupleAndKeywords(PyTuple_New(0), kwargs, "|OOnOO:merge", kwlist,
-                                   &max_heap_obj, &cmp, &arity, &sorted_heaps_obj, &nogil_obj))
+  if (!PyArg_ParseTupleAndKeywords(PyTuple_New(0), kwargs, "|OOnO:merge", kwlist,
+                                   &max_heap_obj, &cmp, &arity, &nogil_obj))
     return NULL;
 
   int is_max = PyObject_IsTrue(max_heap_obj);
   if (unlikely(is_max < 0)) return NULL;
-  
-  int sorted_heaps = PyObject_IsTrue(sorted_heaps_obj);
-  if (unlikely(sorted_heaps < 0)) return NULL;
   
   int nogil = PyObject_IsTrue(nogil_obj);
   if (unlikely(nogil < 0)) return NULL;
@@ -8617,12 +8607,6 @@ py_merge(PyObject *self, PyObject *args, PyObject *kwargs) {
       Py_DECREF(fast);
     }
   }
-
-  /* NOTE: sorted_heaps parameter is deprecated and ignored.
-   * Concatenating valid heaps does NOT produce a valid heap.
-   * e.g., [2, 10] + [1, 20] = [2, 10, 1, 20] where root 2 > child 1 violates heap property.
-   * We must always heapify the concatenated result. */
-  (void)sorted_heaps;  /* Suppress unused variable warning */
 
   /* ========== 11-PRIORITY HEAPIFY DISPATCH ========== */
   
