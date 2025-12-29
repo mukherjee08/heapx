@@ -6091,7 +6091,6 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
   
   int nogil = PyObject_IsTrue(nogil_obj);
   if (unlikely(nogil < 0)) return NULL;
-  /* Note: nogil not yet implemented for pop - accepted for API consistency */
 
   if (unlikely(cmp != Py_None && !PyCallable_Check(cmp))) {
     PyErr_Format(PyExc_TypeError, "cmp must be callable or None, not %.200s", Py_TYPE(cmp)->tp_name);
@@ -6224,8 +6223,8 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
   if (likely(PyList_CheckExact(heap))) {
     PyListObject *listobj = (PyListObject *)heap;
     
-    /* NoGIL dispatch for homogeneous arrays */
-    if (nogil && cmp == Py_None && heap_size >= 8) {
+    /* NoGIL dispatch for homogeneous arrays (arity >= 2 only; arity=1 is sorted list) */
+    if (nogil && cmp == Py_None && heap_size >= 8 && arity >= 2) {
       int homogeneous = detect_homogeneous_type(listobj->ob_item, heap_size);
       if (homogeneous == 2) {
         /* Homogeneous floats */
@@ -6235,7 +6234,6 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
         /* Fall through to standard path if nogil failed */
       } else if (homogeneous == 1) {
         /* Homogeneous integers */
-        PyErr_Clear(); /* Clear any overflow error from detection */
         PyObject *result = list_pop_bulk_homogeneous_int_nogil(listobj, n_pop, is_max, arity);
         if (result) return result;
         if (PyErr_Occurred()) return NULL;
