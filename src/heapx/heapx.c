@@ -27,7 +27,9 @@ python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtu
 
 */
 
-// #define PY_SSIZE_T_CLEAN // already defined in the compiler command line
+#ifndef PY_SSIZE_T_CLEAN
+#define PY_SSIZE_T_CLEAN
+#endif
 #include <Python.h>
 #include <listobject.h>
 #include <string.h>
@@ -40,6 +42,14 @@ python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtu
  * With arity <= 64 and any heap that fits in memory (~10^12 elements),
  * arity * pos + 1 cannot overflow Py_ssize_t (max ~9.2 * 10^18). */
 #define HEAPX_MAX_ARITY 64
+
+/* Heap size thresholds for algorithm selection.
+ * SMALL: Insertion sort outperforms heapsort due to lower constant factors.
+ * LARGE: Generic algorithms with prefetching outperform specialized loops.
+ * HOMOGENEOUS: Minimum sample size for type detection (power of 2 for efficiency). */
+#define HEAPX_SMALL_HEAP_THRESHOLD 16
+#define HEAPX_LARGE_HEAP_THRESHOLD 1000
+#define HEAPX_HOMOGENEOUS_SAMPLE_SIZE 8
 
 #ifdef OS_WINDOWS
   #include <intrin.h>
@@ -4409,7 +4419,7 @@ py_heapify(PyObject *self, PyObject *args, PyObject *kwargs)
     PyListObject *listobj = (PyListObject *)heap;
     
     /* Check for homogeneous array optimization (integers or floats) */
-    if (likely(cmp == Py_None && n >= 8)) {
+    if (likely(cmp == Py_None && n >= HEAPX_HOMOGENEOUS_SAMPLE_SIZE)) {
       int homogeneous = detect_homogeneous_type(listobj->ob_item, n);
       
       /* SIMD-optimized path for arity >= 4 with homogeneous floats */
@@ -4471,7 +4481,7 @@ py_heapify(PyObject *self, PyObject *args, PyObject *kwargs)
     }
     
     /* Small heap optimization (only for no key function) */
-    if (unlikely(n <= 16 && cmp == Py_None)) {
+    if (unlikely(n <= HEAPX_SMALL_HEAP_THRESHOLD && cmp == Py_None)) {
       rc = list_heapify_small_ultra_optimized(listobj, is_max, arity);
       
     } else if (likely(cmp == Py_None)) {
@@ -4499,7 +4509,7 @@ py_heapify(PyObject *self, PyObject *args, PyObject *kwargs)
           
         default:
           /* General n-ary heap */
-          if (likely(n < 1000)) {
+          if (likely(n < HEAPX_LARGE_HEAP_THRESHOLD)) {
             /* For smaller heaps, use specialized small heap algorithm */
             rc = list_heapify_small_ultra_optimized(listobj, is_max, arity);
           } else {
@@ -4545,7 +4555,7 @@ py_heapify(PyObject *self, PyObject *args, PyObject *kwargs)
       /* Unary heap for any sequence */
       rc = heapify_arity_one_ultra_optimized(heap, is_max, (cmp == Py_None ? NULL : cmp));
       
-    } else if (unlikely(n <= 16)) {
+    } else if (unlikely(n <= HEAPX_SMALL_HEAP_THRESHOLD)) {
       /* Small heap optimization for sequences */
       /* For non-lists, fall back to general algorithm but with small heap detection */
       rc = generic_heapify_ultra_optimized(heap, is_max, (cmp == Py_None ? NULL : cmp), arity);
@@ -5370,7 +5380,7 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
     Py_ssize_t total_size = n + n_items;
     
     /* Priority 1: Small heap (n ≤ 16) - use sift-up for each new element */
-    if (unlikely(total_size <= 16 && cmp == Py_None)) {
+    if (unlikely(total_size <= HEAPX_SMALL_HEAP_THRESHOLD && cmp == Py_None)) {
       for (Py_ssize_t idx = n; idx < total_size; idx++) {
         if (unlikely(list_sift_up_ultra_optimized(listobj, idx, is_max, arity) < 0)) {
           return NULL;
@@ -5438,14 +5448,14 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
             rc = list_heapify_nary_simd_homogeneous_float_nogil(listobj, is_max, arity);
           } else if (nogil && homogeneous == 1) {
             rc = list_heapify_nary_simd_homogeneous_int_nogil(listobj, is_max, arity);
-            if (rc == 2) { PyErr_Clear(); rc = (total_size < 1000) ? list_heapify_small_ultra_optimized(listobj, is_max, arity) : generic_heapify_ultra_optimized((PyObject *)listobj, is_max, NULL, arity); }
+            if (rc == 2) { PyErr_Clear(); rc = (total_size < HEAPX_LARGE_HEAP_THRESHOLD) ? list_heapify_small_ultra_optimized(listobj, is_max, arity) : generic_heapify_ultra_optimized((PyObject *)listobj, is_max, NULL, arity); }
           } else if (homogeneous == 2) {
             rc = list_heapify_nary_simd_homogeneous_float(listobj, is_max, arity);
           } else if (homogeneous == 1) {
             rc = list_heapify_nary_simd_homogeneous_int(listobj, is_max, arity);
-            if (rc == 2) { PyErr_Clear(); rc = (total_size < 1000) ? list_heapify_small_ultra_optimized(listobj, is_max, arity) : generic_heapify_ultra_optimized((PyObject *)listobj, is_max, NULL, arity); }
+            if (rc == 2) { PyErr_Clear(); rc = (total_size < HEAPX_LARGE_HEAP_THRESHOLD) ? list_heapify_small_ultra_optimized(listobj, is_max, arity) : generic_heapify_ultra_optimized((PyObject *)listobj, is_max, NULL, arity); }
           } else {
-            rc = (total_size < 1000) ? list_heapify_small_ultra_optimized(listobj, is_max, arity) : generic_heapify_ultra_optimized((PyObject *)listobj, is_max, NULL, arity);
+            rc = (total_size < HEAPX_LARGE_HEAP_THRESHOLD) ? list_heapify_small_ultra_optimized(listobj, is_max, arity) : generic_heapify_ultra_optimized((PyObject *)listobj, is_max, NULL, arity);
           }
         }
       } else {
@@ -6239,7 +6249,7 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
       
       /* DISPATCH TABLE FOR SIFT-DOWN - use already-fixed functions */
       if (likely(cmp == Py_None)) {
-        if (unlikely(new_size <= 16)) {
+        if (unlikely(new_size <= HEAPX_SMALL_HEAP_THRESHOLD)) {
           if (unlikely(list_heapify_small_ultra_optimized(listobj, is_max, arity) < 0)) {
             Py_DECREF(result);
             return NULL;
@@ -6950,7 +6960,7 @@ py_sort(PyObject *self, PyObject *args, PyObject *kwargs) {
   PyObject *keyfunc = (cmp == Py_None) ? NULL : cmp;
 
   /* ========== PRIORITY 0: HOMOGENEOUS ARRAY OPTIMIZATION ========== */
-  if (likely(PyList_CheckExact(work_heap) && keyfunc == NULL && n >= 8)) {
+  if (likely(PyList_CheckExact(work_heap) && keyfunc == NULL && n >= HEAPX_HOMOGENEOUS_SAMPLE_SIZE)) {
     PyListObject *listobj = (PyListObject *)work_heap;
     int homogeneous = detect_homogeneous_type(listobj->ob_item, n);
     if (homogeneous) {
@@ -6987,10 +6997,22 @@ use_timsort:
     }
   }
 
-  /* ========== 11-PRIORITY DISPATCH TABLE ========== */
+  /* ========== 11-PRIORITY DISPATCH TABLE ==========
+   * Priority 1:  Small heap (n ≤ SMALL_THRESHOLD, no key) - Insertion sort
+   * Priority 2:  Arity=1 (sorted list) - Timsort via PyList_Sort
+   * Priority 3:  List + arity=2 + no key - Floyd's binary heapify
+   * Priority 4:  List + arity=3 + no key - Specialized ternary heapify
+   * Priority 5:  List + arity=4 + no key - Specialized quaternary heapify
+   * Priority 6:  List + arity≥5 + no key + n<LARGE_THRESHOLD - Small n-ary
+   * Priority 7:  List + arity≥5 + no key + n≥LARGE_THRESHOLD - Generic n-ary
+   * Priority 8:  List + arity=2 + key - Binary with key caching
+   * Priority 9:  List + arity=3 + key - Ternary with key caching
+   * Priority 10: List + arity≥4 + key - Generic with key caching
+   * Priority 11: Generic sequence (non-list) - PySequence API
+   */
   
-  /* Priority 1: Small heap (n ≤ 16, no key) - Direct insertion sort */
-  if (unlikely(n <= 16 && keyfunc == NULL && PyList_CheckExact(work_heap))) {
+  /* Priority 1: Small heap (n ≤ SMALL_THRESHOLD, no key) - Direct insertion sort */
+  if (unlikely(n <= HEAPX_SMALL_HEAP_THRESHOLD && keyfunc == NULL && PyList_CheckExact(work_heap))) {
     PyListObject *listobj = (PyListObject *)work_heap;
     PyObject **items = listobj->ob_item;
     
@@ -7203,7 +7225,7 @@ use_timsort:
   }
   
   /* Priority 6: List + arity≥5 + no key + n<1000 */
-  if (unlikely(PyList_CheckExact(work_heap) && arity >= 5 && keyfunc == NULL && n < 1000)) {
+  if (unlikely(PyList_CheckExact(work_heap) && arity >= 5 && keyfunc == NULL && n < HEAPX_LARGE_HEAP_THRESHOLD)) {
     PyListObject *listobj = (PyListObject *)work_heap;
     
     if (unlikely(list_heapify_small_ultra_optimized(listobj, sort_is_max, arity) < 0)) {
@@ -7235,7 +7257,7 @@ use_timsort:
   }
   
   /* Priority 7: List + arity≥5 + no key + n≥1000 */
-  if (unlikely(PyList_CheckExact(work_heap) && arity >= 5 && keyfunc == NULL && n >= 1000)) {
+  if (unlikely(PyList_CheckExact(work_heap) && arity >= 5 && keyfunc == NULL && n >= HEAPX_LARGE_HEAP_THRESHOLD)) {
     PyListObject *listobj = (PyListObject *)work_heap;
     
     if (unlikely(generic_heapify_ultra_optimized(work_heap, sort_is_max, NULL, arity) < 0)) {
@@ -7472,7 +7494,7 @@ py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
     Py_ssize_t new_size = heap_size - 1;
     
     /* Priority 1: Small heap (n ≤ 16) - use insertion sort after removal */
-    if (unlikely(new_size <= 16 && cmp == Py_None)) {
+    if (unlikely(new_size <= HEAPX_SMALL_HEAP_THRESHOLD && cmp == Py_None)) {
       if (unlikely(PySequence_DelItem(heap, idx) < 0)) {
         Py_XDECREF(removed_item);
         return NULL;
@@ -7823,7 +7845,7 @@ py_remove(PyObject *self, PyObject *args, PyObject *kwargs) {
   Py_ssize_t new_size = PySequence_Size(heap);
   if (new_size > 0) {
     /* Priority 1: Small heap after removal */
-    if (unlikely(new_size <= 16 && PyList_CheckExact(heap) && cmp == Py_None)) {
+    if (unlikely(new_size <= HEAPX_SMALL_HEAP_THRESHOLD && PyList_CheckExact(heap) && cmp == Py_None)) {
       PyListObject *listobj = (PyListObject *)heap;
       PyObject **items = listobj->ob_item;
       for (Py_ssize_t i = 1; i < new_size; i++) {
@@ -8058,7 +8080,7 @@ py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *keyfunc = (cmp == Py_None) ? NULL : cmp;
     
     /* Priority 1: Small heap (n ≤ 16) - use insertion sort after replacement */
-    if (unlikely(new_size <= 16 && keyfunc == NULL)) {
+    if (unlikely(new_size <= HEAPX_SMALL_HEAP_THRESHOLD && keyfunc == NULL)) {
       PyObject **items = listobj->ob_item;
       Py_INCREF(values);
       Py_SETREF(items[idx], values);
@@ -8391,7 +8413,7 @@ py_replace(PyObject *self, PyObject *args, PyObject *kwargs) {
     Py_ssize_t new_size = Py_SIZE(listobj);
     
     /* Priority 1: Small heap after replacement */
-    if (unlikely(new_size <= 16 && cmp == Py_None)) {
+    if (unlikely(new_size <= HEAPX_SMALL_HEAP_THRESHOLD && cmp == Py_None)) {
       PyObject **items = listobj->ob_item;
       for (Py_ssize_t i = 1; i < new_size; i++) {
         PyObject *key = items[i];
@@ -8613,7 +8635,7 @@ py_merge(PyObject *self, PyObject *args, PyObject *kwargs) {
   PyListObject *result_list = (PyListObject *)result;
   
   /* Priority 1: Small heap (n ≤ 16, no key) */
-  if (unlikely(total_size <= 16 && keyfunc == NULL)) {
+  if (unlikely(total_size <= HEAPX_SMALL_HEAP_THRESHOLD && keyfunc == NULL)) {
     PyObject **items = result_list->ob_item;
     for (Py_ssize_t i = 1; i < total_size; i++) {
       PyObject *key = items[i];
@@ -8772,7 +8794,7 @@ py_merge(PyObject *self, PyObject *args, PyObject *kwargs) {
   }
   
   /* Priority 6: N-ary heap (arity≥5, no key, n<1000) */
-  if (unlikely(arity >= 5 && keyfunc == NULL && total_size < 1000)) {
+  if (unlikely(arity >= 5 && keyfunc == NULL && total_size < HEAPX_LARGE_HEAP_THRESHOLD)) {
     int rc = 0;
     if (nogil && homogeneous == 2) {
       rc = list_heapify_nary_simd_homogeneous_float_nogil(result_list, is_max, arity);
@@ -8792,7 +8814,7 @@ py_merge(PyObject *self, PyObject *args, PyObject *kwargs) {
   }
   
   /* Priority 7: N-ary heap (arity≥5, no key, n≥1000) */
-  if (unlikely(arity >= 5 && keyfunc == NULL && total_size >= 1000)) {
+  if (unlikely(arity >= 5 && keyfunc == NULL && total_size >= HEAPX_LARGE_HEAP_THRESHOLD)) {
     int rc = 0;
     if (nogil && homogeneous == 2) {
       rc = list_heapify_nary_simd_homogeneous_float_nogil(result_list, is_max, arity);
