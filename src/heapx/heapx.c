@@ -242,91 +242,96 @@ python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtu
  *   - Architecture-specific tuning for optimal memory bandwidth utilization
  */
 
-/* Primary architecture detection with cache-optimized prefetch distances */
+/* Primary architecture detection with cache-line-aligned prefetch distances.
+ * Stride values are set to match cache line sizes (in pointer units):
+ *   - x86-64: 64-byte cache lines = 8 pointers (8 bytes each)
+ *   - Apple Silicon: 128-byte cache lines = 16 pointers
+ *   - ARM64: 64-byte cache lines = 8 pointers
+ * This ensures each prefetch brings in a new cache line without redundancy. */
 #if defined(__x86_64__) || defined(_M_X64)
-  /* Intel/AMD x86-64 Architecture */
+  /* Intel/AMD x86-64 Architecture - 64-byte cache lines = 8 pointers */
   #if defined(__AVX512F__)
     /* Skylake-X, Ice Lake, Zen4+ with 512-bit vectors */
-    #define PREFETCH_DISTANCE 8
-    #define PREFETCH_STRIDE 2
+    #define PREFETCH_DISTANCE 4
+    #define PREFETCH_STRIDE 8
   #elif defined(__AVX2__)
     /* Haswell to Rocket Lake, Zen2/Zen3 with 256-bit vectors */
-    #define PREFETCH_DISTANCE 6
-    #define PREFETCH_STRIDE 2
+    #define PREFETCH_DISTANCE 4
+    #define PREFETCH_STRIDE 8
   #elif defined(__AVX__)
     /* Sandy Bridge to Ivy Bridge with 256-bit vectors */
     #define PREFETCH_DISTANCE 4
-    #define PREFETCH_STRIDE 1
+    #define PREFETCH_STRIDE 8
   #else
     /* Legacy x86-64 (Core 2, early Zen) */
     #define PREFETCH_DISTANCE 3
-    #define PREFETCH_STRIDE 1
+    #define PREFETCH_STRIDE 8
   #endif
 
 #elif defined(__aarch64__) || defined(_M_ARM64)
   /* ARM64 Architecture */
   #if defined(__APPLE__)
-    /* Apple Silicon (M1/M2/M3/M4) - Massive 128KB L1D, 12-48MB L2 */
-    #define PREFETCH_DISTANCE 12
-    #define PREFETCH_STRIDE 3
-  #elif defined(__ARM_FEATURE_SVE) || defined(__ARM_FEATURE_SVE2)
-    /* ARM Neoverse V1/V2, Cortex-X2/X3 with SVE */
-    #define PREFETCH_DISTANCE 8
-    #define PREFETCH_STRIDE 2
-  #elif defined(__ARM_NEON)
-    /* Cortex-A78, A710, A715 with NEON */
-    #define PREFETCH_DISTANCE 6
-    #define PREFETCH_STRIDE 2
-  #else
-    /* Generic ARM64 */
+    /* Apple Silicon (M1/M2/M3/M4) - 128-byte cache lines = 16 pointers */
     #define PREFETCH_DISTANCE 4
-    #define PREFETCH_STRIDE 1
+    #define PREFETCH_STRIDE 16
+  #elif defined(__ARM_FEATURE_SVE) || defined(__ARM_FEATURE_SVE2)
+    /* ARM Neoverse V1/V2, Cortex-X2/X3 with SVE - 64-byte lines */
+    #define PREFETCH_DISTANCE 4
+    #define PREFETCH_STRIDE 8
+  #elif defined(__ARM_NEON)
+    /* Cortex-A78, A710, A715 with NEON - 64-byte lines */
+    #define PREFETCH_DISTANCE 4
+    #define PREFETCH_STRIDE 8
+  #else
+    /* Generic ARM64 - 64-byte lines */
+    #define PREFETCH_DISTANCE 4
+    #define PREFETCH_STRIDE 8
   #endif
 
 #elif defined(__riscv) && (__riscv_xlen == 64)
-  /* RISC-V 64-bit */
+  /* RISC-V 64-bit - typically 64-byte cache lines = 8 pointers */
   #if defined(__riscv_vector)
     /* RISC-V with Vector Extension */
-    #define PREFETCH_DISTANCE 6
-    #define PREFETCH_STRIDE 2
+    #define PREFETCH_DISTANCE 4
+    #define PREFETCH_STRIDE 8
   #else
     /* Standard RISC-V */
     #define PREFETCH_DISTANCE 4
-    #define PREFETCH_STRIDE 1
+    #define PREFETCH_STRIDE 8
   #endif
 
 #elif defined(__powerpc64__) || defined(_ARCH_PPC64)
-  /* IBM POWER Architecture - 128-byte cache lines */
-  #define PREFETCH_DISTANCE 8
-  #define PREFETCH_STRIDE 2
+  /* IBM POWER Architecture - 128-byte cache lines = 16 pointers */
+  #define PREFETCH_DISTANCE 4
+  #define PREFETCH_STRIDE 16
 
 #else
-  /* Generic/Unknown Architecture */
+  /* Generic/Unknown Architecture - assume 64-byte lines = 8 pointers */
   #define PREFETCH_DISTANCE 3
-  #define PREFETCH_STRIDE 1
+  #define PREFETCH_STRIDE 8
 #endif
 
 /* GPU/Accelerator Detection for Heterogeneous Computing */
 #if defined(__CUDA_ARCH__)
-  /* NVIDIA GPU Architecture */
+  /* NVIDIA GPU Architecture - 128-byte cache lines = 16 pointers */
   #if __CUDA_ARCH__ >= 900
     /* Hopper (H100, H800) - 50MB L2, 192KB L1 */
     #undef PREFETCH_DISTANCE
-    #define PREFETCH_DISTANCE 16
+    #define PREFETCH_DISTANCE 4
     #undef PREFETCH_STRIDE  
-    #define PREFETCH_STRIDE 4
+    #define PREFETCH_STRIDE 16
   #elif __CUDA_ARCH__ >= 800
     /* Ampere (A100, A40) - 40MB L2, 128KB L1 */
     #undef PREFETCH_DISTANCE
-    #define PREFETCH_DISTANCE 12
+    #define PREFETCH_DISTANCE 4
     #undef PREFETCH_STRIDE
-    #define PREFETCH_STRIDE 3
+    #define PREFETCH_STRIDE 16
   #elif __CUDA_ARCH__ >= 700
     /* Volta/Turing (V100, RTX) - 6MB L2 */
     #undef PREFETCH_DISTANCE
-    #define PREFETCH_DISTANCE 8
+    #define PREFETCH_DISTANCE 4
     #undef PREFETCH_STRIDE
-    #define PREFETCH_STRIDE 2
+    #define PREFETCH_STRIDE 16
   #endif
 #endif
 
@@ -336,6 +341,21 @@ python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtu
     PREFETCH(&(base)[(start) + (_i * (stride))]); \
   } \
 } while(0)
+
+/* ============================================================================
+ * NaN-Aware Comparison Macros for Homogeneous Float Paths
+ * ============================================================================
+ * These macros ensure consistent NaN handling across all float comparison paths.
+ * NaN is treated as "largest" value, ensuring it sinks to the bottom of min-heaps
+ * and rises to the top of max-heaps, matching the behavior of fast_compare().
+ * 
+ * IEEE 754 specifies that NaN comparisons return false, which would cause NaN
+ * to "stick" in place during heapify. These macros override that behavior.
+ */
+#define HEAPX_FLOAT_LT(a, b) (unlikely(isnan(a)) ? 0 : (unlikely(isnan(b)) ? 1 : ((a) < (b))))
+#define HEAPX_FLOAT_GT(a, b) (unlikely(isnan(a)) ? 1 : (unlikely(isnan(b)) ? 0 : ((a) > (b))))
+#define HEAPX_FLOAT_LE(a, b) (unlikely(isnan(a)) ? isnan(b) : (unlikely(isnan(b)) ? 1 : ((a) <= (b))))
+#define HEAPX_FLOAT_GE(a, b) (unlikely(isnan(a)) ? 1 : (unlikely(isnan(b)) ? isnan(a) : ((a) >= (b))))
 
 /* Thread-safe stack buffer size for key arrays */
 #define KEY_STACK_SIZE 128
@@ -469,7 +489,7 @@ simd_find_min_index_4_doubles(const double * HEAPX_RESTRICT values) {
   Py_ssize_t best = 0;
   double best_val = values[0];
   for (Py_ssize_t i = 1; i < 4; i++) {
-    if (values[i] < best_val) {
+    if (HEAPX_FLOAT_LT(values[i], best_val)) {
       best_val = values[i];
       best = i;
     }
@@ -482,7 +502,7 @@ simd_find_max_index_4_doubles(const double * HEAPX_RESTRICT values) {
   Py_ssize_t best = 0;
   double best_val = values[0];
   for (Py_ssize_t i = 1; i < 4; i++) {
-    if (values[i] > best_val) {
+    if (HEAPX_FLOAT_GT(values[i], best_val)) {
       best_val = values[i];
       best = i;
     }
@@ -658,7 +678,7 @@ simd_find_min_index_8_doubles(const double * HEAPX_RESTRICT values) {
   Py_ssize_t best = 0;
   double best_val = values[0];
   for (Py_ssize_t i = 1; i < 8; i++) {
-    if (values[i] < best_val) { best_val = values[i]; best = i; }
+    if (HEAPX_FLOAT_LT(values[i], best_val)) { best_val = values[i]; best = i; }
   }
   return best;
 }
@@ -668,7 +688,7 @@ simd_find_max_index_8_doubles(const double * HEAPX_RESTRICT values) {
   Py_ssize_t best = 0;
   double best_val = values[0];
   for (Py_ssize_t i = 1; i < 8; i++) {
-    if (values[i] > best_val) { best_val = values[i]; best = i; }
+    if (HEAPX_FLOAT_GT(values[i], best_val)) { best_val = values[i]; best = i; }
   }
   return best;
 }
@@ -1062,7 +1082,7 @@ simd_find_best_child_float(const double * HEAPX_RESTRICT values,
       ? simd_find_max_index_8_doubles(values + i)
       : simd_find_min_index_8_doubles(values + i);
     Py_ssize_t idx = i + group_best;
-    if (is_max ? (values[idx] > best_val) : (values[idx] < best_val)) {
+    if (is_max ? HEAPX_FLOAT_GT(values[idx], best_val) : HEAPX_FLOAT_LT(values[idx], best_val)) {
       best_val = values[idx];
       best = idx;
     }
@@ -1076,7 +1096,7 @@ simd_find_best_child_float(const double * HEAPX_RESTRICT values,
       ? simd_find_max_index_4_doubles(values + i)
       : simd_find_min_index_4_doubles(values + i);
     Py_ssize_t idx = i + group_best;
-    if (is_max ? (values[idx] > best_val) : (values[idx] < best_val)) {
+    if (is_max ? HEAPX_FLOAT_GT(values[idx], best_val) : HEAPX_FLOAT_LT(values[idx], best_val)) {
       best_val = values[idx];
       best = idx;
     }
@@ -1096,7 +1116,7 @@ simd_find_best_child_float(const double * HEAPX_RESTRICT values,
       : simd_find_min_index_4_doubles(padded);
     if (group_best < rem) {
       Py_ssize_t idx = i + group_best;
-      if (is_max ? (values[idx] > best_val) : (values[idx] < best_val)) {
+      if (is_max ? HEAPX_FLOAT_GT(values[idx], best_val) : HEAPX_FLOAT_LT(values[idx], best_val)) {
         best = idx;
       }
     }
@@ -1476,7 +1496,7 @@ list_heapify_homogeneous_float(PyListObject *listobj, int is_max)
       Py_ssize_t child = (pos << 1) + 1;
       if (child >= n) break;
       if (likely(child + 1 < n)) {
-        if (is_max ? (values[child + 1] > values[child]) : (values[child + 1] < values[child]))
+        if (is_max ? HEAPX_FLOAT_GT(values[child + 1], values[child]) : HEAPX_FLOAT_LT(values[child + 1], values[child]))
           child++;
       }
       values[pos] = values[child];
@@ -1486,7 +1506,7 @@ list_heapify_homogeneous_float(PyListObject *listobj, int is_max)
     
     while (pos > i) {
       Py_ssize_t parent = (pos - 1) >> 1;
-      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      if (is_max ? HEAPX_FLOAT_LE(val, values[parent]) : HEAPX_FLOAT_GE(val, values[parent])) break;
       values[pos] = values[parent];
       items[pos] = items[parent];
       pos = parent;
@@ -1549,7 +1569,7 @@ list_heapify_homogeneous_float_nogil(PyListObject *listobj, int is_max)
       Py_ssize_t child = (pos << 1) + 1;
       if (child >= n) break;
       if (likely(child + 1 < n)) {
-        if (is_max ? (values[child + 1] > values[child]) : (values[child + 1] < values[child]))
+        if (is_max ? HEAPX_FLOAT_GT(values[child + 1], values[child]) : HEAPX_FLOAT_LT(values[child + 1], values[child]))
           child++;
       }
       values[pos] = values[child];
@@ -1560,7 +1580,7 @@ list_heapify_homogeneous_float_nogil(PyListObject *listobj, int is_max)
     /* Bubble up from leaf position */
     while (pos > i) {
       Py_ssize_t parent = (pos - 1) >> 1;
-      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      if (is_max ? HEAPX_FLOAT_LE(val, values[parent]) : HEAPX_FLOAT_GE(val, values[parent])) break;
       values[pos] = values[parent];
       indices[pos] = indices[parent];
       pos = parent;
@@ -1642,14 +1662,14 @@ list_heapify_ternary_homogeneous_float(PyListObject *listobj, int is_max)
       if (c1 >= n) break;
       Py_ssize_t best = c1;
       double best_val = values[c1];
-      if (likely(c1 + 1 < n) && (is_max ? values[c1+1] > best_val : values[c1+1] < best_val)) { best = c1+1; best_val = values[c1+1]; }
-      if (likely(c1 + 2 < n) && (is_max ? values[c1+2] > best_val : values[c1+2] < best_val)) { best = c1+2; }
+      if (likely(c1 + 1 < n) && (is_max ? HEAPX_FLOAT_GT(values[c1+1], best_val) : HEAPX_FLOAT_LT(values[c1+1], best_val))) { best = c1+1; best_val = values[c1+1]; }
+      if (likely(c1 + 2 < n) && (is_max ? HEAPX_FLOAT_GT(values[c1+2], best_val) : HEAPX_FLOAT_LT(values[c1+2], best_val))) { best = c1+2; }
       values[pos] = values[best]; items[pos] = items[best]; pos = best;
     }
     
     while (pos > i) {
       Py_ssize_t parent = (pos - 1) / 3;
-      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      if (is_max ? HEAPX_FLOAT_LE(val, values[parent]) : HEAPX_FLOAT_GE(val, values[parent])) break;
       values[pos] = values[parent]; items[pos] = items[parent]; pos = parent;
     }
     values[pos] = val; items[pos] = obj;
@@ -1710,8 +1730,8 @@ list_heapify_ternary_homogeneous_float_nogil(PyListObject *listobj, int is_max)
       if (c1 >= n) break;
       Py_ssize_t best = c1;
       double best_val = values[c1];
-      if (likely(c1 + 1 < n) && (is_max ? values[c1+1] > best_val : values[c1+1] < best_val)) { best = c1+1; best_val = values[c1+1]; }
-      if (likely(c1 + 2 < n) && (is_max ? values[c1+2] > best_val : values[c1+2] < best_val)) { best = c1+2; }
+      if (likely(c1 + 1 < n) && (is_max ? HEAPX_FLOAT_GT(values[c1+1], best_val) : HEAPX_FLOAT_LT(values[c1+1], best_val))) { best = c1+1; best_val = values[c1+1]; }
+      if (likely(c1 + 2 < n) && (is_max ? HEAPX_FLOAT_GT(values[c1+2], best_val) : HEAPX_FLOAT_LT(values[c1+2], best_val))) { best = c1+2; }
       values[pos] = values[best];
       indices[pos] = indices[best];
       pos = best;
@@ -1720,7 +1740,7 @@ list_heapify_ternary_homogeneous_float_nogil(PyListObject *listobj, int is_max)
     /* Bubble up */
     while (pos > i) {
       Py_ssize_t parent = (pos - 1) / 3;
-      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      if (is_max ? HEAPX_FLOAT_LE(val, values[parent]) : HEAPX_FLOAT_GE(val, values[parent])) break;
       values[pos] = values[parent];
       indices[pos] = indices[parent];
       pos = parent;
@@ -1983,7 +2003,7 @@ list_heapify_quaternary_homogeneous_float(PyListObject *listobj, int is_max)
     
     while (pos > i) {
       Py_ssize_t parent = (pos - 1) / 4;
-      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      if (is_max ? HEAPX_FLOAT_LE(val, values[parent]) : HEAPX_FLOAT_GE(val, values[parent])) break;
       values[pos] = values[parent];
       items[pos] = items[parent];
       pos = parent;
@@ -2061,7 +2081,7 @@ list_heapify_quaternary_homogeneous_float_nogil(PyListObject *listobj, int is_ma
     /* Bubble up */
     while (pos > i) {
       Py_ssize_t parent = (pos - 1) / 4;
-      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      if (is_max ? HEAPX_FLOAT_LE(val, values[parent]) : HEAPX_FLOAT_GE(val, values[parent])) break;
       values[pos] = values[parent];
       indices[pos] = indices[parent];
       pos = parent;
@@ -2338,7 +2358,7 @@ list_heapify_nary_simd_homogeneous_float(PyListObject *listobj, int is_max, Py_s
     
     while (pos > i) {
       Py_ssize_t parent = (pos - 1) / arity;
-      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      if (is_max ? HEAPX_FLOAT_LE(val, values[parent]) : HEAPX_FLOAT_GE(val, values[parent])) break;
       values[pos] = values[parent];
       items[pos] = items[parent];
       pos = parent;
@@ -2416,7 +2436,7 @@ list_heapify_nary_simd_homogeneous_float_nogil(PyListObject *listobj, int is_max
     /* Bubble up */
     while (pos > i) {
       Py_ssize_t parent = (pos - 1) / arity;
-      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      if (is_max ? HEAPX_FLOAT_LE(val, values[parent]) : HEAPX_FLOAT_GE(val, values[parent])) break;
       values[pos] = values[parent];
       indices[pos] = indices[parent];
       pos = parent;
@@ -2896,7 +2916,7 @@ list_sort_homogeneous_float_nogil(PyListObject *listobj, int reverse, Py_ssize_t
       Py_ssize_t best = first_child;
       double best_val = values[first_child];
       for (Py_ssize_t j = 1; j < n_children; j++) {
-        if (is_max ? (values[first_child + j] > best_val) : (values[first_child + j] < best_val)) {
+        if (is_max ? HEAPX_FLOAT_GT(values[first_child + j], best_val) : HEAPX_FLOAT_LT(values[first_child + j], best_val)) {
           best = first_child + j;
           best_val = values[best];
         }
@@ -2909,7 +2929,7 @@ list_sort_homogeneous_float_nogil(PyListObject *listobj, int reverse, Py_ssize_t
     
     while (pos > i) {
       Py_ssize_t parent = (pos - 1) / arity;
-      if (is_max ? (val <= values[parent]) : (val >= values[parent])) break;
+      if (is_max ? HEAPX_FLOAT_LE(val, values[parent]) : HEAPX_FLOAT_GE(val, values[parent])) break;
       values[pos] = values[parent];
       indices[pos] = indices[parent];
       pos = parent;
@@ -2943,13 +2963,13 @@ list_sort_homogeneous_float_nogil(PyListObject *listobj, int reverse, Py_ssize_t
       Py_ssize_t best = first_child;
       double best_val = values[first_child];
       for (Py_ssize_t j = 1; j < n_children; j++) {
-        if (is_max ? (values[first_child + j] > best_val) : (values[first_child + j] < best_val)) {
+        if (is_max ? HEAPX_FLOAT_GT(values[first_child + j], best_val) : HEAPX_FLOAT_LT(values[first_child + j], best_val)) {
           best = first_child + j;
           best_val = values[best];
         }
       }
       
-      if (is_max ? (val >= best_val) : (val <= best_val)) break;
+      if (is_max ? HEAPX_FLOAT_GE(val, best_val) : HEAPX_FLOAT_LE(val, best_val)) break;
       
       values[pos] = values[best];
       indices[pos] = indices[best];
@@ -5839,13 +5859,13 @@ list_pop_bulk_homogeneous_float_nogil(PyListObject *listobj, Py_ssize_t k, int i
         double best_val = values[first_child];
         for (Py_ssize_t j = 1; j < n_children; j++) {
           double child_val = values[first_child + j];
-          if (is_max ? (child_val > best_val) : (child_val < best_val)) {
+          if (is_max ? HEAPX_FLOAT_GT(child_val, best_val) : HEAPX_FLOAT_LT(child_val, best_val)) {
             best = first_child + j;
             best_val = child_val;
           }
         }
         
-        if (is_max ? (val >= best_val) : (val <= best_val)) break;
+        if (is_max ? HEAPX_FLOAT_GE(val, best_val) : HEAPX_FLOAT_LE(val, best_val)) break;
         
         values[pos] = values[best];
         indices[pos] = indices[best];
