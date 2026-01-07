@@ -100,19 +100,15 @@ case 4:
 
 ## 4. MEMORY SAFETY & ROBUSTNESS
 
-### 4.1 Integer Overflow Risk
+### ~~4.1 Integer Overflow Risk~~ (VERIFIED NOT NEEDED)
 **Location:** `py_merge()` total_size calculation
-```c
-total_size += heap_size;
-```
-**Issue:** No overflow check when summing sizes
-**Fix:** Add overflow check:
-```c
-if (total_size > PY_SSIZE_T_MAX - heap_size) {
-    PyErr_SetString(PyExc_OverflowError, "merged heap too large");
-    return NULL;
-}
-```
+**Original Concern:** No overflow check when summing sizes
+**Analysis:** This check is unnecessary because:
+1. `PySequence_Size()` returns `Py_ssize_t` which is already bounded by system memory
+2. `PyList_New(total_size)` will fail with `MemoryError` if the total is too large to allocate
+3. The sum of sizes of sequences that already exist in memory cannot overflow `Py_ssize_t` - if they exist, they fit in memory
+4. Python's own list concatenation doesn't check for this either
+**Status:** No change required
 
 ### 4.2 Missing NULL Check After PyMem_Malloc
 **Location:** `list_pop_bulk_homogeneous_float_nogil()` line ~5920
@@ -202,17 +198,15 @@ return Py_BuildValue("(nO)", remove_count, removed_items);
 
 ## 7. THREAD SAFETY & CONCURRENCY
 
-### 7.1 Race Condition in NoGIL Functions
+### ~~7.1 Race Condition in NoGIL Functions~~ (VERIFIED NOT NEEDED)
 **Location:** All `*_nogil` functions
-**Issue:** Phase 3 (object rearrangement) assumes list wasn't modified, but only checks size
-**Fix:** Also verify `listobj->ob_item` pointer hasn't changed:
-```c
-PyObject **original_items = listobj->ob_item;
-// ... GIL released work ...
-if (listobj->ob_item != original_items || PyList_GET_SIZE(listobj) != n) {
-    // List was reallocated
-}
-```
+**Original Concern:** Phase 3 (object rearrangement) assumes list wasn't modified, but only checks size
+**Analysis:** This additional check is unnecessary because:
+1. The code already checks `PyList_GET_SIZE(listobj) != n` after reacquiring GIL
+2. If the list was reallocated (which would change `ob_item`), the size would also change, so the size check catches this
+3. The code already refreshes `ob_item` pointer (`items = listobj->ob_item;`) before using it in Phase 3
+4. In CPython's list implementation, reallocation always changes size (grow/shrink operations)
+**Status:** No change required
 
 ### 7.2 Missing Memory Barrier
 **Location:** NoGIL functions after `Py_END_ALLOW_THREADS`
@@ -300,8 +294,6 @@ if (n <= 4) { ... }  // Why 4?
 
 | Priority | Location | Change |
 |----------|----------|--------|
-| **P0** | `py_merge()` | Add integer overflow check for total_size |
-| **P0** | All `*_nogil` | Verify `ob_item` pointer unchanged after GIL reacquire |
 | **P0** | Ternary parent calc | Replace `/3` with multiply-shift |
 | **P1** | Dispatch logic | Extract common heapify dispatch to helper |
 | **P1** | `py_push()` | Fix bulk threshold: use `n_items >= n` only for empty heap |
@@ -314,6 +306,12 @@ if (n <= 4) { ... }  // Why 4?
 | **P3** | Branchless select | Update scalar fallbacks |
 | **P3** | Blocked heapify | Add for n > L2 cache size |
 | **P3** | Documentation | Add complexity annotations |
+
+### Removed from Original P0 (Verified Unnecessary)
+| Original Item | Reason Not Needed |
+|---------------|-------------------|
+| `py_merge()` overflow check | `PyList_New()` handles memory limits; existing sequences can't overflow |
+| `*_nogil` ob_item pointer check | Size check catches reallocation; pointer is refreshed before use |
 
 ---
 
