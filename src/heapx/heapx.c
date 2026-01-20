@@ -4933,6 +4933,52 @@ sift_down(PyObject *heap, Py_ssize_t pos, Py_ssize_t n, int is_max, PyObject *cm
   return 0;
 }
 
+/* ============================================================================
+ * HOMOGENEOUS SIFT-UP FUNCTIONS FOR BULK SEQUENTIAL PUSH
+ * ============================================================================
+ * Zero-overhead sift-up operations for homogeneous int/float arrays.
+ * Used only for bulk push (n_items > 1) where detection cost is amortized.
+ * Return: 0=success, 1=fallback to generic path, -1=error
+ */
+
+HOT_FUNCTION static inline int
+list_sift_up_homogeneous_int(PyListObject *listobj, Py_ssize_t pos, int is_max, Py_ssize_t arity) {
+  if (pos == 0) return 0;
+  PyObject **items = listobj->ob_item;
+  PyObject *item = items[pos];
+  long val = PyLong_AsLong(item);
+  if (unlikely(val == -1 && PyErr_Occurred())) { PyErr_Clear(); return 1; }
+  
+  while (pos > 0) {
+    Py_ssize_t parent = (pos - 1) / arity;
+    long pval = PyLong_AsLong(items[parent]);
+    if (unlikely(pval == -1 && PyErr_Occurred())) { PyErr_Clear(); return 1; }
+    if (is_max ? (val <= pval) : (val >= pval)) break;
+    items[pos] = items[parent];
+    pos = parent;
+  }
+  items[pos] = item;
+  return 0;
+}
+
+HOT_FUNCTION static inline int
+list_sift_up_homogeneous_float(PyListObject *listobj, Py_ssize_t pos, int is_max, Py_ssize_t arity) {
+  if (pos == 0) return 0;
+  PyObject **items = listobj->ob_item;
+  PyObject *item = items[pos];
+  double val = PyFloat_AS_DOUBLE(item);
+  
+  while (pos > 0) {
+    Py_ssize_t parent = (pos - 1) / arity;
+    double pval = PyFloat_AS_DOUBLE(items[parent]);
+    if (is_max ? HEAPX_FLOAT_LE(val, pval) : HEAPX_FLOAT_GE(val, pval)) break;
+    items[pos] = items[parent];
+    pos = parent;
+  }
+  items[pos] = item;
+  return 0;
+}
+
 /* Ultra-optimized sift up for lists without key functions */
 /* Safety: INCREF objects held across comparisons to prevent use-after-free. */
 HOT_FUNCTION static inline int
@@ -5481,6 +5527,10 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
     if (likely(cmp == Py_None)) {
       /* No key function path */
       
+      /* Homogeneous detection only for bulk pushes (n_items > 1) where detection cost
+       * is amortized. Single-item push uses generic path for safety with mixed types. */
+      int homogeneous = (n_items > 1 && total_size >= 8) ? detect_homogeneous_type(listobj->ob_item, total_size) : 0;
+      
       /* Priority 2: Arity = 1 (sorted list) */
       if (unlikely(arity == 1)) {
         /* Binary insertion for each new element to maintain sorted order */
@@ -5520,6 +5570,22 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
       
       /* Priority 3: Binary heap (arity=2) - most common */
       if (likely(arity == 2)) {
+        /* Homogeneous fast path for binary heap */
+        if (homogeneous == 2) {
+          for (Py_ssize_t idx = n; idx < total_size; idx++) {
+            if (unlikely(list_sift_up_homogeneous_float(listobj, idx, is_max, 2) != 0)) goto binary_generic;
+          }
+          Py_RETURN_NONE;
+        }
+        if (homogeneous == 1) {
+          for (Py_ssize_t idx = n; idx < total_size; idx++) {
+            int rc = list_sift_up_homogeneous_int(listobj, idx, is_max, 2);
+            if (unlikely(rc == 1)) goto binary_generic;
+            if (unlikely(rc < 0)) return NULL;
+          }
+          Py_RETURN_NONE;
+        }
+        binary_generic:
         for (Py_ssize_t idx = n; idx < total_size; idx++) {
           /* REFRESH POINTER */
           arr = listobj->ob_item;
@@ -5554,6 +5620,22 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
       
       /* Priority 4: Ternary heap (arity=3) */
       if (arity == 3) {
+        /* Homogeneous fast path for ternary heap */
+        if (homogeneous == 2) {
+          for (Py_ssize_t idx = n; idx < total_size; idx++) {
+            if (unlikely(list_sift_up_homogeneous_float(listobj, idx, is_max, 3) != 0)) goto ternary_generic;
+          }
+          Py_RETURN_NONE;
+        }
+        if (homogeneous == 1) {
+          for (Py_ssize_t idx = n; idx < total_size; idx++) {
+            int rc = list_sift_up_homogeneous_int(listobj, idx, is_max, 3);
+            if (unlikely(rc == 1)) goto ternary_generic;
+            if (unlikely(rc < 0)) return NULL;
+          }
+          Py_RETURN_NONE;
+        }
+        ternary_generic:
         for (Py_ssize_t idx = n; idx < total_size; idx++) {
           /* REFRESH POINTER */
           arr = listobj->ob_item;
@@ -5588,6 +5670,22 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
       
       /* Priority 5: Quaternary heap (arity=4) */
       if (arity == 4) {
+        /* Homogeneous fast path for quaternary heap */
+        if (homogeneous == 2) {
+          for (Py_ssize_t idx = n; idx < total_size; idx++) {
+            if (unlikely(list_sift_up_homogeneous_float(listobj, idx, is_max, 4) != 0)) goto quaternary_generic;
+          }
+          Py_RETURN_NONE;
+        }
+        if (homogeneous == 1) {
+          for (Py_ssize_t idx = n; idx < total_size; idx++) {
+            int rc = list_sift_up_homogeneous_int(listobj, idx, is_max, 4);
+            if (unlikely(rc == 1)) goto quaternary_generic;
+            if (unlikely(rc < 0)) return NULL;
+          }
+          Py_RETURN_NONE;
+        }
+        quaternary_generic:
         for (Py_ssize_t idx = n; idx < total_size; idx++) {
           /* REFRESH POINTER */
           arr = listobj->ob_item;
@@ -5621,6 +5719,22 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
       }
       
       /* Priority 6 & 7: General n-ary (arity≥5) */
+      /* Homogeneous fast path for n-ary heap */
+      if (homogeneous == 2) {
+        for (Py_ssize_t idx = n; idx < total_size; idx++) {
+          if (unlikely(list_sift_up_homogeneous_float(listobj, idx, is_max, arity) != 0)) goto nary_generic;
+        }
+        Py_RETURN_NONE;
+      }
+      if (homogeneous == 1) {
+        for (Py_ssize_t idx = n; idx < total_size; idx++) {
+          int rc = list_sift_up_homogeneous_int(listobj, idx, is_max, arity);
+          if (unlikely(rc == 1)) goto nary_generic;
+          if (unlikely(rc < 0)) return NULL;
+        }
+        Py_RETURN_NONE;
+      }
+      nary_generic:
       for (Py_ssize_t idx = n; idx < total_size; idx++) {
         /* REFRESH POINTER */
         arr = listobj->ob_item;
