@@ -315,22 +315,6 @@ if (n <= 4) { ... }  // Why 4?
 
 ---
 
-## 12. RECOMMENDED RELEASE CHECKLIST
-
-1. ☐ Fix all P0 issues (safety-critical)
-2. ☐ Fix all P1 issues (correctness/performance)
-3. ☐ Run full test suite on: Linux x64, macOS ARM64, Windows x64
-4. ☐ Run valgrind/ASan for memory safety
-5. ☐ Benchmark against heapq on all platforms
-6. ☐ Code review by second engineer
-7. ☐ Update version to 1.0.0
-8. ☐ Generate wheels for all supported platforms
-9. ☐ Write migration guide from heapq
-
-The module is ~95% production-ready. The P0 and P1 fixes are essential before release.
-
----
-
 ## Gemini Response
 
 # heapx.c Optimization & Security Audit Report
