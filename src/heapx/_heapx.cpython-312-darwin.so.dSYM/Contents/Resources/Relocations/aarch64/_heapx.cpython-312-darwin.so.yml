@@ -1,0 +1,5 @@
+---
+triple:          'arm64-apple-darwin'
+binary-path:     'src/heapx/_heapx.cpython-312-darwin.so'
+relocations:     []
+...
