@@ -437,7 +437,7 @@ cdef void _nary_sift_up(list heap, Py_ssize_t pos, bint is_max, Py_ssize_t arity
 # PUBLIC API: HEAPIFY
 # =============================================================================
 
-def heapify(list heap, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):
+cpdef heapify(list heap, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):
     """Transform list into heap in-place."""
     cdef Py_ssize_t n = len(heap), i
     cdef int dtype
@@ -471,7 +471,7 @@ def heapify(list heap, bint max_heap=False, object cmp=None, Py_ssize_t arity=2,
 # PUBLIC API: POP
 # =============================================================================
 
-def pop(list heap, Py_ssize_t n=1, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):
+cpdef pop(list heap, Py_ssize_t n=1, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):
     """Pop and return the smallest (or largest) item(s) from heap."""
     cdef:
         Py_ssize_t heap_size = len(heap)
@@ -574,7 +574,7 @@ cdef list _pop_bulk_opt(list heap, Py_ssize_t n, bint max_heap, object cmp, Py_s
 # PUBLIC API: PUSH
 # =============================================================================
 
-def push(list heap, object items, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):
+cpdef push(list heap, object items, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):
     """Push item(s) onto heap."""
     cdef int dtype
     
