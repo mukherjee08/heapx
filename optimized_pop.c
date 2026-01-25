@@ -1138,15 +1138,6 @@ static CYTHON_INLINE float __PYX_NAN() {
 #define __PYX_HAVE__optimized_pop
 #define __PYX_HAVE_API__optimized_pop
 /* Early includes */
-#include <string.h>
-#include <stdio.h>
-
-    #ifdef __GNUC__
-    #define PREFETCH(addr) __builtin_prefetch(addr, 0, 3)
-    #else
-    #define PREFETCH(addr) ((void)0)
-    #endif
-    
 #ifdef _OPENMP
 #include <omp.h>
 #endif /* _OPENMP */
@@ -1355,7 +1346,6 @@ static const char *__pyx_filename;
 
 static const char* const __pyx_f[] = {
   "optimized_pop.pyx",
-  "cpython/type.pxd",
 };
 /* #### Code section: utility_code_proto_before_types ### */
 /* Atomics.proto */
@@ -1874,6 +1864,53 @@ static int __Pyx_VectorcallBuilder_AddArgStr(const char *key, PyObject *value, P
 static PyObject *__Pyx_Object_VectorcallMethod_CallFromBuilder(PyObject *name, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 #endif
 
+/* PyDictVersioning.proto */
+#if CYTHON_USE_DICT_VERSIONS && CYTHON_USE_TYPE_SLOTS
+#define __PYX_DICT_VERSION_INIT  ((PY_UINT64_T) -1)
+#define __PYX_GET_DICT_VERSION(dict)  (((PyDictObject*)(dict))->ma_version_tag)
+#define __PYX_UPDATE_DICT_CACHE(dict, value, cache_var, version_var)\
+    (version_var) = __PYX_GET_DICT_VERSION(dict);\
+    (cache_var) = (value);
+#define __PYX_PY_DICT_LOOKUP_IF_MODIFIED(VAR, DICT, LOOKUP) {\
+    static PY_UINT64_T __pyx_dict_version = 0;\
+    static PyObject *__pyx_dict_cached_value = NULL;\
+    if (likely(__PYX_GET_DICT_VERSION(DICT) == __pyx_dict_version)) {\
+        (VAR) = __pyx_dict_cached_value;\
+    } else {\
+        (VAR) = __pyx_dict_cached_value = (LOOKUP);\
+        __pyx_dict_version = __PYX_GET_DICT_VERSION(DICT);\
+    }\
+}
+static CYTHON_INLINE PY_UINT64_T __Pyx_get_tp_dict_version(PyObject *obj);
+static CYTHON_INLINE PY_UINT64_T __Pyx_get_object_dict_version(PyObject *obj);
+static CYTHON_INLINE int __Pyx_object_dict_version_matches(PyObject* obj, PY_UINT64_T tp_dict_version, PY_UINT64_T obj_dict_version);
+#else
+#define __PYX_GET_DICT_VERSION(dict)  (0)
+#define __PYX_UPDATE_DICT_CACHE(dict, value, cache_var, version_var)
+#define __PYX_PY_DICT_LOOKUP_IF_MODIFIED(VAR, DICT, LOOKUP)  (VAR) = (LOOKUP);
+#endif
+
+/* GetModuleGlobalName.proto */
+#if CYTHON_USE_DICT_VERSIONS
+#define __Pyx_GetModuleGlobalName(var, name)  do {\
+    static PY_UINT64_T __pyx_dict_version = 0;\
+    static PyObject *__pyx_dict_cached_value = NULL;\
+    (var) = (likely(__pyx_dict_version == __PYX_GET_DICT_VERSION(__pyx_mstate_global->__pyx_d))) ?\
+        (likely(__pyx_dict_cached_value) ? __Pyx_NewRef(__pyx_dict_cached_value) : __Pyx_GetBuiltinName(name)) :\
+        __Pyx__GetModuleGlobalName(name, &__pyx_dict_version, &__pyx_dict_cached_value);\
+} while(0)
+#define __Pyx_GetModuleGlobalNameUncached(var, name)  do {\
+    PY_UINT64_T __pyx_dict_version;\
+    PyObject *__pyx_dict_cached_value;\
+    (var) = __Pyx__GetModuleGlobalName(name, &__pyx_dict_version, &__pyx_dict_cached_value);\
+} while(0)
+static PyObject *__Pyx__GetModuleGlobalName(PyObject *name, PY_UINT64_T *dict_version, PyObject **dict_cached_value);
+#else
+#define __Pyx_GetModuleGlobalName(var, name)  (var) = __Pyx__GetModuleGlobalName(name)
+#define __Pyx_GetModuleGlobalNameUncached(var, name)  (var) = __Pyx__GetModuleGlobalName(name)
+static CYTHON_INLINE PyObject *__Pyx__GetModuleGlobalName(PyObject *name);
+#endif
+
 /* RaiseException.proto */
 static void __Pyx_Raise(PyObject *type, PyObject *value, PyObject *tb, PyObject *cause);
 
@@ -1901,6 +1938,27 @@ static CYTHON_INLINE PyObject* __Pyx_PyUnicode_From_Py_ssize_t(Py_ssize_t value,
 #define __Pyx_PyCallable_Check(obj)   (Py_TYPE(obj)->tp_call != NULL)
 #else
 #define __Pyx_PyCallable_Check(obj)   PyCallable_Check(obj)
+#endif
+
+/* ListCompAppend.proto */
+#if CYTHON_USE_PYLIST_INTERNALS && CYTHON_ASSUME_SAFE_MACROS
+static CYTHON_INLINE int __Pyx_ListComp_Append(PyObject* list, PyObject* x) {
+    PyListObject* L = (PyListObject*) list;
+    Py_ssize_t len = Py_SIZE(list);
+    if (likely(L->allocated > len)) {
+        Py_INCREF(x);
+        #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030d0000
+        L->ob_item[len] = x;
+        #else
+        PyList_SET_ITEM(list, len, x);
+        #endif
+        __Pyx_SET_SIZE(list, len + 1);
+        return 0;
+    }
+    return PyList_Append(list, x);
+}
+#else
+#define __Pyx_ListComp_Append(L,x) PyList_Append(L,x)
 #endif
 
 /* PyObjectCallNoArg.proto */
@@ -1983,24 +2041,12 @@ static CYTHON_INLINE int __Pyx_PyList_Append(PyObject* list, PyObject* x) {
 #define __Pyx_PyList_Append(L,x) PyList_Append(L,x)
 #endif
 
-/* TypeImport.proto */
-#ifndef __PYX_HAVE_RT_ImportType_proto_3_1_3
-#define __PYX_HAVE_RT_ImportType_proto_3_1_3
-#if defined (__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
-#include <stdalign.h>
-#endif
-#if (defined (__STDC_VERSION__) && __STDC_VERSION__ >= 201112L) || __cplusplus >= 201103L
-#define __PYX_GET_STRUCT_ALIGNMENT_3_1_3(s) alignof(s)
-#else
-#define __PYX_GET_STRUCT_ALIGNMENT_3_1_3(s) sizeof(void*)
-#endif
-enum __Pyx_ImportType_CheckSize_3_1_3 {
-   __Pyx_ImportType_CheckSize_Error_3_1_3 = 0,
-   __Pyx_ImportType_CheckSize_Warn_3_1_3 = 1,
-   __Pyx_ImportType_CheckSize_Ignore_3_1_3 = 2
-};
-static PyTypeObject *__Pyx_ImportType_3_1_3(PyObject* module, const char *module_name, const char *class_name, size_t size, size_t alignment, enum __Pyx_ImportType_CheckSize_3_1_3 check_size);
-#endif
+/* Import.proto */
+static PyObject *__Pyx_Import(PyObject *name, PyObject *from_list, int level);
+
+/* ImportDottedModule.proto */
+static PyObject *__Pyx_ImportDottedModule(PyObject *name, PyObject *parts_tuple);
+static PyObject *__Pyx_ImportDottedModule_WalkParts(PyObject *module, PyObject *name, PyObject *parts_tuple);
 
 /* LimitedApiGetTypeDict.proto */
 #if CYTHON_COMPILING_IN_LIMITED_API
@@ -2137,32 +2183,6 @@ static PyObject *__Pyx_CyFunction_New(PyMethodDef *ml,
                                       PyObject *closure,
                                       PyObject *module, PyObject *globals,
                                       PyObject* code);
-
-/* PyDictVersioning.proto */
-#if CYTHON_USE_DICT_VERSIONS && CYTHON_USE_TYPE_SLOTS
-#define __PYX_DICT_VERSION_INIT  ((PY_UINT64_T) -1)
-#define __PYX_GET_DICT_VERSION(dict)  (((PyDictObject*)(dict))->ma_version_tag)
-#define __PYX_UPDATE_DICT_CACHE(dict, value, cache_var, version_var)\
-    (version_var) = __PYX_GET_DICT_VERSION(dict);\
-    (cache_var) = (value);
-#define __PYX_PY_DICT_LOOKUP_IF_MODIFIED(VAR, DICT, LOOKUP) {\
-    static PY_UINT64_T __pyx_dict_version = 0;\
-    static PyObject *__pyx_dict_cached_value = NULL;\
-    if (likely(__PYX_GET_DICT_VERSION(DICT) == __pyx_dict_version)) {\
-        (VAR) = __pyx_dict_cached_value;\
-    } else {\
-        (VAR) = __pyx_dict_cached_value = (LOOKUP);\
-        __pyx_dict_version = __PYX_GET_DICT_VERSION(DICT);\
-    }\
-}
-static CYTHON_INLINE PY_UINT64_T __Pyx_get_tp_dict_version(PyObject *obj);
-static CYTHON_INLINE PY_UINT64_T __Pyx_get_object_dict_version(PyObject *obj);
-static CYTHON_INLINE int __Pyx_object_dict_version_matches(PyObject* obj, PY_UINT64_T tp_dict_version, PY_UINT64_T obj_dict_version);
-#else
-#define __PYX_GET_DICT_VERSION(dict)  (0)
-#define __PYX_UPDATE_DICT_CACHE(dict, value, cache_var, version_var)
-#define __PYX_PY_DICT_LOOKUP_IF_MODIFIED(VAR, DICT, LOOKUP)  (VAR) = (LOOKUP);
-#endif
 
 /* CLineInTraceback.proto */
 #if CYTHON_CLINE_IN_TRACEBACK && CYTHON_CLINE_IN_TRACEBACK_RUNTIME
@@ -2301,42 +2321,24 @@ static int __Pyx_State_RemoveModule(void*);
 #define __PYX_TYPE_MODULE_PREFIX __PYX_ABI_MODULE_NAME "."
 
 
-/* Module declarations from "libc.string" */
-
-/* Module declarations from "libc.stdio" */
-
-/* Module declarations from "__builtin__" */
-
-/* Module declarations from "cpython.type" */
-
-/* Module declarations from "cpython" */
-
-/* Module declarations from "cpython.object" */
-
-/* Module declarations from "cpython.ref" */
-
 /* Module declarations from "optimized_pop" */
-static CYTHON_INLINE int __pyx_f_13optimized_pop_detect_type(PyObject *, Py_ssize_t); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_int_min(PyObject *, Py_ssize_t, Py_ssize_t); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_int_max(PyObject *, Py_ssize_t, Py_ssize_t); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_min(PyObject *, Py_ssize_t, Py_ssize_t); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_max(PyObject *, Py_ssize_t, Py_ssize_t); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_bool_min(PyObject *, Py_ssize_t, Py_ssize_t); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_bool_max(PyObject *, Py_ssize_t, Py_ssize_t); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_str_min(PyObject *, Py_ssize_t, Py_ssize_t); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_str_max(PyObject *, Py_ssize_t, Py_ssize_t); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_generic_min(PyObject *, Py_ssize_t, Py_ssize_t); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_generic_max(PyObject *, Py_ssize_t, Py_ssize_t); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_with_key_min(PyObject *, Py_ssize_t, Py_ssize_t, PyObject *); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_with_key_max(PyObject *, Py_ssize_t, Py_ssize_t, PyObject *); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_nary_min(PyObject *, Py_ssize_t, Py_ssize_t, Py_ssize_t); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_nary_max(PyObject *, Py_ssize_t, Py_ssize_t, Py_ssize_t); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_nary_key_min(PyObject *, Py_ssize_t, Py_ssize_t, Py_ssize_t, PyObject *); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_nary_key_max(PyObject *, Py_ssize_t, Py_ssize_t, Py_ssize_t, PyObject *); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_up_min(PyObject *, Py_ssize_t); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_up_max(PyObject *, Py_ssize_t); /*proto*/
-static CYTHON_INLINE void __pyx_f_13optimized_pop_dispatch_sift_down(PyObject *, Py_ssize_t, Py_ssize_t, int, int); /*proto*/
-static void __pyx_f_13optimized_pop_do_heapify(PyObject *, int, int); /*proto*/
+static CYTHON_INLINE int __pyx_f_13optimized_pop__detect_type(PyObject *); /*proto*/
+static CYTHON_INLINE void __pyx_f_13optimized_pop__sift_int_min(PyObject *, Py_ssize_t); /*proto*/
+static CYTHON_INLINE void __pyx_f_13optimized_pop__sift_int_max(PyObject *, Py_ssize_t); /*proto*/
+static CYTHON_INLINE void __pyx_f_13optimized_pop__sift_float_min(PyObject *, Py_ssize_t); /*proto*/
+static CYTHON_INLINE void __pyx_f_13optimized_pop__sift_float_max(PyObject *, Py_ssize_t); /*proto*/
+static CYTHON_INLINE void __pyx_f_13optimized_pop__sift_bool_min(PyObject *, Py_ssize_t); /*proto*/
+static CYTHON_INLINE void __pyx_f_13optimized_pop__sift_bool_max(PyObject *, Py_ssize_t); /*proto*/
+static CYTHON_INLINE void __pyx_f_13optimized_pop__sift_generic_max(PyObject *, Py_ssize_t); /*proto*/
+static CYTHON_INLINE void __pyx_f_13optimized_pop__heapify_int(PyObject *, Py_ssize_t, int); /*proto*/
+static CYTHON_INLINE void __pyx_f_13optimized_pop__heapify_float(PyObject *, Py_ssize_t, int); /*proto*/
+static CYTHON_INLINE void __pyx_f_13optimized_pop__heapify_bool(PyObject *, Py_ssize_t, int); /*proto*/
+static CYTHON_INLINE void __pyx_f_13optimized_pop__heapify_generic_max(PyObject *, Py_ssize_t); /*proto*/
+static void __pyx_f_13optimized_pop__nary_sift_down(PyObject *, Py_ssize_t, Py_ssize_t, int, Py_ssize_t, PyObject *); /*proto*/
+static void __pyx_f_13optimized_pop__nary_sift_up(PyObject *, Py_ssize_t, int, Py_ssize_t, PyObject *); /*proto*/
+static CYTHON_INLINE PyObject *__pyx_f_13optimized_pop__pop_single_opt(PyObject *, int, PyObject *, Py_ssize_t); /*proto*/
+static PyObject *__pyx_f_13optimized_pop__pop_bulk_opt(PyObject *, Py_ssize_t, int, PyObject *, Py_ssize_t); /*proto*/
+static CYTHON_INLINE void __pyx_f_13optimized_pop__push_single_opt(PyObject *, PyObject *, int, PyObject *, Py_ssize_t); /*proto*/
 /* #### Code section: typeinfo ### */
 /* #### Code section: before_global_var ### */
 #define __Pyx_MODULE_NAME "optimized_pop"
@@ -2354,7 +2356,10 @@ static const char __pyx_k_[] = "?";
 static const char __pyx_k_i[] = "i";
 static const char __pyx_k_j[] = "j";
 static const char __pyx_k_n[] = "n";
+static const char __pyx_k_t[] = "t";
+static const char __pyx_k__2[] = "_";
 static const char __pyx_k_cmp[] = "cmp";
+static const char __pyx_k_key[] = "key";
 static const char __pyx_k_pop[] = "pop";
 static const char __pyx_k_func[] = "__func__";
 static const char __pyx_k_heap[] = "heap";
@@ -2364,28 +2369,33 @@ static const char __pyx_k_main[] = "__main__";
 static const char __pyx_k_name[] = "__name__";
 static const char __pyx_k_push[] = "push";
 static const char __pyx_k_sort[] = "sort";
+static const char __pyx_k_spec[] = "__spec__";
 static const char __pyx_k_test[] = "__test__";
 static const char __pyx_k_arity[] = "arity";
 static const char __pyx_k_child[] = "child";
 static const char __pyx_k_dtype[] = "dtype";
+static const char __pyx_k_heapq[] = "_heapq";
 static const char __pyx_k_items[] = "items";
 static const char __pyx_k_nogil[] = "nogil";
 static const char __pyx_k_range[] = "range";
 static const char __pyx_k_module[] = "__module__";
 static const char __pyx_k_result[] = "result";
 static const char __pyx_k_heapify[] = "heapify";
-static const char __pyx_k_results[] = "results";
+static const char __pyx_k_heappop[] = "heappop";
+static const char __pyx_k_heapq_2[] = "heapq";
 static const char __pyx_k_reverse[] = "reverse";
 static const char __pyx_k_add_note[] = "add_note";
+static const char __pyx_k_heappush[] = "heappush";
 static const char __pyx_k_max_heap[] = "max_heap";
-static const char __pyx_k_new_size[] = "new_size";
 static const char __pyx_k_qualname[] = "__qualname__";
 static const char __pyx_k_set_name[] = "__set_name__";
+static const char __pyx_k_siftdown[] = "_siftdown";
 static const char __pyx_k_TypeError[] = "TypeError";
 static const char __pyx_k_heap_size[] = "heap_size";
 static const char __pyx_k_IndexError[] = "IndexError";
 static const char __pyx_k_ValueError[] = "ValueError";
 static const char __pyx_k_verify_heap[] = "verify_heap";
+static const char __pyx_k_initializing[] = "_initializing";
 static const char __pyx_k_is_coroutine[] = "_is_coroutine";
 static const char __pyx_k_optimized_pop[] = "optimized_pop";
 static const char __pyx_k_n_must_be_1_got[] = "n must be >= 1, got ";
@@ -2396,15 +2406,15 @@ static const char __pyx_k_arity_must_be_1_got[] = "arity must be >= 1, got ";
 static const char __pyx_k_pop_from_empty_heap[] = "pop from empty heap";
 static const char __pyx_k_cmp_must_be_callable_or_None[] = "cmp must be callable or None";
 static const char __pyx_k_0_1A_vS_E_ar_1_q_4q_2T_Ba_1_4q[] = "\320\000\033\320\0330\260\001\340\004\030\230\003\2301\230A\330\004\007\200v\210S\220\001\330\010\014\210E\220\025\220a\220r\230\022\2301\330\014\017\210q\330\020\023\2204\220q\230\003\2302\230T\240\021\240\"\240B\240a\330\024\033\2301\340\020\023\2204\220q\230\003\2302\230T\240\021\240\"\240B\240a\330\024\033\2301\330\010\017\210q\330\004\010\210\005\210U\220!\2201\330\010\014\210E\220\025\220a\220s\230&\240\002\240!\330\014\024\220F\230\"\230B\230b\240\001\330\014\017\210v\220S\230\001\330\020\021\330\014\017\210q\330\020\023\2204\220q\230\003\2302\230T\240\021\240!\330\024\033\2301\340\020\023\2204\220q\230\003\2302\230T\240\021\240!\330\024\033\2301\330\004\013\2101";
-static const char __pyx_k_77HH_z_Q_HA_q_q_1F_QfBa_1F_QfBa[] = "\320\000\"\320\"7\3207H\320H\\\320\\]\360\006\000\005\010\200z\220\021\220(\230&\240\005\240Q\330\010\014\210H\220A\330\014\020\220\007\220q\230\001\330\014\017\210q\330\020\033\2301\230F\240#\240Q\240f\250B\250a\340\020\033\2301\230F\240#\240Q\240f\250B\250a\340\010\014\210G\2201\220A\330\010\013\2101\330\014\027\220q\230\006\230c\240\021\240&\250\002\250!\340\014\027\220q\230\006\230c\240\021\240&\250\002\250!";
-static const char __pyx_k_88II_s_1_z_A_j_r_1_j_31_vRq_j_7[] = "\320\000\023\320\023#\320#8\3208I\320I]\320]^\360 \000\t \230s\240!\2401\360\014\000\005\010\200z\220\023\220A\330\010\016\210j\230\001\230\021\330\004\007\200r\210\022\2101\330\010\016\210j\230\001\230\022\320\0333\2601\330\004\007\200v\210R\210q\330\010\016\210j\230\001\230\022\320\0337\260q\330\004\007\200t\2107\220%\220t\2304\230x\240q\250\001\330\010\016\210i\220q\230\001\340\004\007\200r\210\022\2101\330\010\014\210A\360\006\000\005\010\200r\210\023\210A\330\010\021\220\024\220Q\220a\330\010\013\210:\220S\230\001\330\014\020\220\004\220A\330\014\023\2201\330\010\013\2106\220\023\220A\330\014\020\220\004\220A\220Q\330\014\023\2201\340\010\017\210t\2204\220q\330\010\014\210A\210U\220!\330\010\023\220:\230R\230q\340\010\013\2104\210w\220a\330\014\017\210v\220S\230\001\330\020\023\2201\330\024*\250!\2506\260\023\260J\270a\340\024*\250!\2506\260\023\260J\270a\340\020\023\2201\330\024*\250!\2506\260\023\260J\270g\300Q\340\024*\250!\2506\260\023\260J\270g\300Q\330\r\023\2203\220a\330\014\024\220K\230q\240\006\240a\330\014\036\230a\230v\240S\250\n\260*\270A\340\014\017\210q\330\020\"\240!\2406\250\023\250J\260a\340\020\"\240!\2406\250\023\250J\260a\330\010\017\210q\360\006\000\005\010\200v\210S\220\001\330\010\022\220$\220b\230\001\330\010\014\210D\220\002\220!\330\010\017\210q\340\004\016\210a\330\004\014\210K\220q\230\006\230n\250D\260\003\260:\270Q\340\004\010\210\005\210U\220!\2201\330\010\013\2103\210a\210v\220S\230\001\330\014\r\330\010\021\220\024\220Q\220a\330\010\017\210w\220a\220q\330\010\013\2103\210a\210v\220S\230\001\330\014\020\220\004\220A\330\014\r\330\010\017\210t\2204\220q\330\010\014\210A\210U\220!\330\010\023\2203\220a\220q\340\010\013\2104\210w\220a\330\014\017\210v\220S\230\001\330\020\023\2201\330\024*\250!\2506\260\023\260J\270a\340\024*\250!\2506\260\023\260J\270a\340\020\023\2201\330\024*\250!\2506\260\023\260J\270g\300Q\340\024*\250!\2506\260\023\260J\270g\300Q\330\r\023\2203\220a\330\014\036\230a\230v\240S\250\n\260*\270A\340\014\017\210q""\330\020\"\240!\2406\250\023\250J\260a\340\020\"\240!\2406\250\023\250J\260a\330\004\013\2101";
-static const char __pyx_k_QQR_1A_r_A_t7_6_A_U_Bc_Bd_a_1_6[] = "\320\000\027\320\027,\320,=\320=Q\320QR\340\004\030\230\003\2301\230A\330\004\007\200r\210\023\210A\330\010\t\330\004\007\200t\2107\220!\330\010\013\2106\220\023\220A\330\014\020\220\005\220U\230\"\230B\230c\240\023\240B\240d\250$\250a\330\020\023\2201\330\024*\250!\2506\260\023\260C\260q\340\024*\250!\2506\260\023\260C\260q\340\014\020\220\005\220U\230\"\230B\230b\240\003\2403\240h\250d\260!\330\020\023\2201\330\024*\250!\2506\260\023\260C\260w\270a\340\024*\250!\2506\260\023\260C\260w\270a\330\t\017\210s\220!\330\010\014\210E\220\021\220(\230!\330\t\017\210s\220!\330\010\022\220!\2206\230\032\240;\250a\250v\260Q\340\010\014\210E\220\025\220b\230\002\230\"\230C\230s\240(\250$\250a\330\014\017\210q\330\020\"\240!\2406\250\023\250C\250q\340\020\"\240!\2406\250\023\250C\250q";
-static const char __pyx_k_Ultra_Optimized_Heap_Operations[] = "\nUltra-Optimized Heap Operations for heapx\n\nOptimizations:\n- Type-specialized fast paths (int, float, bool use bottom-up Floyd's algorithm)\n- Standard sift-down for str/custom (simpler, matches heapq performance)\n- Native Python comparison for strings (faster than PyUnicode_Compare)\n- Memory prefetching for cache optimization on numeric types\n- Direct C-level value extraction bypassing Python API\n";
+static const char __pyx_k_QQR_1A_r_A_vS_E_e81_t7_s_1_E_b[] = "\320\000\027\320\027,\320,=\320=Q\320QR\340\004\030\230\003\2301\230A\360\006\000\005\010\200r\210\023\210A\330\010\t\340\004\007\200v\210S\220\001\330\010\014\210E\220\021\220$\220e\2308\2401\330\010\t\340\004\007\200t\2107\220%\220s\230&\240\003\2401\330\010\014\210E\220\025\220b\230\002\230\"\230C\230s\240(\250$\250a\330\014\033\2301\230F\240#\240S\250\n\260'\270\021\330\010\t\340\004\014\210L\230\001\230\021\340\004\007\200v\210S\220\001\330\010\024\220A\220V\2303\230a\330\t\017\210s\220!\330\010\026\220a\220v\230S\240\001\330\t\017\210s\220!\330\010\025\220Q\220f\230C\230q\330\t\n\330\010\034\230A\230V\2401\340\010\016\210h\220a\220q";
+static const char __pyx_k_77HH_t3e4vS_d_AYc_6_A_z_Q_HA_1F[] = "\320\000\"\320\"7\3207H\320H\\\320\\]\360\n\000\005\010\200t\2103\210e\2204\220v\230S\240\002\240$\240d\250!\330\010\020\220\014\230A\230Y\240c\250\021\250&\260\002\260'\270\021\330\010\013\2106\220\023\220A\330\014\017\210z\230\021\230(\240&\250\005\250Q\330\020\024\220H\230A\330\024\032\230)\2401\240F\250!\340\020\026\220i\230q\240\006\240a\330\014\r\340\004\007\200z\220\021\220(\230&\240\005\240Q\330\010\014\210H\220A\330\014\034\230A\230V\2406\250\032\2605\270\001\340\010\030\230\001\230\026\230w\240j\260\005\260Q";
+static const char __pyx_k_88II_s_1_z_A_j_r_1_j_31_vRq_j_7[] = "\320\000\023\320\023#\320#8\3208I\320I]\320]^\360\006\000\t \230s\240!\2401\360\n\000\005\010\200z\220\023\220A\330\010\016\210j\230\001\230\021\330\004\007\200r\210\022\2101\330\010\016\210j\230\001\230\022\320\0333\2601\330\004\007\200v\210R\210q\330\010\016\210j\230\001\230\022\320\0337\260q\330\004\007\200t\2107\220%\220t\2304\230x\240q\250\001\330\010\016\210i\220q\230\001\340\004\007\200r\210\022\2101\330\010\014\210A\360\006\000\005\010\200t\2103\210e\2204\220v\230S\240\002\240$\240d\250!\340\010\014\210D\220\001\220\024\220Q\220a\330\010\013\2102\210W\220D\230\004\230B\230g\240V\2504\250r\260\027\270\001\330\014\017\210r\220\023\220A\330\020\027\220v\230X\240Q\240a\340\020\027\220q\230\006\230h\240a\240v\250T\260\025\260e\2705\300\003\3003\300a\300q\360\006\000\005\010\200r\210\023\210A\330\010\017\210\177\230a\230v\240Z\250u\260A\360\006\000\005\014\210=\230\001\230\026\230s\240*\250E\260\021";
+static const char __pyx_k_Ultra_Optimized_Heap_Pop_for_he[] = "\nUltra-Optimized Heap Pop for heapx\n\nStrategy:\n- int/float/bool: Specialized C-level comparisons with Floyd's algorithm\n- str/custom: Direct delegation to heapq (no wrapper overhead)\n";
 static const char __pyx_k_Note_that_Cython_is_deliberately[] = "Note that Cython is deliberately stricter than PEP-484 and rejects subclasses of builtin types. If you need to pass subclasses then set the 'annotation_typing' directive to False.";
 /* #### Code section: decls ### */
 static PyObject *__pyx_pf_13optimized_pop_heapify(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_heap, int __pyx_v_max_heap, PyObject *__pyx_v_cmp, Py_ssize_t __pyx_v_arity, CYTHON_UNUSED int __pyx_v_nogil); /* proto */
 static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_n, int __pyx_v_max_heap, PyObject *__pyx_v_cmp, Py_ssize_t __pyx_v_arity, CYTHON_UNUSED int __pyx_v_nogil); /* proto */
-static PyObject *__pyx_pf_13optimized_pop_4push(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_heap, PyObject *__pyx_v_items, int __pyx_v_max_heap, CYTHON_UNUSED PyObject *__pyx_v_cmp, CYTHON_UNUSED Py_ssize_t __pyx_v_arity, CYTHON_UNUSED int __pyx_v_nogil); /* proto */
+static PyObject *__pyx_pf_13optimized_pop_4push(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_heap, PyObject *__pyx_v_items, int __pyx_v_max_heap, PyObject *__pyx_v_cmp, Py_ssize_t __pyx_v_arity, CYTHON_UNUSED int __pyx_v_nogil); /* proto */
 static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_heap, int __pyx_v_max_heap, Py_ssize_t __pyx_v_arity); /* proto */
 /* #### Code section: late_includes ### */
 /* #### Code section: module_state ### */
@@ -2444,11 +2454,11 @@ typedef struct {
   #ifdef __Pyx_Coroutine_USED
   PyTypeObject *__pyx_CoroutineType;
   #endif
-  PyTypeObject *__pyx_ptype_7cpython_4type_type;
   __Pyx_CachedCFunction __pyx_umethod_PyDict_Type_pop;
   __Pyx_CachedCFunction __pyx_umethod_PyList_Type_pop;
   PyObject *__pyx_codeobj_tab[4];
-  PyObject *__pyx_string_tab[46];
+  PyObject *__pyx_string_tab[54];
+  PyObject *__pyx_int_0;
 /* #### Code section: module_state_contents ### */
 /* CommonTypesMetaclass.module_state_decls */
 PyTypeObject *__pyx_CommonTypesMetaclassType;
@@ -2491,47 +2501,55 @@ static __pyx_mstatetype * const __pyx_mstate_global = &__pyx_mstate_global_stati
 #define __pyx_kp_u_Note_that_Cython_is_deliberately __pyx_string_tab[2]
 #define __pyx_n_u_TypeError __pyx_string_tab[3]
 #define __pyx_n_u_ValueError __pyx_string_tab[4]
-#define __pyx_kp_u_add_note __pyx_string_tab[5]
-#define __pyx_n_u_arity __pyx_string_tab[6]
-#define __pyx_kp_u_arity_must_be_1_got __pyx_string_tab[7]
-#define __pyx_n_u_asyncio_coroutines __pyx_string_tab[8]
-#define __pyx_n_u_child __pyx_string_tab[9]
-#define __pyx_n_u_cline_in_traceback __pyx_string_tab[10]
-#define __pyx_n_u_cmp __pyx_string_tab[11]
-#define __pyx_kp_u_cmp_must_be_callable_or_None __pyx_string_tab[12]
-#define __pyx_n_u_dtype __pyx_string_tab[13]
-#define __pyx_n_u_func __pyx_string_tab[14]
-#define __pyx_n_u_heap __pyx_string_tab[15]
-#define __pyx_n_u_heap_size __pyx_string_tab[16]
-#define __pyx_n_u_heapify __pyx_string_tab[17]
-#define __pyx_n_u_i __pyx_string_tab[18]
-#define __pyx_n_u_is_coroutine __pyx_string_tab[19]
-#define __pyx_n_u_item __pyx_string_tab[20]
-#define __pyx_n_u_items __pyx_string_tab[21]
-#define __pyx_n_u_j __pyx_string_tab[22]
-#define __pyx_n_u_last __pyx_string_tab[23]
-#define __pyx_n_u_main __pyx_string_tab[24]
-#define __pyx_n_u_max_heap __pyx_string_tab[25]
-#define __pyx_n_u_module __pyx_string_tab[26]
-#define __pyx_n_u_n __pyx_string_tab[27]
-#define __pyx_kp_u_n_must_be_1_got __pyx_string_tab[28]
-#define __pyx_n_u_name __pyx_string_tab[29]
-#define __pyx_n_u_new_size __pyx_string_tab[30]
-#define __pyx_n_u_nogil __pyx_string_tab[31]
-#define __pyx_n_u_optimized_pop __pyx_string_tab[32]
-#define __pyx_kp_u_optimized_pop_pyx __pyx_string_tab[33]
-#define __pyx_n_u_pop __pyx_string_tab[34]
-#define __pyx_kp_u_pop_from_empty_heap __pyx_string_tab[35]
-#define __pyx_n_u_push __pyx_string_tab[36]
-#define __pyx_n_u_qualname __pyx_string_tab[37]
-#define __pyx_n_u_range __pyx_string_tab[38]
-#define __pyx_n_u_result __pyx_string_tab[39]
-#define __pyx_n_u_results __pyx_string_tab[40]
-#define __pyx_n_u_reverse __pyx_string_tab[41]
-#define __pyx_n_u_set_name __pyx_string_tab[42]
-#define __pyx_n_u_sort __pyx_string_tab[43]
-#define __pyx_n_u_test __pyx_string_tab[44]
-#define __pyx_n_u_verify_heap __pyx_string_tab[45]
+#define __pyx_n_u__2 __pyx_string_tab[5]
+#define __pyx_kp_u_add_note __pyx_string_tab[6]
+#define __pyx_n_u_arity __pyx_string_tab[7]
+#define __pyx_kp_u_arity_must_be_1_got __pyx_string_tab[8]
+#define __pyx_n_u_asyncio_coroutines __pyx_string_tab[9]
+#define __pyx_n_u_child __pyx_string_tab[10]
+#define __pyx_n_u_cline_in_traceback __pyx_string_tab[11]
+#define __pyx_n_u_cmp __pyx_string_tab[12]
+#define __pyx_kp_u_cmp_must_be_callable_or_None __pyx_string_tab[13]
+#define __pyx_n_u_dtype __pyx_string_tab[14]
+#define __pyx_n_u_func __pyx_string_tab[15]
+#define __pyx_n_u_heap __pyx_string_tab[16]
+#define __pyx_n_u_heap_size __pyx_string_tab[17]
+#define __pyx_n_u_heapify __pyx_string_tab[18]
+#define __pyx_n_u_heappop __pyx_string_tab[19]
+#define __pyx_n_u_heappush __pyx_string_tab[20]
+#define __pyx_n_u_heapq __pyx_string_tab[21]
+#define __pyx_n_u_heapq_2 __pyx_string_tab[22]
+#define __pyx_n_u_i __pyx_string_tab[23]
+#define __pyx_n_u_initializing __pyx_string_tab[24]
+#define __pyx_n_u_is_coroutine __pyx_string_tab[25]
+#define __pyx_n_u_item __pyx_string_tab[26]
+#define __pyx_n_u_items __pyx_string_tab[27]
+#define __pyx_n_u_j __pyx_string_tab[28]
+#define __pyx_n_u_key __pyx_string_tab[29]
+#define __pyx_n_u_last __pyx_string_tab[30]
+#define __pyx_n_u_main __pyx_string_tab[31]
+#define __pyx_n_u_max_heap __pyx_string_tab[32]
+#define __pyx_n_u_module __pyx_string_tab[33]
+#define __pyx_n_u_n __pyx_string_tab[34]
+#define __pyx_kp_u_n_must_be_1_got __pyx_string_tab[35]
+#define __pyx_n_u_name __pyx_string_tab[36]
+#define __pyx_n_u_nogil __pyx_string_tab[37]
+#define __pyx_n_u_optimized_pop __pyx_string_tab[38]
+#define __pyx_kp_u_optimized_pop_pyx __pyx_string_tab[39]
+#define __pyx_n_u_pop __pyx_string_tab[40]
+#define __pyx_kp_u_pop_from_empty_heap __pyx_string_tab[41]
+#define __pyx_n_u_push __pyx_string_tab[42]
+#define __pyx_n_u_qualname __pyx_string_tab[43]
+#define __pyx_n_u_range __pyx_string_tab[44]
+#define __pyx_n_u_result __pyx_string_tab[45]
+#define __pyx_n_u_reverse __pyx_string_tab[46]
+#define __pyx_n_u_set_name __pyx_string_tab[47]
+#define __pyx_n_u_siftdown __pyx_string_tab[48]
+#define __pyx_n_u_sort __pyx_string_tab[49]
+#define __pyx_n_u_spec __pyx_string_tab[50]
+#define __pyx_n_u_t __pyx_string_tab[51]
+#define __pyx_n_u_test __pyx_string_tab[52]
+#define __pyx_n_u_verify_heap __pyx_string_tab[53]
 /* #### Code section: module_state_clear ### */
 #if CYTHON_USE_MODULE_STATE
 static CYTHON_SMALL_CODE int __pyx_m_clear(PyObject *m) {
@@ -2552,9 +2570,9 @@ static CYTHON_SMALL_CODE int __pyx_m_clear(PyObject *m) {
   #if CYTHON_PEP489_MULTI_PHASE_INIT
   __Pyx_State_RemoveModule(NULL);
   #endif
-  Py_CLEAR(clear_module_state->__pyx_ptype_7cpython_4type_type);
   for (int i=0; i<4; ++i) { Py_CLEAR(clear_module_state->__pyx_codeobj_tab[i]); }
-  for (int i=0; i<46; ++i) { Py_CLEAR(clear_module_state->__pyx_string_tab[i]); }
+  for (int i=0; i<54; ++i) { Py_CLEAR(clear_module_state->__pyx_string_tab[i]); }
+  Py_CLEAR(clear_module_state->__pyx_int_0);
   return 0;
 }
 #endif
@@ -2575,63 +2593,69 @@ static CYTHON_SMALL_CODE int __pyx_m_traverse(PyObject *m, visitproc visit, void
   #ifdef __Pyx_FusedFunction_USED
   Py_VISIT(traverse_module_state->__pyx_FusedFunctionType);
   #endif
-  Py_VISIT(traverse_module_state->__pyx_ptype_7cpython_4type_type);
   for (int i=0; i<4; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_codeobj_tab[i]); }
-  for (int i=0; i<46; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_string_tab[i]); }
+  for (int i=0; i<54; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_string_tab[i]); }
+  __Pyx_VISIT_CONST(traverse_module_state->__pyx_int_0);
   return 0;
 }
 #endif
 /* #### Code section: module_code ### */
 
-/* "optimized_pop.pyx":52
- * DEF TYPE_OTHER = 5
+/* "optimized_pop.pyx":32
+ * DEF TYPE_OTHER = 4
  * 
- * cdef inline int detect_type(list heap, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
- *     """Fast type detection from first element."""
- *     if n == 0:
+ * cdef inline int _detect_type(list heap) noexcept:             # <<<<<<<<<<<<<<
+ *     if len(heap) == 0:
+ *         return TYPE_OTHER
 */
 
-static CYTHON_INLINE int __pyx_f_13optimized_pop_detect_type(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_n) {
+static CYTHON_INLINE int __pyx_f_13optimized_pop__detect_type(PyObject *__pyx_v_heap) {
   PyTypeObject *__pyx_v_t = 0;
   int __pyx_r;
   __Pyx_RefNannyDeclarations
-  int __pyx_t_1;
+  Py_ssize_t __pyx_t_1;
+  int __pyx_t_2;
   int __pyx_lineno = 0;
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("detect_type", 0);
+  __Pyx_RefNannySetupContext("_detect_type", 0);
 
-  /* "optimized_pop.pyx":54
- * cdef inline int detect_type(list heap, Py_ssize_t n) noexcept:
- *     """Fast type detection from first element."""
- *     if n == 0:             # <<<<<<<<<<<<<<
+  /* "optimized_pop.pyx":33
+ * 
+ * cdef inline int _detect_type(list heap) noexcept:
+ *     if len(heap) == 0:             # <<<<<<<<<<<<<<
  *         return TYPE_OTHER
  *     cdef type t = type(heap[0])
 */
-  __pyx_t_1 = (__pyx_v_n == 0);
-  if (__pyx_t_1) {
+  if (unlikely(__pyx_v_heap == Py_None)) {
+    PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
+    __PYX_ERR(0, 33, __pyx_L1_error)
+  }
+  __pyx_t_1 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_1 == ((Py_ssize_t)-1))) __PYX_ERR(0, 33, __pyx_L1_error)
+  __pyx_t_2 = (__pyx_t_1 == 0);
+  if (__pyx_t_2) {
 
-    /* "optimized_pop.pyx":55
- *     """Fast type detection from first element."""
- *     if n == 0:
+    /* "optimized_pop.pyx":34
+ * cdef inline int _detect_type(list heap) noexcept:
+ *     if len(heap) == 0:
  *         return TYPE_OTHER             # <<<<<<<<<<<<<<
  *     cdef type t = type(heap[0])
  *     if t is int:
 */
-    __pyx_r = 5;
+    __pyx_r = 4;
     goto __pyx_L0;
 
-    /* "optimized_pop.pyx":54
- * cdef inline int detect_type(list heap, Py_ssize_t n) noexcept:
- *     """Fast type detection from first element."""
- *     if n == 0:             # <<<<<<<<<<<<<<
+    /* "optimized_pop.pyx":33
+ * 
+ * cdef inline int _detect_type(list heap) noexcept:
+ *     if len(heap) == 0:             # <<<<<<<<<<<<<<
  *         return TYPE_OTHER
  *     cdef type t = type(heap[0])
 */
   }
 
-  /* "optimized_pop.pyx":56
- *     if n == 0:
+  /* "optimized_pop.pyx":35
+ *     if len(heap) == 0:
  *         return TYPE_OTHER
  *     cdef type t = type(heap[0])             # <<<<<<<<<<<<<<
  *     if t is int:
@@ -2639,22 +2663,22 @@ static CYTHON_INLINE int __pyx_f_13optimized_pop_detect_type(PyObject *__pyx_v_h
 */
   if (unlikely(__pyx_v_heap == Py_None)) {
     PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 56, __pyx_L1_error)
+    __PYX_ERR(0, 35, __pyx_L1_error)
   }
   __Pyx_INCREF(((PyObject *)Py_TYPE(__Pyx_PyList_GET_ITEM(__pyx_v_heap, 0))));
   __pyx_v_t = ((PyTypeObject*)((PyObject *)Py_TYPE(__Pyx_PyList_GET_ITEM(__pyx_v_heap, 0))));
 
-  /* "optimized_pop.pyx":57
+  /* "optimized_pop.pyx":36
  *         return TYPE_OTHER
  *     cdef type t = type(heap[0])
  *     if t is int:             # <<<<<<<<<<<<<<
  *         return TYPE_INT
  *     if t is float:
 */
-  __pyx_t_1 = (__pyx_v_t == (&PyLong_Type));
-  if (__pyx_t_1) {
+  __pyx_t_2 = (__pyx_v_t == (&PyLong_Type));
+  if (__pyx_t_2) {
 
-    /* "optimized_pop.pyx":58
+    /* "optimized_pop.pyx":37
  *     cdef type t = type(heap[0])
  *     if t is int:
  *         return TYPE_INT             # <<<<<<<<<<<<<<
@@ -2664,7 +2688,7 @@ static CYTHON_INLINE int __pyx_f_13optimized_pop_detect_type(PyObject *__pyx_v_h
     __pyx_r = 1;
     goto __pyx_L0;
 
-    /* "optimized_pop.pyx":57
+    /* "optimized_pop.pyx":36
  *         return TYPE_OTHER
  *     cdef type t = type(heap[0])
  *     if t is int:             # <<<<<<<<<<<<<<
@@ -2673,114 +2697,85 @@ static CYTHON_INLINE int __pyx_f_13optimized_pop_detect_type(PyObject *__pyx_v_h
 */
   }
 
-  /* "optimized_pop.pyx":59
+  /* "optimized_pop.pyx":38
  *     if t is int:
  *         return TYPE_INT
  *     if t is float:             # <<<<<<<<<<<<<<
  *         return TYPE_FLOAT
- *     if t is str:
+ *     if t is bool:
 */
-  __pyx_t_1 = (__pyx_v_t == (&PyFloat_Type));
-  if (__pyx_t_1) {
+  __pyx_t_2 = (__pyx_v_t == (&PyFloat_Type));
+  if (__pyx_t_2) {
 
-    /* "optimized_pop.pyx":60
+    /* "optimized_pop.pyx":39
  *         return TYPE_INT
  *     if t is float:
  *         return TYPE_FLOAT             # <<<<<<<<<<<<<<
- *     if t is str:
- *         return TYPE_STR
+ *     if t is bool:
+ *         return TYPE_BOOL
 */
     __pyx_r = 2;
     goto __pyx_L0;
 
-    /* "optimized_pop.pyx":59
+    /* "optimized_pop.pyx":38
  *     if t is int:
  *         return TYPE_INT
  *     if t is float:             # <<<<<<<<<<<<<<
  *         return TYPE_FLOAT
- *     if t is str:
-*/
-  }
-
-  /* "optimized_pop.pyx":61
- *     if t is float:
- *         return TYPE_FLOAT
- *     if t is str:             # <<<<<<<<<<<<<<
- *         return TYPE_STR
- *     if t is bool:
-*/
-  __pyx_t_1 = (__pyx_v_t == (&PyUnicode_Type));
-  if (__pyx_t_1) {
-
-    /* "optimized_pop.pyx":62
- *         return TYPE_FLOAT
- *     if t is str:
- *         return TYPE_STR             # <<<<<<<<<<<<<<
- *     if t is bool:
- *         return TYPE_BOOL
-*/
-    __pyx_r = 3;
-    goto __pyx_L0;
-
-    /* "optimized_pop.pyx":61
- *     if t is float:
- *         return TYPE_FLOAT
- *     if t is str:             # <<<<<<<<<<<<<<
- *         return TYPE_STR
  *     if t is bool:
 */
   }
 
-  /* "optimized_pop.pyx":63
- *     if t is str:
- *         return TYPE_STR
+  /* "optimized_pop.pyx":40
+ *     if t is float:
+ *         return TYPE_FLOAT
  *     if t is bool:             # <<<<<<<<<<<<<<
  *         return TYPE_BOOL
  *     return TYPE_OTHER
 */
-  __pyx_t_1 = (__pyx_v_t == ((PyTypeObject*)((PyObject*)&PyBool_Type)));
-  if (__pyx_t_1) {
+  __pyx_t_2 = (__pyx_v_t == ((PyTypeObject*)((PyObject*)&PyBool_Type)));
+  if (__pyx_t_2) {
 
-    /* "optimized_pop.pyx":64
- *         return TYPE_STR
+    /* "optimized_pop.pyx":41
+ *         return TYPE_FLOAT
  *     if t is bool:
  *         return TYPE_BOOL             # <<<<<<<<<<<<<<
  *     return TYPE_OTHER
  * 
 */
-    __pyx_r = 4;
+    __pyx_r = 3;
     goto __pyx_L0;
 
-    /* "optimized_pop.pyx":63
- *     if t is str:
- *         return TYPE_STR
+    /* "optimized_pop.pyx":40
+ *     if t is float:
+ *         return TYPE_FLOAT
  *     if t is bool:             # <<<<<<<<<<<<<<
  *         return TYPE_BOOL
  *     return TYPE_OTHER
 */
   }
 
-  /* "optimized_pop.pyx":65
+  /* "optimized_pop.pyx":42
  *     if t is bool:
  *         return TYPE_BOOL
  *     return TYPE_OTHER             # <<<<<<<<<<<<<<
  * 
  * # =============================================================================
 */
-  __pyx_r = 5;
+  __pyx_r = 4;
   goto __pyx_L0;
 
-  /* "optimized_pop.pyx":52
- * DEF TYPE_OTHER = 5
+  /* "optimized_pop.pyx":32
+ * DEF TYPE_OTHER = 4
  * 
- * cdef inline int detect_type(list heap, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
- *     """Fast type detection from first element."""
- *     if n == 0:
+ * cdef inline int _detect_type(list heap) noexcept:             # <<<<<<<<<<<<<<
+ *     if len(heap) == 0:
+ *         return TYPE_OTHER
 */
 
   /* function exit code */
   __pyx_L1_error:;
-  __Pyx_WriteUnraisable("optimized_pop.detect_type", __pyx_clineno, __pyx_lineno, __pyx_filename, 1, 0);
+  __Pyx_WriteUnraisable("optimized_pop._detect_type", __pyx_clineno, __pyx_lineno, __pyx_filename, 1, 0);
   __pyx_r = 0;
   __pyx_L0:;
   __Pyx_XDECREF((PyObject *)__pyx_v_t);
@@ -2788,22 +2783,21 @@ static CYTHON_INLINE int __pyx_f_13optimized_pop_detect_type(PyObject *__pyx_v_h
   return __pyx_r;
 }
 
-/* "optimized_pop.pyx":71
+/* "optimized_pop.pyx":48
  * # =============================================================================
  * 
- * cdef inline void sift_down_int_min(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
+ * cdef inline void _sift_int_min(list heap, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
  *     cdef:
- *         Py_ssize_t child, right, parent, gc
+ *         Py_ssize_t pos = 0, child, right, parent
 */
 
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_int_min(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, Py_ssize_t __pyx_v_n) {
+static CYTHON_INLINE void __pyx_f_13optimized_pop__sift_int_min(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_n) {
+  Py_ssize_t __pyx_v_pos;
   Py_ssize_t __pyx_v_child;
   Py_ssize_t __pyx_v_right;
   Py_ssize_t __pyx_v_parent;
-  Py_ssize_t __pyx_v_gc;
   PyObject *__pyx_v_item = 0;
   long __pyx_v_item_val;
-  Py_ssize_t __pyx_v_start;
   __Pyx_RefNannyDeclarations
   PyObject *__pyx_t_1 = NULL;
   long __pyx_t_2;
@@ -2813,45 +2807,353 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_int_min(PyObject *__
   int __pyx_lineno = 0;
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("sift_down_int_min", 0);
+  __Pyx_RefNannySetupContext("_sift_int_min", 0);
 
-  /* "optimized_pop.pyx":74
+  /* "optimized_pop.pyx":50
+ * cdef inline void _sift_int_min(list heap, Py_ssize_t n) noexcept:
  *     cdef:
- *         Py_ssize_t child, right, parent, gc
- *         object item = heap[pos]             # <<<<<<<<<<<<<<
+ *         Py_ssize_t pos = 0, child, right, parent             # <<<<<<<<<<<<<<
+ *         object item = heap[0]
  *         long item_val = <long>item
- *         Py_ssize_t start = pos
+*/
+  __pyx_v_pos = 0;
+
+  /* "optimized_pop.pyx":51
+ *     cdef:
+ *         Py_ssize_t pos = 0, child, right, parent
+ *         object item = heap[0]             # <<<<<<<<<<<<<<
+ *         long item_val = <long>item
+ * 
 */
   if (unlikely(__pyx_v_heap == Py_None)) {
     PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 74, __pyx_L1_error)
+    __PYX_ERR(0, 51, __pyx_L1_error)
   }
-  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
+  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, 0);
   __Pyx_INCREF(__pyx_t_1);
   __pyx_v_item = __pyx_t_1;
   __pyx_t_1 = 0;
 
-  /* "optimized_pop.pyx":75
- *         Py_ssize_t child, right, parent, gc
- *         object item = heap[pos]
+  /* "optimized_pop.pyx":52
+ *         Py_ssize_t pos = 0, child, right, parent
+ *         object item = heap[0]
  *         long item_val = <long>item             # <<<<<<<<<<<<<<
- *         Py_ssize_t start = pos
- * 
-*/
-  __pyx_t_2 = __Pyx_PyLong_As_long(__pyx_v_item); if (unlikely((__pyx_t_2 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 75, __pyx_L1_error)
-  __pyx_v_item_val = ((long)__pyx_t_2);
-
-  /* "optimized_pop.pyx":76
- *         object item = heap[pos]
- *         long item_val = <long>item
- *         Py_ssize_t start = pos             # <<<<<<<<<<<<<<
  * 
  *     while True:
 */
-  __pyx_v_start = __pyx_v_pos;
+  __pyx_t_2 = __Pyx_PyLong_As_long(__pyx_v_item); if (unlikely((__pyx_t_2 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 52, __pyx_L1_error)
+  __pyx_v_item_val = ((long)__pyx_t_2);
+
+  /* "optimized_pop.pyx":54
+ *         long item_val = <long>item
+ * 
+ *     while True:             # <<<<<<<<<<<<<<
+ *         child = (pos << 1) + 1
+ *         if child >= n:
+*/
+  while (1) {
+
+    /* "optimized_pop.pyx":55
+ * 
+ *     while True:
+ *         child = (pos << 1) + 1             # <<<<<<<<<<<<<<
+ *         if child >= n:
+ *             break
+*/
+    __pyx_v_child = ((__pyx_v_pos << 1) + 1);
+
+    /* "optimized_pop.pyx":56
+ *     while True:
+ *         child = (pos << 1) + 1
+ *         if child >= n:             # <<<<<<<<<<<<<<
+ *             break
+ *         right = child + 1
+*/
+    __pyx_t_3 = (__pyx_v_child >= __pyx_v_n);
+    if (__pyx_t_3) {
+
+      /* "optimized_pop.pyx":57
+ *         child = (pos << 1) + 1
+ *         if child >= n:
+ *             break             # <<<<<<<<<<<<<<
+ *         right = child + 1
+ *         if right < n and <long>heap[right] < <long>heap[child]:
+*/
+      goto __pyx_L4_break;
+
+      /* "optimized_pop.pyx":56
+ *     while True:
+ *         child = (pos << 1) + 1
+ *         if child >= n:             # <<<<<<<<<<<<<<
+ *             break
+ *         right = child + 1
+*/
+    }
+
+    /* "optimized_pop.pyx":58
+ *         if child >= n:
+ *             break
+ *         right = child + 1             # <<<<<<<<<<<<<<
+ *         if right < n and <long>heap[right] < <long>heap[child]:
+ *             child = right
+*/
+    __pyx_v_right = (__pyx_v_child + 1);
+
+    /* "optimized_pop.pyx":59
+ *             break
+ *         right = child + 1
+ *         if right < n and <long>heap[right] < <long>heap[child]:             # <<<<<<<<<<<<<<
+ *             child = right
+ *         heap[pos] = heap[child]
+*/
+    __pyx_t_4 = (__pyx_v_right < __pyx_v_n);
+    if (__pyx_t_4) {
+    } else {
+      __pyx_t_3 = __pyx_t_4;
+      goto __pyx_L7_bool_binop_done;
+    }
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 59, __pyx_L1_error)
+    }
+    __pyx_t_2 = __Pyx_PyLong_As_long(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right)); if (unlikely((__pyx_t_2 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 59, __pyx_L1_error)
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 59, __pyx_L1_error)
+    }
+    __pyx_t_5 = __Pyx_PyLong_As_long(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child)); if (unlikely((__pyx_t_5 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 59, __pyx_L1_error)
+    __pyx_t_4 = (((long)__pyx_t_2) < ((long)__pyx_t_5));
+    __pyx_t_3 = __pyx_t_4;
+    __pyx_L7_bool_binop_done:;
+    if (__pyx_t_3) {
+
+      /* "optimized_pop.pyx":60
+ *         right = child + 1
+ *         if right < n and <long>heap[right] < <long>heap[child]:
+ *             child = right             # <<<<<<<<<<<<<<
+ *         heap[pos] = heap[child]
+ *         pos = child
+*/
+      __pyx_v_child = __pyx_v_right;
+
+      /* "optimized_pop.pyx":59
+ *             break
+ *         right = child + 1
+ *         if right < n and <long>heap[right] < <long>heap[child]:             # <<<<<<<<<<<<<<
+ *             child = right
+ *         heap[pos] = heap[child]
+*/
+    }
+
+    /* "optimized_pop.pyx":61
+ *         if right < n and <long>heap[right] < <long>heap[child]:
+ *             child = right
+ *         heap[pos] = heap[child]             # <<<<<<<<<<<<<<
+ *         pos = child
+ * 
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 61, __pyx_L1_error)
+    }
+    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
+    __Pyx_INCREF(__pyx_t_1);
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 61, __pyx_L1_error)
+    }
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 61, __pyx_L1_error)
+    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+
+    /* "optimized_pop.pyx":62
+ *             child = right
+ *         heap[pos] = heap[child]
+ *         pos = child             # <<<<<<<<<<<<<<
+ * 
+ *     while pos > 0:
+*/
+    __pyx_v_pos = __pyx_v_child;
+  }
+  __pyx_L4_break:;
+
+  /* "optimized_pop.pyx":64
+ *         pos = child
+ * 
+ *     while pos > 0:             # <<<<<<<<<<<<<<
+ *         parent = (pos - 1) >> 1
+ *         if item_val >= <long>heap[parent]:
+*/
+  while (1) {
+    __pyx_t_3 = (__pyx_v_pos > 0);
+    if (!__pyx_t_3) break;
+
+    /* "optimized_pop.pyx":65
+ * 
+ *     while pos > 0:
+ *         parent = (pos - 1) >> 1             # <<<<<<<<<<<<<<
+ *         if item_val >= <long>heap[parent]:
+ *             break
+*/
+    __pyx_v_parent = ((__pyx_v_pos - 1) >> 1);
+
+    /* "optimized_pop.pyx":66
+ *     while pos > 0:
+ *         parent = (pos - 1) >> 1
+ *         if item_val >= <long>heap[parent]:             # <<<<<<<<<<<<<<
+ *             break
+ *         heap[pos] = heap[parent]
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 66, __pyx_L1_error)
+    }
+    __pyx_t_5 = __Pyx_PyLong_As_long(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent)); if (unlikely((__pyx_t_5 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 66, __pyx_L1_error)
+    __pyx_t_3 = (__pyx_v_item_val >= ((long)__pyx_t_5));
+    if (__pyx_t_3) {
+
+      /* "optimized_pop.pyx":67
+ *         parent = (pos - 1) >> 1
+ *         if item_val >= <long>heap[parent]:
+ *             break             # <<<<<<<<<<<<<<
+ *         heap[pos] = heap[parent]
+ *         pos = parent
+*/
+      goto __pyx_L10_break;
+
+      /* "optimized_pop.pyx":66
+ *     while pos > 0:
+ *         parent = (pos - 1) >> 1
+ *         if item_val >= <long>heap[parent]:             # <<<<<<<<<<<<<<
+ *             break
+ *         heap[pos] = heap[parent]
+*/
+    }
+
+    /* "optimized_pop.pyx":68
+ *         if item_val >= <long>heap[parent]:
+ *             break
+ *         heap[pos] = heap[parent]             # <<<<<<<<<<<<<<
+ *         pos = parent
+ *     heap[pos] = item
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 68, __pyx_L1_error)
+    }
+    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
+    __Pyx_INCREF(__pyx_t_1);
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 68, __pyx_L1_error)
+    }
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 68, __pyx_L1_error)
+    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+
+    /* "optimized_pop.pyx":69
+ *             break
+ *         heap[pos] = heap[parent]
+ *         pos = parent             # <<<<<<<<<<<<<<
+ *     heap[pos] = item
+ * 
+*/
+    __pyx_v_pos = __pyx_v_parent;
+  }
+  __pyx_L10_break:;
+
+  /* "optimized_pop.pyx":70
+ *         heap[pos] = heap[parent]
+ *         pos = parent
+ *     heap[pos] = item             # <<<<<<<<<<<<<<
+ * 
+ * cdef inline void _sift_int_max(list heap, Py_ssize_t n) noexcept:
+*/
+  if (unlikely(__pyx_v_heap == Py_None)) {
+    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+    __PYX_ERR(0, 70, __pyx_L1_error)
+  }
+  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 70, __pyx_L1_error)
+
+  /* "optimized_pop.pyx":48
+ * # =============================================================================
+ * 
+ * cdef inline void _sift_int_min(list heap, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
+ *     cdef:
+ *         Py_ssize_t pos = 0, child, right, parent
+*/
+
+  /* function exit code */
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_1);
+  __Pyx_WriteUnraisable("optimized_pop._sift_int_min", __pyx_clineno, __pyx_lineno, __pyx_filename, 1, 0);
+  __pyx_L0:;
+  __Pyx_XDECREF(__pyx_v_item);
+  __Pyx_RefNannyFinishContext();
+}
+
+/* "optimized_pop.pyx":72
+ *     heap[pos] = item
+ * 
+ * cdef inline void _sift_int_max(list heap, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
+ *     cdef:
+ *         Py_ssize_t pos = 0, child, right, parent
+*/
+
+static CYTHON_INLINE void __pyx_f_13optimized_pop__sift_int_max(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_n) {
+  Py_ssize_t __pyx_v_pos;
+  Py_ssize_t __pyx_v_child;
+  Py_ssize_t __pyx_v_right;
+  Py_ssize_t __pyx_v_parent;
+  PyObject *__pyx_v_item = 0;
+  long __pyx_v_item_val;
+  __Pyx_RefNannyDeclarations
+  PyObject *__pyx_t_1 = NULL;
+  long __pyx_t_2;
+  int __pyx_t_3;
+  int __pyx_t_4;
+  long __pyx_t_5;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("_sift_int_max", 0);
+
+  /* "optimized_pop.pyx":74
+ * cdef inline void _sift_int_max(list heap, Py_ssize_t n) noexcept:
+ *     cdef:
+ *         Py_ssize_t pos = 0, child, right, parent             # <<<<<<<<<<<<<<
+ *         object item = heap[0]
+ *         long item_val = <long>item
+*/
+  __pyx_v_pos = 0;
+
+  /* "optimized_pop.pyx":75
+ *     cdef:
+ *         Py_ssize_t pos = 0, child, right, parent
+ *         object item = heap[0]             # <<<<<<<<<<<<<<
+ *         long item_val = <long>item
+ * 
+*/
+  if (unlikely(__pyx_v_heap == Py_None)) {
+    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+    __PYX_ERR(0, 75, __pyx_L1_error)
+  }
+  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, 0);
+  __Pyx_INCREF(__pyx_t_1);
+  __pyx_v_item = __pyx_t_1;
+  __pyx_t_1 = 0;
+
+  /* "optimized_pop.pyx":76
+ *         Py_ssize_t pos = 0, child, right, parent
+ *         object item = heap[0]
+ *         long item_val = <long>item             # <<<<<<<<<<<<<<
+ * 
+ *     while True:
+*/
+  __pyx_t_2 = __Pyx_PyLong_As_long(__pyx_v_item); if (unlikely((__pyx_t_2 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 76, __pyx_L1_error)
+  __pyx_v_item_val = ((long)__pyx_t_2);
 
   /* "optimized_pop.pyx":78
- *         Py_ssize_t start = pos
+ *         long item_val = <long>item
  * 
  *     while True:             # <<<<<<<<<<<<<<
  *         child = (pos << 1) + 1
@@ -2873,7 +3175,7 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_int_min(PyObject *__
  *         child = (pos << 1) + 1
  *         if child >= n:             # <<<<<<<<<<<<<<
  *             break
- *         gc = (child << 1) + 1
+ *         right = child + 1
 */
     __pyx_t_3 = (__pyx_v_child >= __pyx_v_n);
     if (__pyx_t_3) {
@@ -2882,8 +3184,8 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_int_min(PyObject *__
  *         child = (pos << 1) + 1
  *         if child >= n:
  *             break             # <<<<<<<<<<<<<<
- *         gc = (child << 1) + 1
- *         if gc < n:
+ *         right = child + 1
+ *         if right < n and <long>heap[right] > <long>heap[child]:
 */
       goto __pyx_L4_break;
 
@@ -2892,509 +3194,118 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_int_min(PyObject *__
  *         child = (pos << 1) + 1
  *         if child >= n:             # <<<<<<<<<<<<<<
  *             break
- *         gc = (child << 1) + 1
+ *         right = child + 1
 */
     }
 
     /* "optimized_pop.pyx":82
  *         if child >= n:
  *             break
- *         gc = (child << 1) + 1             # <<<<<<<<<<<<<<
- *         if gc < n:
- *             PREFETCH(<void*>heap[gc])
+ *         right = child + 1             # <<<<<<<<<<<<<<
+ *         if right < n and <long>heap[right] > <long>heap[child]:
+ *             child = right
 */
-    __pyx_v_gc = ((__pyx_v_child << 1) + 1);
+    __pyx_v_right = (__pyx_v_child + 1);
 
     /* "optimized_pop.pyx":83
  *             break
- *         gc = (child << 1) + 1
- *         if gc < n:             # <<<<<<<<<<<<<<
- *             PREFETCH(<void*>heap[gc])
  *         right = child + 1
+ *         if right < n and <long>heap[right] > <long>heap[child]:             # <<<<<<<<<<<<<<
+ *             child = right
+ *         heap[pos] = heap[child]
 */
-    __pyx_t_3 = (__pyx_v_gc < __pyx_v_n);
+    __pyx_t_4 = (__pyx_v_right < __pyx_v_n);
+    if (__pyx_t_4) {
+    } else {
+      __pyx_t_3 = __pyx_t_4;
+      goto __pyx_L7_bool_binop_done;
+    }
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 83, __pyx_L1_error)
+    }
+    __pyx_t_2 = __Pyx_PyLong_As_long(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right)); if (unlikely((__pyx_t_2 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 83, __pyx_L1_error)
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 83, __pyx_L1_error)
+    }
+    __pyx_t_5 = __Pyx_PyLong_As_long(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child)); if (unlikely((__pyx_t_5 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 83, __pyx_L1_error)
+    __pyx_t_4 = (((long)__pyx_t_2) > ((long)__pyx_t_5));
+    __pyx_t_3 = __pyx_t_4;
+    __pyx_L7_bool_binop_done:;
     if (__pyx_t_3) {
 
       /* "optimized_pop.pyx":84
- *         gc = (child << 1) + 1
- *         if gc < n:
- *             PREFETCH(<void*>heap[gc])             # <<<<<<<<<<<<<<
  *         right = child + 1
- *         if right < n and <long>heap[right] < <long>heap[child]:
+ *         if right < n and <long>heap[right] > <long>heap[child]:
+ *             child = right             # <<<<<<<<<<<<<<
+ *         heap[pos] = heap[child]
+ *         pos = child
 */
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-        __PYX_ERR(0, 84, __pyx_L1_error)
-      }
-      PREFETCH(((void *)__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_gc)));
+      __pyx_v_child = __pyx_v_right;
 
       /* "optimized_pop.pyx":83
  *             break
- *         gc = (child << 1) + 1
- *         if gc < n:             # <<<<<<<<<<<<<<
- *             PREFETCH(<void*>heap[gc])
  *         right = child + 1
+ *         if right < n and <long>heap[right] > <long>heap[child]:             # <<<<<<<<<<<<<<
+ *             child = right
+ *         heap[pos] = heap[child]
 */
     }
 
     /* "optimized_pop.pyx":85
- *         if gc < n:
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1             # <<<<<<<<<<<<<<
- *         if right < n and <long>heap[right] < <long>heap[child]:
+ *         if right < n and <long>heap[right] > <long>heap[child]:
  *             child = right
+ *         heap[pos] = heap[child]             # <<<<<<<<<<<<<<
+ *         pos = child
+ * 
 */
-    __pyx_v_right = (__pyx_v_child + 1);
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 85, __pyx_L1_error)
+    }
+    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
+    __Pyx_INCREF(__pyx_t_1);
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 85, __pyx_L1_error)
+    }
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 85, __pyx_L1_error)
+    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
 
     /* "optimized_pop.pyx":86
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1
- *         if right < n and <long>heap[right] < <long>heap[child]:             # <<<<<<<<<<<<<<
  *             child = right
  *         heap[pos] = heap[child]
+ *         pos = child             # <<<<<<<<<<<<<<
+ * 
+ *     while pos > 0:
 */
-    __pyx_t_4 = (__pyx_v_right < __pyx_v_n);
-    if (__pyx_t_4) {
-    } else {
-      __pyx_t_3 = __pyx_t_4;
-      goto __pyx_L8_bool_binop_done;
-    }
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 86, __pyx_L1_error)
-    }
-    __pyx_t_2 = __Pyx_PyLong_As_long(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right)); if (unlikely((__pyx_t_2 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 86, __pyx_L1_error)
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 86, __pyx_L1_error)
-    }
-    __pyx_t_5 = __Pyx_PyLong_As_long(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child)); if (unlikely((__pyx_t_5 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 86, __pyx_L1_error)
-    __pyx_t_4 = (((long)__pyx_t_2) < ((long)__pyx_t_5));
-    __pyx_t_3 = __pyx_t_4;
-    __pyx_L8_bool_binop_done:;
-    if (__pyx_t_3) {
+    __pyx_v_pos = __pyx_v_child;
+  }
+  __pyx_L4_break:;
 
-      /* "optimized_pop.pyx":87
- *         right = child + 1
- *         if right < n and <long>heap[right] < <long>heap[child]:
- *             child = right             # <<<<<<<<<<<<<<
- *         heap[pos] = heap[child]
- *         pos = child
-*/
-      __pyx_v_child = __pyx_v_right;
-
-      /* "optimized_pop.pyx":86
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1
- *         if right < n and <long>heap[right] < <long>heap[child]:             # <<<<<<<<<<<<<<
- *             child = right
- *         heap[pos] = heap[child]
-*/
-    }
-
-    /* "optimized_pop.pyx":88
- *         if right < n and <long>heap[right] < <long>heap[child]:
- *             child = right
- *         heap[pos] = heap[child]             # <<<<<<<<<<<<<<
+  /* "optimized_pop.pyx":88
  *         pos = child
  * 
+ *     while pos > 0:             # <<<<<<<<<<<<<<
+ *         parent = (pos - 1) >> 1
+ *         if item_val <= <long>heap[parent]:
 */
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 88, __pyx_L1_error)
-    }
-    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
-    __Pyx_INCREF(__pyx_t_1);
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 88, __pyx_L1_error)
-    }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 88, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+  while (1) {
+    __pyx_t_3 = (__pyx_v_pos > 0);
+    if (!__pyx_t_3) break;
 
     /* "optimized_pop.pyx":89
- *             child = right
- *         heap[pos] = heap[child]
- *         pos = child             # <<<<<<<<<<<<<<
  * 
- *     while pos > start:
-*/
-    __pyx_v_pos = __pyx_v_child;
-  }
-  __pyx_L4_break:;
-
-  /* "optimized_pop.pyx":91
- *         pos = child
- * 
- *     while pos > start:             # <<<<<<<<<<<<<<
- *         parent = (pos - 1) >> 1
- *         if item_val >= <long>heap[parent]:
-*/
-  while (1) {
-    __pyx_t_3 = (__pyx_v_pos > __pyx_v_start);
-    if (!__pyx_t_3) break;
-
-    /* "optimized_pop.pyx":92
- * 
- *     while pos > start:
- *         parent = (pos - 1) >> 1             # <<<<<<<<<<<<<<
- *         if item_val >= <long>heap[parent]:
- *             break
-*/
-    __pyx_v_parent = ((__pyx_v_pos - 1) >> 1);
-
-    /* "optimized_pop.pyx":93
- *     while pos > start:
- *         parent = (pos - 1) >> 1
- *         if item_val >= <long>heap[parent]:             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[parent]
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 93, __pyx_L1_error)
-    }
-    __pyx_t_5 = __Pyx_PyLong_As_long(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent)); if (unlikely((__pyx_t_5 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 93, __pyx_L1_error)
-    __pyx_t_3 = (__pyx_v_item_val >= ((long)__pyx_t_5));
-    if (__pyx_t_3) {
-
-      /* "optimized_pop.pyx":94
- *         parent = (pos - 1) >> 1
- *         if item_val >= <long>heap[parent]:
- *             break             # <<<<<<<<<<<<<<
- *         heap[pos] = heap[parent]
- *         pos = parent
-*/
-      goto __pyx_L11_break;
-
-      /* "optimized_pop.pyx":93
- *     while pos > start:
- *         parent = (pos - 1) >> 1
- *         if item_val >= <long>heap[parent]:             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[parent]
-*/
-    }
-
-    /* "optimized_pop.pyx":95
- *         if item_val >= <long>heap[parent]:
- *             break
- *         heap[pos] = heap[parent]             # <<<<<<<<<<<<<<
- *         pos = parent
- *     heap[pos] = item
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 95, __pyx_L1_error)
-    }
-    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
-    __Pyx_INCREF(__pyx_t_1);
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 95, __pyx_L1_error)
-    }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 95, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-
-    /* "optimized_pop.pyx":96
- *             break
- *         heap[pos] = heap[parent]
- *         pos = parent             # <<<<<<<<<<<<<<
- *     heap[pos] = item
- * 
-*/
-    __pyx_v_pos = __pyx_v_parent;
-  }
-  __pyx_L11_break:;
-
-  /* "optimized_pop.pyx":97
- *         heap[pos] = heap[parent]
- *         pos = parent
- *     heap[pos] = item             # <<<<<<<<<<<<<<
- * 
- * cdef inline void sift_down_int_max(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 97, __pyx_L1_error)
-  }
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 97, __pyx_L1_error)
-
-  /* "optimized_pop.pyx":71
- * # =============================================================================
- * 
- * cdef inline void sift_down_int_min(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t child, right, parent, gc
-*/
-
-  /* function exit code */
-  goto __pyx_L0;
-  __pyx_L1_error:;
-  __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_WriteUnraisable("optimized_pop.sift_down_int_min", __pyx_clineno, __pyx_lineno, __pyx_filename, 1, 0);
-  __pyx_L0:;
-  __Pyx_XDECREF(__pyx_v_item);
-  __Pyx_RefNannyFinishContext();
-}
-
-/* "optimized_pop.pyx":99
- *     heap[pos] = item
- * 
- * cdef inline void sift_down_int_max(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t child, right, parent, gc
-*/
-
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_int_max(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, Py_ssize_t __pyx_v_n) {
-  Py_ssize_t __pyx_v_child;
-  Py_ssize_t __pyx_v_right;
-  Py_ssize_t __pyx_v_parent;
-  Py_ssize_t __pyx_v_gc;
-  PyObject *__pyx_v_item = 0;
-  long __pyx_v_item_val;
-  Py_ssize_t __pyx_v_start;
-  __Pyx_RefNannyDeclarations
-  PyObject *__pyx_t_1 = NULL;
-  long __pyx_t_2;
-  int __pyx_t_3;
-  int __pyx_t_4;
-  long __pyx_t_5;
-  int __pyx_lineno = 0;
-  const char *__pyx_filename = NULL;
-  int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("sift_down_int_max", 0);
-
-  /* "optimized_pop.pyx":102
- *     cdef:
- *         Py_ssize_t child, right, parent, gc
- *         object item = heap[pos]             # <<<<<<<<<<<<<<
- *         long item_val = <long>item
- *         Py_ssize_t start = pos
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 102, __pyx_L1_error)
-  }
-  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
-  __Pyx_INCREF(__pyx_t_1);
-  __pyx_v_item = __pyx_t_1;
-  __pyx_t_1 = 0;
-
-  /* "optimized_pop.pyx":103
- *         Py_ssize_t child, right, parent, gc
- *         object item = heap[pos]
- *         long item_val = <long>item             # <<<<<<<<<<<<<<
- *         Py_ssize_t start = pos
- * 
-*/
-  __pyx_t_2 = __Pyx_PyLong_As_long(__pyx_v_item); if (unlikely((__pyx_t_2 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 103, __pyx_L1_error)
-  __pyx_v_item_val = ((long)__pyx_t_2);
-
-  /* "optimized_pop.pyx":104
- *         object item = heap[pos]
- *         long item_val = <long>item
- *         Py_ssize_t start = pos             # <<<<<<<<<<<<<<
- * 
- *     while True:
-*/
-  __pyx_v_start = __pyx_v_pos;
-
-  /* "optimized_pop.pyx":106
- *         Py_ssize_t start = pos
- * 
- *     while True:             # <<<<<<<<<<<<<<
- *         child = (pos << 1) + 1
- *         if child >= n:
-*/
-  while (1) {
-
-    /* "optimized_pop.pyx":107
- * 
- *     while True:
- *         child = (pos << 1) + 1             # <<<<<<<<<<<<<<
- *         if child >= n:
- *             break
-*/
-    __pyx_v_child = ((__pyx_v_pos << 1) + 1);
-
-    /* "optimized_pop.pyx":108
- *     while True:
- *         child = (pos << 1) + 1
- *         if child >= n:             # <<<<<<<<<<<<<<
- *             break
- *         gc = (child << 1) + 1
-*/
-    __pyx_t_3 = (__pyx_v_child >= __pyx_v_n);
-    if (__pyx_t_3) {
-
-      /* "optimized_pop.pyx":109
- *         child = (pos << 1) + 1
- *         if child >= n:
- *             break             # <<<<<<<<<<<<<<
- *         gc = (child << 1) + 1
- *         if gc < n:
-*/
-      goto __pyx_L4_break;
-
-      /* "optimized_pop.pyx":108
- *     while True:
- *         child = (pos << 1) + 1
- *         if child >= n:             # <<<<<<<<<<<<<<
- *             break
- *         gc = (child << 1) + 1
-*/
-    }
-
-    /* "optimized_pop.pyx":110
- *         if child >= n:
- *             break
- *         gc = (child << 1) + 1             # <<<<<<<<<<<<<<
- *         if gc < n:
- *             PREFETCH(<void*>heap[gc])
-*/
-    __pyx_v_gc = ((__pyx_v_child << 1) + 1);
-
-    /* "optimized_pop.pyx":111
- *             break
- *         gc = (child << 1) + 1
- *         if gc < n:             # <<<<<<<<<<<<<<
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1
-*/
-    __pyx_t_3 = (__pyx_v_gc < __pyx_v_n);
-    if (__pyx_t_3) {
-
-      /* "optimized_pop.pyx":112
- *         gc = (child << 1) + 1
- *         if gc < n:
- *             PREFETCH(<void*>heap[gc])             # <<<<<<<<<<<<<<
- *         right = child + 1
- *         if right < n and <long>heap[right] > <long>heap[child]:
-*/
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-        __PYX_ERR(0, 112, __pyx_L1_error)
-      }
-      PREFETCH(((void *)__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_gc)));
-
-      /* "optimized_pop.pyx":111
- *             break
- *         gc = (child << 1) + 1
- *         if gc < n:             # <<<<<<<<<<<<<<
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1
-*/
-    }
-
-    /* "optimized_pop.pyx":113
- *         if gc < n:
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1             # <<<<<<<<<<<<<<
- *         if right < n and <long>heap[right] > <long>heap[child]:
- *             child = right
-*/
-    __pyx_v_right = (__pyx_v_child + 1);
-
-    /* "optimized_pop.pyx":114
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1
- *         if right < n and <long>heap[right] > <long>heap[child]:             # <<<<<<<<<<<<<<
- *             child = right
- *         heap[pos] = heap[child]
-*/
-    __pyx_t_4 = (__pyx_v_right < __pyx_v_n);
-    if (__pyx_t_4) {
-    } else {
-      __pyx_t_3 = __pyx_t_4;
-      goto __pyx_L8_bool_binop_done;
-    }
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 114, __pyx_L1_error)
-    }
-    __pyx_t_2 = __Pyx_PyLong_As_long(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right)); if (unlikely((__pyx_t_2 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 114, __pyx_L1_error)
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 114, __pyx_L1_error)
-    }
-    __pyx_t_5 = __Pyx_PyLong_As_long(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child)); if (unlikely((__pyx_t_5 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 114, __pyx_L1_error)
-    __pyx_t_4 = (((long)__pyx_t_2) > ((long)__pyx_t_5));
-    __pyx_t_3 = __pyx_t_4;
-    __pyx_L8_bool_binop_done:;
-    if (__pyx_t_3) {
-
-      /* "optimized_pop.pyx":115
- *         right = child + 1
- *         if right < n and <long>heap[right] > <long>heap[child]:
- *             child = right             # <<<<<<<<<<<<<<
- *         heap[pos] = heap[child]
- *         pos = child
-*/
-      __pyx_v_child = __pyx_v_right;
-
-      /* "optimized_pop.pyx":114
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1
- *         if right < n and <long>heap[right] > <long>heap[child]:             # <<<<<<<<<<<<<<
- *             child = right
- *         heap[pos] = heap[child]
-*/
-    }
-
-    /* "optimized_pop.pyx":116
- *         if right < n and <long>heap[right] > <long>heap[child]:
- *             child = right
- *         heap[pos] = heap[child]             # <<<<<<<<<<<<<<
- *         pos = child
- * 
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 116, __pyx_L1_error)
-    }
-    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
-    __Pyx_INCREF(__pyx_t_1);
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 116, __pyx_L1_error)
-    }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 116, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-
-    /* "optimized_pop.pyx":117
- *             child = right
- *         heap[pos] = heap[child]
- *         pos = child             # <<<<<<<<<<<<<<
- * 
- *     while pos > start:
-*/
-    __pyx_v_pos = __pyx_v_child;
-  }
-  __pyx_L4_break:;
-
-  /* "optimized_pop.pyx":119
- *         pos = child
- * 
- *     while pos > start:             # <<<<<<<<<<<<<<
- *         parent = (pos - 1) >> 1
- *         if item_val <= <long>heap[parent]:
-*/
-  while (1) {
-    __pyx_t_3 = (__pyx_v_pos > __pyx_v_start);
-    if (!__pyx_t_3) break;
-
-    /* "optimized_pop.pyx":120
- * 
- *     while pos > start:
+ *     while pos > 0:
  *         parent = (pos - 1) >> 1             # <<<<<<<<<<<<<<
  *         if item_val <= <long>heap[parent]:
  *             break
 */
     __pyx_v_parent = ((__pyx_v_pos - 1) >> 1);
 
-    /* "optimized_pop.pyx":121
- *     while pos > start:
+    /* "optimized_pop.pyx":90
+ *     while pos > 0:
  *         parent = (pos - 1) >> 1
  *         if item_val <= <long>heap[parent]:             # <<<<<<<<<<<<<<
  *             break
@@ -3402,23 +3313,23 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_int_max(PyObject *__
 */
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 121, __pyx_L1_error)
+      __PYX_ERR(0, 90, __pyx_L1_error)
     }
-    __pyx_t_5 = __Pyx_PyLong_As_long(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent)); if (unlikely((__pyx_t_5 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 121, __pyx_L1_error)
+    __pyx_t_5 = __Pyx_PyLong_As_long(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent)); if (unlikely((__pyx_t_5 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 90, __pyx_L1_error)
     __pyx_t_3 = (__pyx_v_item_val <= ((long)__pyx_t_5));
     if (__pyx_t_3) {
 
-      /* "optimized_pop.pyx":122
+      /* "optimized_pop.pyx":91
  *         parent = (pos - 1) >> 1
  *         if item_val <= <long>heap[parent]:
  *             break             # <<<<<<<<<<<<<<
  *         heap[pos] = heap[parent]
  *         pos = parent
 */
-      goto __pyx_L11_break;
+      goto __pyx_L10_break;
 
-      /* "optimized_pop.pyx":121
- *     while pos > start:
+      /* "optimized_pop.pyx":90
+ *     while pos > 0:
  *         parent = (pos - 1) >> 1
  *         if item_val <= <long>heap[parent]:             # <<<<<<<<<<<<<<
  *             break
@@ -3426,7 +3337,7 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_int_max(PyObject *__
 */
     }
 
-    /* "optimized_pop.pyx":123
+    /* "optimized_pop.pyx":92
  *         if item_val <= <long>heap[parent]:
  *             break
  *         heap[pos] = heap[parent]             # <<<<<<<<<<<<<<
@@ -3435,18 +3346,18 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_int_max(PyObject *__
 */
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 123, __pyx_L1_error)
+      __PYX_ERR(0, 92, __pyx_L1_error)
     }
     __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
     __Pyx_INCREF(__pyx_t_1);
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 123, __pyx_L1_error)
+      __PYX_ERR(0, 92, __pyx_L1_error)
     }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 123, __pyx_L1_error)
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 92, __pyx_L1_error)
     __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
 
-    /* "optimized_pop.pyx":124
+    /* "optimized_pop.pyx":93
  *             break
  *         heap[pos] = heap[parent]
  *         pos = parent             # <<<<<<<<<<<<<<
@@ -3455,55 +3366,54 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_int_max(PyObject *__
 */
     __pyx_v_pos = __pyx_v_parent;
   }
-  __pyx_L11_break:;
+  __pyx_L10_break:;
 
-  /* "optimized_pop.pyx":125
+  /* "optimized_pop.pyx":94
  *         heap[pos] = heap[parent]
  *         pos = parent
  *     heap[pos] = item             # <<<<<<<<<<<<<<
  * 
- * # =============================================================================
+ * cdef inline void _sift_float_min(list heap, Py_ssize_t n) noexcept:
 */
   if (unlikely(__pyx_v_heap == Py_None)) {
     PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 125, __pyx_L1_error)
+    __PYX_ERR(0, 94, __pyx_L1_error)
   }
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 125, __pyx_L1_error)
+  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 94, __pyx_L1_error)
 
-  /* "optimized_pop.pyx":99
+  /* "optimized_pop.pyx":72
  *     heap[pos] = item
  * 
- * cdef inline void sift_down_int_max(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
+ * cdef inline void _sift_int_max(list heap, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
  *     cdef:
- *         Py_ssize_t child, right, parent, gc
+ *         Py_ssize_t pos = 0, child, right, parent
 */
 
   /* function exit code */
   goto __pyx_L0;
   __pyx_L1_error:;
   __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_WriteUnraisable("optimized_pop.sift_down_int_max", __pyx_clineno, __pyx_lineno, __pyx_filename, 1, 0);
+  __Pyx_WriteUnraisable("optimized_pop._sift_int_max", __pyx_clineno, __pyx_lineno, __pyx_filename, 1, 0);
   __pyx_L0:;
   __Pyx_XDECREF(__pyx_v_item);
   __Pyx_RefNannyFinishContext();
 }
 
-/* "optimized_pop.pyx":131
- * # =============================================================================
+/* "optimized_pop.pyx":96
+ *     heap[pos] = item
  * 
- * cdef inline void sift_down_float_min(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
+ * cdef inline void _sift_float_min(list heap, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
  *     cdef:
- *         Py_ssize_t child, right, parent, gc
+ *         Py_ssize_t pos = 0, child, right, parent
 */
 
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_min(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, Py_ssize_t __pyx_v_n) {
+static CYTHON_INLINE void __pyx_f_13optimized_pop__sift_float_min(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_n) {
+  Py_ssize_t __pyx_v_pos;
   Py_ssize_t __pyx_v_child;
   Py_ssize_t __pyx_v_right;
   Py_ssize_t __pyx_v_parent;
-  Py_ssize_t __pyx_v_gc;
   PyObject *__pyx_v_item = 0;
   double __pyx_v_item_val;
-  Py_ssize_t __pyx_v_start;
   __Pyx_RefNannyDeclarations
   PyObject *__pyx_t_1 = NULL;
   int __pyx_t_2;
@@ -3512,44 +3422,44 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_min(PyObject *
   int __pyx_lineno = 0;
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("sift_down_float_min", 0);
+  __Pyx_RefNannySetupContext("_sift_float_min", 0);
 
-  /* "optimized_pop.pyx":134
+  /* "optimized_pop.pyx":98
+ * cdef inline void _sift_float_min(list heap, Py_ssize_t n) noexcept:
  *     cdef:
- *         Py_ssize_t child, right, parent, gc
- *         object item = heap[pos]             # <<<<<<<<<<<<<<
+ *         Py_ssize_t pos = 0, child, right, parent             # <<<<<<<<<<<<<<
+ *         object item = heap[0]
  *         double item_val = PyFloat_AS_DOUBLE(item)
- *         Py_ssize_t start = pos
+*/
+  __pyx_v_pos = 0;
+
+  /* "optimized_pop.pyx":99
+ *     cdef:
+ *         Py_ssize_t pos = 0, child, right, parent
+ *         object item = heap[0]             # <<<<<<<<<<<<<<
+ *         double item_val = PyFloat_AS_DOUBLE(item)
+ * 
 */
   if (unlikely(__pyx_v_heap == Py_None)) {
     PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 134, __pyx_L1_error)
+    __PYX_ERR(0, 99, __pyx_L1_error)
   }
-  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
+  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, 0);
   __Pyx_INCREF(__pyx_t_1);
   __pyx_v_item = __pyx_t_1;
   __pyx_t_1 = 0;
 
-  /* "optimized_pop.pyx":135
- *         Py_ssize_t child, right, parent, gc
- *         object item = heap[pos]
+  /* "optimized_pop.pyx":100
+ *         Py_ssize_t pos = 0, child, right, parent
+ *         object item = heap[0]
  *         double item_val = PyFloat_AS_DOUBLE(item)             # <<<<<<<<<<<<<<
- *         Py_ssize_t start = pos
- * 
-*/
-  __pyx_v_item_val = PyFloat_AS_DOUBLE(__pyx_v_item);
-
-  /* "optimized_pop.pyx":136
- *         object item = heap[pos]
- *         double item_val = PyFloat_AS_DOUBLE(item)
- *         Py_ssize_t start = pos             # <<<<<<<<<<<<<<
  * 
  *     while True:
 */
-  __pyx_v_start = __pyx_v_pos;
+  __pyx_v_item_val = PyFloat_AS_DOUBLE(__pyx_v_item);
 
-  /* "optimized_pop.pyx":138
- *         Py_ssize_t start = pos
+  /* "optimized_pop.pyx":102
+ *         double item_val = PyFloat_AS_DOUBLE(item)
  * 
  *     while True:             # <<<<<<<<<<<<<<
  *         child = (pos << 1) + 1
@@ -3557,7 +3467,7 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_min(PyObject *
 */
   while (1) {
 
-    /* "optimized_pop.pyx":139
+    /* "optimized_pop.pyx":103
  * 
  *     while True:
  *         child = (pos << 1) + 1             # <<<<<<<<<<<<<<
@@ -3566,86 +3476,45 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_min(PyObject *
 */
     __pyx_v_child = ((__pyx_v_pos << 1) + 1);
 
-    /* "optimized_pop.pyx":140
+    /* "optimized_pop.pyx":104
  *     while True:
  *         child = (pos << 1) + 1
  *         if child >= n:             # <<<<<<<<<<<<<<
  *             break
- *         gc = (child << 1) + 1
+ *         right = child + 1
 */
     __pyx_t_2 = (__pyx_v_child >= __pyx_v_n);
     if (__pyx_t_2) {
 
-      /* "optimized_pop.pyx":141
+      /* "optimized_pop.pyx":105
  *         child = (pos << 1) + 1
  *         if child >= n:
  *             break             # <<<<<<<<<<<<<<
- *         gc = (child << 1) + 1
- *         if gc < n:
+ *         right = child + 1
+ *         if right < n and PyFloat_AS_DOUBLE(heap[right]) < PyFloat_AS_DOUBLE(heap[child]):
 */
       goto __pyx_L4_break;
 
-      /* "optimized_pop.pyx":140
+      /* "optimized_pop.pyx":104
  *     while True:
  *         child = (pos << 1) + 1
  *         if child >= n:             # <<<<<<<<<<<<<<
  *             break
- *         gc = (child << 1) + 1
+ *         right = child + 1
 */
     }
 
-    /* "optimized_pop.pyx":142
+    /* "optimized_pop.pyx":106
  *         if child >= n:
  *             break
- *         gc = (child << 1) + 1             # <<<<<<<<<<<<<<
- *         if gc < n:
- *             PREFETCH(<void*>heap[gc])
-*/
-    __pyx_v_gc = ((__pyx_v_child << 1) + 1);
-
-    /* "optimized_pop.pyx":143
- *             break
- *         gc = (child << 1) + 1
- *         if gc < n:             # <<<<<<<<<<<<<<
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1
-*/
-    __pyx_t_2 = (__pyx_v_gc < __pyx_v_n);
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":144
- *         gc = (child << 1) + 1
- *         if gc < n:
- *             PREFETCH(<void*>heap[gc])             # <<<<<<<<<<<<<<
- *         right = child + 1
- *         if right < n and PyFloat_AS_DOUBLE(heap[right]) < PyFloat_AS_DOUBLE(heap[child]):
-*/
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-        __PYX_ERR(0, 144, __pyx_L1_error)
-      }
-      PREFETCH(((void *)__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_gc)));
-
-      /* "optimized_pop.pyx":143
- *             break
- *         gc = (child << 1) + 1
- *         if gc < n:             # <<<<<<<<<<<<<<
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1
-*/
-    }
-
-    /* "optimized_pop.pyx":145
- *         if gc < n:
- *             PREFETCH(<void*>heap[gc])
  *         right = child + 1             # <<<<<<<<<<<<<<
  *         if right < n and PyFloat_AS_DOUBLE(heap[right]) < PyFloat_AS_DOUBLE(heap[child]):
  *             child = right
 */
     __pyx_v_right = (__pyx_v_child + 1);
 
-    /* "optimized_pop.pyx":146
- *             PREFETCH(<void*>heap[gc])
+    /* "optimized_pop.pyx":107
+ *             break
  *         right = child + 1
  *         if right < n and PyFloat_AS_DOUBLE(heap[right]) < PyFloat_AS_DOUBLE(heap[child]):             # <<<<<<<<<<<<<<
  *             child = right
@@ -3655,17 +3524,17 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_min(PyObject *
     if (__pyx_t_3) {
     } else {
       __pyx_t_2 = __pyx_t_3;
-      goto __pyx_L8_bool_binop_done;
+      goto __pyx_L7_bool_binop_done;
     }
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 146, __pyx_L1_error)
+      __PYX_ERR(0, 107, __pyx_L1_error)
     }
     __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right);
     __Pyx_INCREF(__pyx_t_1);
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 146, __pyx_L1_error)
+      __PYX_ERR(0, 107, __pyx_L1_error)
     }
     __pyx_t_4 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
     __Pyx_INCREF(__pyx_t_4);
@@ -3673,10 +3542,10 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_min(PyObject *
     __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
     __pyx_t_2 = __pyx_t_3;
-    __pyx_L8_bool_binop_done:;
+    __pyx_L7_bool_binop_done:;
     if (__pyx_t_2) {
 
-      /* "optimized_pop.pyx":147
+      /* "optimized_pop.pyx":108
  *         right = child + 1
  *         if right < n and PyFloat_AS_DOUBLE(heap[right]) < PyFloat_AS_DOUBLE(heap[child]):
  *             child = right             # <<<<<<<<<<<<<<
@@ -3685,8 +3554,8 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_min(PyObject *
 */
       __pyx_v_child = __pyx_v_right;
 
-      /* "optimized_pop.pyx":146
- *             PREFETCH(<void*>heap[gc])
+      /* "optimized_pop.pyx":107
+ *             break
  *         right = child + 1
  *         if right < n and PyFloat_AS_DOUBLE(heap[right]) < PyFloat_AS_DOUBLE(heap[child]):             # <<<<<<<<<<<<<<
  *             child = right
@@ -3694,7 +3563,7 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_min(PyObject *
 */
     }
 
-    /* "optimized_pop.pyx":148
+    /* "optimized_pop.pyx":109
  *         if right < n and PyFloat_AS_DOUBLE(heap[right]) < PyFloat_AS_DOUBLE(heap[child]):
  *             child = right
  *         heap[pos] = heap[child]             # <<<<<<<<<<<<<<
@@ -3703,50 +3572,50 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_min(PyObject *
 */
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 148, __pyx_L1_error)
+      __PYX_ERR(0, 109, __pyx_L1_error)
     }
     __pyx_t_4 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
     __Pyx_INCREF(__pyx_t_4);
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 148, __pyx_L1_error)
+      __PYX_ERR(0, 109, __pyx_L1_error)
     }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_4, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 148, __pyx_L1_error)
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_4, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 109, __pyx_L1_error)
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
 
-    /* "optimized_pop.pyx":149
+    /* "optimized_pop.pyx":110
  *             child = right
  *         heap[pos] = heap[child]
  *         pos = child             # <<<<<<<<<<<<<<
  * 
- *     while pos > start:
+ *     while pos > 0:
 */
     __pyx_v_pos = __pyx_v_child;
   }
   __pyx_L4_break:;
 
-  /* "optimized_pop.pyx":151
+  /* "optimized_pop.pyx":112
  *         pos = child
  * 
- *     while pos > start:             # <<<<<<<<<<<<<<
+ *     while pos > 0:             # <<<<<<<<<<<<<<
  *         parent = (pos - 1) >> 1
  *         if item_val >= PyFloat_AS_DOUBLE(heap[parent]):
 */
   while (1) {
-    __pyx_t_2 = (__pyx_v_pos > __pyx_v_start);
+    __pyx_t_2 = (__pyx_v_pos > 0);
     if (!__pyx_t_2) break;
 
-    /* "optimized_pop.pyx":152
+    /* "optimized_pop.pyx":113
  * 
- *     while pos > start:
+ *     while pos > 0:
  *         parent = (pos - 1) >> 1             # <<<<<<<<<<<<<<
  *         if item_val >= PyFloat_AS_DOUBLE(heap[parent]):
  *             break
 */
     __pyx_v_parent = ((__pyx_v_pos - 1) >> 1);
 
-    /* "optimized_pop.pyx":153
- *     while pos > start:
+    /* "optimized_pop.pyx":114
+ *     while pos > 0:
  *         parent = (pos - 1) >> 1
  *         if item_val >= PyFloat_AS_DOUBLE(heap[parent]):             # <<<<<<<<<<<<<<
  *             break
@@ -3754,7 +3623,7 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_min(PyObject *
 */
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 153, __pyx_L1_error)
+      __PYX_ERR(0, 114, __pyx_L1_error)
     }
     __pyx_t_4 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
     __Pyx_INCREF(__pyx_t_4);
@@ -3762,17 +3631,17 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_min(PyObject *
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
     if (__pyx_t_2) {
 
-      /* "optimized_pop.pyx":154
+      /* "optimized_pop.pyx":115
  *         parent = (pos - 1) >> 1
  *         if item_val >= PyFloat_AS_DOUBLE(heap[parent]):
  *             break             # <<<<<<<<<<<<<<
  *         heap[pos] = heap[parent]
  *         pos = parent
 */
-      goto __pyx_L11_break;
+      goto __pyx_L10_break;
 
-      /* "optimized_pop.pyx":153
- *     while pos > start:
+      /* "optimized_pop.pyx":114
+ *     while pos > 0:
  *         parent = (pos - 1) >> 1
  *         if item_val >= PyFloat_AS_DOUBLE(heap[parent]):             # <<<<<<<<<<<<<<
  *             break
@@ -3780,7 +3649,7 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_min(PyObject *
 */
     }
 
-    /* "optimized_pop.pyx":155
+    /* "optimized_pop.pyx":116
  *         if item_val >= PyFloat_AS_DOUBLE(heap[parent]):
  *             break
  *         heap[pos] = heap[parent]             # <<<<<<<<<<<<<<
@@ -3789,18 +3658,18 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_min(PyObject *
 */
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 155, __pyx_L1_error)
+      __PYX_ERR(0, 116, __pyx_L1_error)
     }
     __pyx_t_4 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
     __Pyx_INCREF(__pyx_t_4);
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 155, __pyx_L1_error)
+      __PYX_ERR(0, 116, __pyx_L1_error)
     }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_4, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 155, __pyx_L1_error)
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_4, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 116, __pyx_L1_error)
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
 
-    /* "optimized_pop.pyx":156
+    /* "optimized_pop.pyx":117
  *             break
  *         heap[pos] = heap[parent]
  *         pos = parent             # <<<<<<<<<<<<<<
@@ -3809,27 +3678,27 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_min(PyObject *
 */
     __pyx_v_pos = __pyx_v_parent;
   }
-  __pyx_L11_break:;
+  __pyx_L10_break:;
 
-  /* "optimized_pop.pyx":157
+  /* "optimized_pop.pyx":118
  *         heap[pos] = heap[parent]
  *         pos = parent
  *     heap[pos] = item             # <<<<<<<<<<<<<<
  * 
- * cdef inline void sift_down_float_max(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:
+ * cdef inline void _sift_float_max(list heap, Py_ssize_t n) noexcept:
 */
   if (unlikely(__pyx_v_heap == Py_None)) {
     PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 157, __pyx_L1_error)
+    __PYX_ERR(0, 118, __pyx_L1_error)
   }
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 157, __pyx_L1_error)
+  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 118, __pyx_L1_error)
 
-  /* "optimized_pop.pyx":131
- * # =============================================================================
+  /* "optimized_pop.pyx":96
+ *     heap[pos] = item
  * 
- * cdef inline void sift_down_float_min(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
+ * cdef inline void _sift_float_min(list heap, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
  *     cdef:
- *         Py_ssize_t child, right, parent, gc
+ *         Py_ssize_t pos = 0, child, right, parent
 */
 
   /* function exit code */
@@ -3837,28 +3706,27 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_min(PyObject *
   __pyx_L1_error:;
   __Pyx_XDECREF(__pyx_t_1);
   __Pyx_XDECREF(__pyx_t_4);
-  __Pyx_WriteUnraisable("optimized_pop.sift_down_float_min", __pyx_clineno, __pyx_lineno, __pyx_filename, 1, 0);
+  __Pyx_WriteUnraisable("optimized_pop._sift_float_min", __pyx_clineno, __pyx_lineno, __pyx_filename, 1, 0);
   __pyx_L0:;
   __Pyx_XDECREF(__pyx_v_item);
   __Pyx_RefNannyFinishContext();
 }
 
-/* "optimized_pop.pyx":159
+/* "optimized_pop.pyx":120
  *     heap[pos] = item
  * 
- * cdef inline void sift_down_float_max(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
+ * cdef inline void _sift_float_max(list heap, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
  *     cdef:
- *         Py_ssize_t child, right, parent, gc
+ *         Py_ssize_t pos = 0, child, right, parent
 */
 
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_max(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, Py_ssize_t __pyx_v_n) {
+static CYTHON_INLINE void __pyx_f_13optimized_pop__sift_float_max(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_n) {
+  Py_ssize_t __pyx_v_pos;
   Py_ssize_t __pyx_v_child;
   Py_ssize_t __pyx_v_right;
   Py_ssize_t __pyx_v_parent;
-  Py_ssize_t __pyx_v_gc;
   PyObject *__pyx_v_item = 0;
   double __pyx_v_item_val;
-  Py_ssize_t __pyx_v_start;
   __Pyx_RefNannyDeclarations
   PyObject *__pyx_t_1 = NULL;
   int __pyx_t_2;
@@ -3867,44 +3735,44 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_max(PyObject *
   int __pyx_lineno = 0;
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("sift_down_float_max", 0);
+  __Pyx_RefNannySetupContext("_sift_float_max", 0);
 
-  /* "optimized_pop.pyx":162
+  /* "optimized_pop.pyx":122
+ * cdef inline void _sift_float_max(list heap, Py_ssize_t n) noexcept:
  *     cdef:
- *         Py_ssize_t child, right, parent, gc
- *         object item = heap[pos]             # <<<<<<<<<<<<<<
+ *         Py_ssize_t pos = 0, child, right, parent             # <<<<<<<<<<<<<<
+ *         object item = heap[0]
  *         double item_val = PyFloat_AS_DOUBLE(item)
- *         Py_ssize_t start = pos
+*/
+  __pyx_v_pos = 0;
+
+  /* "optimized_pop.pyx":123
+ *     cdef:
+ *         Py_ssize_t pos = 0, child, right, parent
+ *         object item = heap[0]             # <<<<<<<<<<<<<<
+ *         double item_val = PyFloat_AS_DOUBLE(item)
+ * 
 */
   if (unlikely(__pyx_v_heap == Py_None)) {
     PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 162, __pyx_L1_error)
+    __PYX_ERR(0, 123, __pyx_L1_error)
   }
-  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
+  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, 0);
   __Pyx_INCREF(__pyx_t_1);
   __pyx_v_item = __pyx_t_1;
   __pyx_t_1 = 0;
 
-  /* "optimized_pop.pyx":163
- *         Py_ssize_t child, right, parent, gc
- *         object item = heap[pos]
+  /* "optimized_pop.pyx":124
+ *         Py_ssize_t pos = 0, child, right, parent
+ *         object item = heap[0]
  *         double item_val = PyFloat_AS_DOUBLE(item)             # <<<<<<<<<<<<<<
- *         Py_ssize_t start = pos
- * 
-*/
-  __pyx_v_item_val = PyFloat_AS_DOUBLE(__pyx_v_item);
-
-  /* "optimized_pop.pyx":164
- *         object item = heap[pos]
- *         double item_val = PyFloat_AS_DOUBLE(item)
- *         Py_ssize_t start = pos             # <<<<<<<<<<<<<<
  * 
  *     while True:
 */
-  __pyx_v_start = __pyx_v_pos;
+  __pyx_v_item_val = PyFloat_AS_DOUBLE(__pyx_v_item);
 
-  /* "optimized_pop.pyx":166
- *         Py_ssize_t start = pos
+  /* "optimized_pop.pyx":126
+ *         double item_val = PyFloat_AS_DOUBLE(item)
  * 
  *     while True:             # <<<<<<<<<<<<<<
  *         child = (pos << 1) + 1
@@ -3912,7 +3780,7 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_max(PyObject *
 */
   while (1) {
 
-    /* "optimized_pop.pyx":167
+    /* "optimized_pop.pyx":127
  * 
  *     while True:
  *         child = (pos << 1) + 1             # <<<<<<<<<<<<<<
@@ -3921,86 +3789,45 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_max(PyObject *
 */
     __pyx_v_child = ((__pyx_v_pos << 1) + 1);
 
-    /* "optimized_pop.pyx":168
+    /* "optimized_pop.pyx":128
  *     while True:
  *         child = (pos << 1) + 1
  *         if child >= n:             # <<<<<<<<<<<<<<
  *             break
- *         gc = (child << 1) + 1
+ *         right = child + 1
 */
     __pyx_t_2 = (__pyx_v_child >= __pyx_v_n);
     if (__pyx_t_2) {
 
-      /* "optimized_pop.pyx":169
+      /* "optimized_pop.pyx":129
  *         child = (pos << 1) + 1
  *         if child >= n:
  *             break             # <<<<<<<<<<<<<<
- *         gc = (child << 1) + 1
- *         if gc < n:
+ *         right = child + 1
+ *         if right < n and PyFloat_AS_DOUBLE(heap[right]) > PyFloat_AS_DOUBLE(heap[child]):
 */
       goto __pyx_L4_break;
 
-      /* "optimized_pop.pyx":168
+      /* "optimized_pop.pyx":128
  *     while True:
  *         child = (pos << 1) + 1
  *         if child >= n:             # <<<<<<<<<<<<<<
  *             break
- *         gc = (child << 1) + 1
+ *         right = child + 1
 */
     }
 
-    /* "optimized_pop.pyx":170
+    /* "optimized_pop.pyx":130
  *         if child >= n:
  *             break
- *         gc = (child << 1) + 1             # <<<<<<<<<<<<<<
- *         if gc < n:
- *             PREFETCH(<void*>heap[gc])
-*/
-    __pyx_v_gc = ((__pyx_v_child << 1) + 1);
-
-    /* "optimized_pop.pyx":171
- *             break
- *         gc = (child << 1) + 1
- *         if gc < n:             # <<<<<<<<<<<<<<
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1
-*/
-    __pyx_t_2 = (__pyx_v_gc < __pyx_v_n);
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":172
- *         gc = (child << 1) + 1
- *         if gc < n:
- *             PREFETCH(<void*>heap[gc])             # <<<<<<<<<<<<<<
- *         right = child + 1
- *         if right < n and PyFloat_AS_DOUBLE(heap[right]) > PyFloat_AS_DOUBLE(heap[child]):
-*/
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-        __PYX_ERR(0, 172, __pyx_L1_error)
-      }
-      PREFETCH(((void *)__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_gc)));
-
-      /* "optimized_pop.pyx":171
- *             break
- *         gc = (child << 1) + 1
- *         if gc < n:             # <<<<<<<<<<<<<<
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1
-*/
-    }
-
-    /* "optimized_pop.pyx":173
- *         if gc < n:
- *             PREFETCH(<void*>heap[gc])
  *         right = child + 1             # <<<<<<<<<<<<<<
  *         if right < n and PyFloat_AS_DOUBLE(heap[right]) > PyFloat_AS_DOUBLE(heap[child]):
  *             child = right
 */
     __pyx_v_right = (__pyx_v_child + 1);
 
-    /* "optimized_pop.pyx":174
- *             PREFETCH(<void*>heap[gc])
+    /* "optimized_pop.pyx":131
+ *             break
  *         right = child + 1
  *         if right < n and PyFloat_AS_DOUBLE(heap[right]) > PyFloat_AS_DOUBLE(heap[child]):             # <<<<<<<<<<<<<<
  *             child = right
@@ -4010,17 +3837,17 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_max(PyObject *
     if (__pyx_t_3) {
     } else {
       __pyx_t_2 = __pyx_t_3;
-      goto __pyx_L8_bool_binop_done;
+      goto __pyx_L7_bool_binop_done;
     }
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 174, __pyx_L1_error)
+      __PYX_ERR(0, 131, __pyx_L1_error)
     }
     __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right);
     __Pyx_INCREF(__pyx_t_1);
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 174, __pyx_L1_error)
+      __PYX_ERR(0, 131, __pyx_L1_error)
     }
     __pyx_t_4 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
     __Pyx_INCREF(__pyx_t_4);
@@ -4028,10 +3855,10 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_max(PyObject *
     __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
     __pyx_t_2 = __pyx_t_3;
-    __pyx_L8_bool_binop_done:;
+    __pyx_L7_bool_binop_done:;
     if (__pyx_t_2) {
 
-      /* "optimized_pop.pyx":175
+      /* "optimized_pop.pyx":132
  *         right = child + 1
  *         if right < n and PyFloat_AS_DOUBLE(heap[right]) > PyFloat_AS_DOUBLE(heap[child]):
  *             child = right             # <<<<<<<<<<<<<<
@@ -4040,8 +3867,8 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_max(PyObject *
 */
       __pyx_v_child = __pyx_v_right;
 
-      /* "optimized_pop.pyx":174
- *             PREFETCH(<void*>heap[gc])
+      /* "optimized_pop.pyx":131
+ *             break
  *         right = child + 1
  *         if right < n and PyFloat_AS_DOUBLE(heap[right]) > PyFloat_AS_DOUBLE(heap[child]):             # <<<<<<<<<<<<<<
  *             child = right
@@ -4049,7 +3876,7 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_max(PyObject *
 */
     }
 
-    /* "optimized_pop.pyx":176
+    /* "optimized_pop.pyx":133
  *         if right < n and PyFloat_AS_DOUBLE(heap[right]) > PyFloat_AS_DOUBLE(heap[child]):
  *             child = right
  *         heap[pos] = heap[child]             # <<<<<<<<<<<<<<
@@ -4058,50 +3885,50 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_max(PyObject *
 */
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 176, __pyx_L1_error)
+      __PYX_ERR(0, 133, __pyx_L1_error)
     }
     __pyx_t_4 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
     __Pyx_INCREF(__pyx_t_4);
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 176, __pyx_L1_error)
+      __PYX_ERR(0, 133, __pyx_L1_error)
     }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_4, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 176, __pyx_L1_error)
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_4, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 133, __pyx_L1_error)
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
 
-    /* "optimized_pop.pyx":177
+    /* "optimized_pop.pyx":134
  *             child = right
  *         heap[pos] = heap[child]
  *         pos = child             # <<<<<<<<<<<<<<
  * 
- *     while pos > start:
+ *     while pos > 0:
 */
     __pyx_v_pos = __pyx_v_child;
   }
   __pyx_L4_break:;
 
-  /* "optimized_pop.pyx":179
+  /* "optimized_pop.pyx":136
  *         pos = child
  * 
- *     while pos > start:             # <<<<<<<<<<<<<<
+ *     while pos > 0:             # <<<<<<<<<<<<<<
  *         parent = (pos - 1) >> 1
  *         if item_val <= PyFloat_AS_DOUBLE(heap[parent]):
 */
   while (1) {
-    __pyx_t_2 = (__pyx_v_pos > __pyx_v_start);
+    __pyx_t_2 = (__pyx_v_pos > 0);
     if (!__pyx_t_2) break;
 
-    /* "optimized_pop.pyx":180
+    /* "optimized_pop.pyx":137
  * 
- *     while pos > start:
+ *     while pos > 0:
  *         parent = (pos - 1) >> 1             # <<<<<<<<<<<<<<
  *         if item_val <= PyFloat_AS_DOUBLE(heap[parent]):
  *             break
 */
     __pyx_v_parent = ((__pyx_v_pos - 1) >> 1);
 
-    /* "optimized_pop.pyx":181
- *     while pos > start:
+    /* "optimized_pop.pyx":138
+ *     while pos > 0:
  *         parent = (pos - 1) >> 1
  *         if item_val <= PyFloat_AS_DOUBLE(heap[parent]):             # <<<<<<<<<<<<<<
  *             break
@@ -4109,7 +3936,7 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_max(PyObject *
 */
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 181, __pyx_L1_error)
+      __PYX_ERR(0, 138, __pyx_L1_error)
     }
     __pyx_t_4 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
     __Pyx_INCREF(__pyx_t_4);
@@ -4117,17 +3944,17 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_max(PyObject *
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
     if (__pyx_t_2) {
 
-      /* "optimized_pop.pyx":182
+      /* "optimized_pop.pyx":139
  *         parent = (pos - 1) >> 1
  *         if item_val <= PyFloat_AS_DOUBLE(heap[parent]):
  *             break             # <<<<<<<<<<<<<<
  *         heap[pos] = heap[parent]
  *         pos = parent
 */
-      goto __pyx_L11_break;
+      goto __pyx_L10_break;
 
-      /* "optimized_pop.pyx":181
- *     while pos > start:
+      /* "optimized_pop.pyx":138
+ *     while pos > 0:
  *         parent = (pos - 1) >> 1
  *         if item_val <= PyFloat_AS_DOUBLE(heap[parent]):             # <<<<<<<<<<<<<<
  *             break
@@ -4135,7 +3962,7 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_max(PyObject *
 */
     }
 
-    /* "optimized_pop.pyx":183
+    /* "optimized_pop.pyx":140
  *         if item_val <= PyFloat_AS_DOUBLE(heap[parent]):
  *             break
  *         heap[pos] = heap[parent]             # <<<<<<<<<<<<<<
@@ -4144,18 +3971,329 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_max(PyObject *
 */
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 183, __pyx_L1_error)
+      __PYX_ERR(0, 140, __pyx_L1_error)
     }
     __pyx_t_4 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
     __Pyx_INCREF(__pyx_t_4);
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 183, __pyx_L1_error)
+      __PYX_ERR(0, 140, __pyx_L1_error)
     }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_4, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 183, __pyx_L1_error)
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_4, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 140, __pyx_L1_error)
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
 
-    /* "optimized_pop.pyx":184
+    /* "optimized_pop.pyx":141
+ *             break
+ *         heap[pos] = heap[parent]
+ *         pos = parent             # <<<<<<<<<<<<<<
+ *     heap[pos] = item
+ * 
+*/
+    __pyx_v_pos = __pyx_v_parent;
+  }
+  __pyx_L10_break:;
+
+  /* "optimized_pop.pyx":142
+ *         heap[pos] = heap[parent]
+ *         pos = parent
+ *     heap[pos] = item             # <<<<<<<<<<<<<<
+ * 
+ * cdef inline void _sift_bool_min(list heap, Py_ssize_t n) noexcept:
+*/
+  if (unlikely(__pyx_v_heap == Py_None)) {
+    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+    __PYX_ERR(0, 142, __pyx_L1_error)
+  }
+  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 142, __pyx_L1_error)
+
+  /* "optimized_pop.pyx":120
+ *     heap[pos] = item
+ * 
+ * cdef inline void _sift_float_max(list heap, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
+ *     cdef:
+ *         Py_ssize_t pos = 0, child, right, parent
+*/
+
+  /* function exit code */
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_1);
+  __Pyx_XDECREF(__pyx_t_4);
+  __Pyx_WriteUnraisable("optimized_pop._sift_float_max", __pyx_clineno, __pyx_lineno, __pyx_filename, 1, 0);
+  __pyx_L0:;
+  __Pyx_XDECREF(__pyx_v_item);
+  __Pyx_RefNannyFinishContext();
+}
+
+/* "optimized_pop.pyx":144
+ *     heap[pos] = item
+ * 
+ * cdef inline void _sift_bool_min(list heap, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
+ *     cdef:
+ *         Py_ssize_t pos = 0, child, right, parent
+*/
+
+static CYTHON_INLINE void __pyx_f_13optimized_pop__sift_bool_min(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_n) {
+  Py_ssize_t __pyx_v_pos;
+  Py_ssize_t __pyx_v_child;
+  Py_ssize_t __pyx_v_right;
+  Py_ssize_t __pyx_v_parent;
+  PyObject *__pyx_v_item = 0;
+  int __pyx_v_item_val;
+  __Pyx_RefNannyDeclarations
+  PyObject *__pyx_t_1 = NULL;
+  int __pyx_t_2;
+  int __pyx_t_3;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("_sift_bool_min", 0);
+
+  /* "optimized_pop.pyx":146
+ * cdef inline void _sift_bool_min(list heap, Py_ssize_t n) noexcept:
+ *     cdef:
+ *         Py_ssize_t pos = 0, child, right, parent             # <<<<<<<<<<<<<<
+ *         object item = heap[0]
+ *         bint item_val = item is True
+*/
+  __pyx_v_pos = 0;
+
+  /* "optimized_pop.pyx":147
+ *     cdef:
+ *         Py_ssize_t pos = 0, child, right, parent
+ *         object item = heap[0]             # <<<<<<<<<<<<<<
+ *         bint item_val = item is True
+ * 
+*/
+  if (unlikely(__pyx_v_heap == Py_None)) {
+    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+    __PYX_ERR(0, 147, __pyx_L1_error)
+  }
+  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, 0);
+  __Pyx_INCREF(__pyx_t_1);
+  __pyx_v_item = __pyx_t_1;
+  __pyx_t_1 = 0;
+
+  /* "optimized_pop.pyx":148
+ *         Py_ssize_t pos = 0, child, right, parent
+ *         object item = heap[0]
+ *         bint item_val = item is True             # <<<<<<<<<<<<<<
+ * 
+ *     while True:
+*/
+  __pyx_t_2 = (__pyx_v_item == Py_True);
+  __pyx_v_item_val = __pyx_t_2;
+
+  /* "optimized_pop.pyx":150
+ *         bint item_val = item is True
+ * 
+ *     while True:             # <<<<<<<<<<<<<<
+ *         child = (pos << 1) + 1
+ *         if child >= n:
+*/
+  while (1) {
+
+    /* "optimized_pop.pyx":151
+ * 
+ *     while True:
+ *         child = (pos << 1) + 1             # <<<<<<<<<<<<<<
+ *         if child >= n:
+ *             break
+*/
+    __pyx_v_child = ((__pyx_v_pos << 1) + 1);
+
+    /* "optimized_pop.pyx":152
+ *     while True:
+ *         child = (pos << 1) + 1
+ *         if child >= n:             # <<<<<<<<<<<<<<
+ *             break
+ *         right = child + 1
+*/
+    __pyx_t_2 = (__pyx_v_child >= __pyx_v_n);
+    if (__pyx_t_2) {
+
+      /* "optimized_pop.pyx":153
+ *         child = (pos << 1) + 1
+ *         if child >= n:
+ *             break             # <<<<<<<<<<<<<<
+ *         right = child + 1
+ *         if right < n and (heap[right] is not True) and (heap[child] is True):
+*/
+      goto __pyx_L4_break;
+
+      /* "optimized_pop.pyx":152
+ *     while True:
+ *         child = (pos << 1) + 1
+ *         if child >= n:             # <<<<<<<<<<<<<<
+ *             break
+ *         right = child + 1
+*/
+    }
+
+    /* "optimized_pop.pyx":154
+ *         if child >= n:
+ *             break
+ *         right = child + 1             # <<<<<<<<<<<<<<
+ *         if right < n and (heap[right] is not True) and (heap[child] is True):
+ *             child = right
+*/
+    __pyx_v_right = (__pyx_v_child + 1);
+
+    /* "optimized_pop.pyx":155
+ *             break
+ *         right = child + 1
+ *         if right < n and (heap[right] is not True) and (heap[child] is True):             # <<<<<<<<<<<<<<
+ *             child = right
+ *         heap[pos] = heap[child]
+*/
+    __pyx_t_3 = (__pyx_v_right < __pyx_v_n);
+    if (__pyx_t_3) {
+    } else {
+      __pyx_t_2 = __pyx_t_3;
+      goto __pyx_L7_bool_binop_done;
+    }
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 155, __pyx_L1_error)
+    }
+    __pyx_t_3 = (__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right) != Py_True);
+    if (__pyx_t_3) {
+    } else {
+      __pyx_t_2 = __pyx_t_3;
+      goto __pyx_L7_bool_binop_done;
+    }
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 155, __pyx_L1_error)
+    }
+    __pyx_t_3 = (__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child) == Py_True);
+    __pyx_t_2 = __pyx_t_3;
+    __pyx_L7_bool_binop_done:;
+    if (__pyx_t_2) {
+
+      /* "optimized_pop.pyx":156
+ *         right = child + 1
+ *         if right < n and (heap[right] is not True) and (heap[child] is True):
+ *             child = right             # <<<<<<<<<<<<<<
+ *         heap[pos] = heap[child]
+ *         pos = child
+*/
+      __pyx_v_child = __pyx_v_right;
+
+      /* "optimized_pop.pyx":155
+ *             break
+ *         right = child + 1
+ *         if right < n and (heap[right] is not True) and (heap[child] is True):             # <<<<<<<<<<<<<<
+ *             child = right
+ *         heap[pos] = heap[child]
+*/
+    }
+
+    /* "optimized_pop.pyx":157
+ *         if right < n and (heap[right] is not True) and (heap[child] is True):
+ *             child = right
+ *         heap[pos] = heap[child]             # <<<<<<<<<<<<<<
+ *         pos = child
+ * 
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 157, __pyx_L1_error)
+    }
+    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
+    __Pyx_INCREF(__pyx_t_1);
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 157, __pyx_L1_error)
+    }
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 157, __pyx_L1_error)
+    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+
+    /* "optimized_pop.pyx":158
+ *             child = right
+ *         heap[pos] = heap[child]
+ *         pos = child             # <<<<<<<<<<<<<<
+ * 
+ *     while pos > 0:
+*/
+    __pyx_v_pos = __pyx_v_child;
+  }
+  __pyx_L4_break:;
+
+  /* "optimized_pop.pyx":160
+ *         pos = child
+ * 
+ *     while pos > 0:             # <<<<<<<<<<<<<<
+ *         parent = (pos - 1) >> 1
+ *         if item_val >= (heap[parent] is True):
+*/
+  while (1) {
+    __pyx_t_2 = (__pyx_v_pos > 0);
+    if (!__pyx_t_2) break;
+
+    /* "optimized_pop.pyx":161
+ * 
+ *     while pos > 0:
+ *         parent = (pos - 1) >> 1             # <<<<<<<<<<<<<<
+ *         if item_val >= (heap[parent] is True):
+ *             break
+*/
+    __pyx_v_parent = ((__pyx_v_pos - 1) >> 1);
+
+    /* "optimized_pop.pyx":162
+ *     while pos > 0:
+ *         parent = (pos - 1) >> 1
+ *         if item_val >= (heap[parent] is True):             # <<<<<<<<<<<<<<
+ *             break
+ *         heap[pos] = heap[parent]
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 162, __pyx_L1_error)
+    }
+    __pyx_t_2 = (__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent) == Py_True);
+    __pyx_t_3 = (__pyx_v_item_val >= __pyx_t_2);
+    if (__pyx_t_3) {
+
+      /* "optimized_pop.pyx":163
+ *         parent = (pos - 1) >> 1
+ *         if item_val >= (heap[parent] is True):
+ *             break             # <<<<<<<<<<<<<<
+ *         heap[pos] = heap[parent]
+ *         pos = parent
+*/
+      goto __pyx_L11_break;
+
+      /* "optimized_pop.pyx":162
+ *     while pos > 0:
+ *         parent = (pos - 1) >> 1
+ *         if item_val >= (heap[parent] is True):             # <<<<<<<<<<<<<<
+ *             break
+ *         heap[pos] = heap[parent]
+*/
+    }
+
+    /* "optimized_pop.pyx":164
+ *         if item_val >= (heap[parent] is True):
+ *             break
+ *         heap[pos] = heap[parent]             # <<<<<<<<<<<<<<
+ *         pos = parent
+ *     heap[pos] = item
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 164, __pyx_L1_error)
+    }
+    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
+    __Pyx_INCREF(__pyx_t_1);
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 164, __pyx_L1_error)
+    }
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 164, __pyx_L1_error)
+    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+
+    /* "optimized_pop.pyx":165
  *             break
  *         heap[pos] = heap[parent]
  *         pos = parent             # <<<<<<<<<<<<<<
@@ -4166,54 +4304,52 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_float_max(PyObject *
   }
   __pyx_L11_break:;
 
-  /* "optimized_pop.pyx":185
+  /* "optimized_pop.pyx":166
  *         heap[pos] = heap[parent]
  *         pos = parent
  *     heap[pos] = item             # <<<<<<<<<<<<<<
  * 
- * # =============================================================================
+ * cdef inline void _sift_bool_max(list heap, Py_ssize_t n) noexcept:
 */
   if (unlikely(__pyx_v_heap == Py_None)) {
     PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 185, __pyx_L1_error)
+    __PYX_ERR(0, 166, __pyx_L1_error)
   }
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 185, __pyx_L1_error)
+  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 166, __pyx_L1_error)
 
-  /* "optimized_pop.pyx":159
+  /* "optimized_pop.pyx":144
  *     heap[pos] = item
  * 
- * cdef inline void sift_down_float_max(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
+ * cdef inline void _sift_bool_min(list heap, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
  *     cdef:
- *         Py_ssize_t child, right, parent, gc
+ *         Py_ssize_t pos = 0, child, right, parent
 */
 
   /* function exit code */
   goto __pyx_L0;
   __pyx_L1_error:;
   __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_XDECREF(__pyx_t_4);
-  __Pyx_WriteUnraisable("optimized_pop.sift_down_float_max", __pyx_clineno, __pyx_lineno, __pyx_filename, 1, 0);
+  __Pyx_WriteUnraisable("optimized_pop._sift_bool_min", __pyx_clineno, __pyx_lineno, __pyx_filename, 1, 0);
   __pyx_L0:;
   __Pyx_XDECREF(__pyx_v_item);
   __Pyx_RefNannyFinishContext();
 }
 
-/* "optimized_pop.pyx":191
- * # =============================================================================
+/* "optimized_pop.pyx":168
+ *     heap[pos] = item
  * 
- * cdef inline void sift_down_bool_min(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
+ * cdef inline void _sift_bool_max(list heap, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
  *     cdef:
- *         Py_ssize_t child, right, parent, gc
+ *         Py_ssize_t pos = 0, child, right, parent
 */
 
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_bool_min(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, Py_ssize_t __pyx_v_n) {
+static CYTHON_INLINE void __pyx_f_13optimized_pop__sift_bool_max(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_n) {
+  Py_ssize_t __pyx_v_pos;
   Py_ssize_t __pyx_v_child;
   Py_ssize_t __pyx_v_right;
   Py_ssize_t __pyx_v_parent;
-  Py_ssize_t __pyx_v_gc;
   PyObject *__pyx_v_item = 0;
   int __pyx_v_item_val;
-  Py_ssize_t __pyx_v_start;
   __Pyx_RefNannyDeclarations
   PyObject *__pyx_t_1 = NULL;
   int __pyx_t_2;
@@ -4221,45 +4357,344 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_bool_min(PyObject *_
   int __pyx_lineno = 0;
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("sift_down_bool_min", 0);
+  __Pyx_RefNannySetupContext("_sift_bool_max", 0);
 
-  /* "optimized_pop.pyx":194
+  /* "optimized_pop.pyx":170
+ * cdef inline void _sift_bool_max(list heap, Py_ssize_t n) noexcept:
  *     cdef:
- *         Py_ssize_t child, right, parent, gc
- *         object item = heap[pos]             # <<<<<<<<<<<<<<
+ *         Py_ssize_t pos = 0, child, right, parent             # <<<<<<<<<<<<<<
+ *         object item = heap[0]
  *         bint item_val = item is True
- *         Py_ssize_t start = pos
+*/
+  __pyx_v_pos = 0;
+
+  /* "optimized_pop.pyx":171
+ *     cdef:
+ *         Py_ssize_t pos = 0, child, right, parent
+ *         object item = heap[0]             # <<<<<<<<<<<<<<
+ *         bint item_val = item is True
+ * 
 */
   if (unlikely(__pyx_v_heap == Py_None)) {
     PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 194, __pyx_L1_error)
+    __PYX_ERR(0, 171, __pyx_L1_error)
   }
-  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
+  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, 0);
   __Pyx_INCREF(__pyx_t_1);
   __pyx_v_item = __pyx_t_1;
   __pyx_t_1 = 0;
 
-  /* "optimized_pop.pyx":195
- *         Py_ssize_t child, right, parent, gc
- *         object item = heap[pos]
+  /* "optimized_pop.pyx":172
+ *         Py_ssize_t pos = 0, child, right, parent
+ *         object item = heap[0]
  *         bint item_val = item is True             # <<<<<<<<<<<<<<
- *         Py_ssize_t start = pos
  * 
+ *     while True:
 */
   __pyx_t_2 = (__pyx_v_item == Py_True);
   __pyx_v_item_val = __pyx_t_2;
 
-  /* "optimized_pop.pyx":196
- *         object item = heap[pos]
+  /* "optimized_pop.pyx":174
  *         bint item_val = item is True
- *         Py_ssize_t start = pos             # <<<<<<<<<<<<<<
+ * 
+ *     while True:             # <<<<<<<<<<<<<<
+ *         child = (pos << 1) + 1
+ *         if child >= n:
+*/
+  while (1) {
+
+    /* "optimized_pop.pyx":175
+ * 
+ *     while True:
+ *         child = (pos << 1) + 1             # <<<<<<<<<<<<<<
+ *         if child >= n:
+ *             break
+*/
+    __pyx_v_child = ((__pyx_v_pos << 1) + 1);
+
+    /* "optimized_pop.pyx":176
+ *     while True:
+ *         child = (pos << 1) + 1
+ *         if child >= n:             # <<<<<<<<<<<<<<
+ *             break
+ *         right = child + 1
+*/
+    __pyx_t_2 = (__pyx_v_child >= __pyx_v_n);
+    if (__pyx_t_2) {
+
+      /* "optimized_pop.pyx":177
+ *         child = (pos << 1) + 1
+ *         if child >= n:
+ *             break             # <<<<<<<<<<<<<<
+ *         right = child + 1
+ *         if right < n and (heap[right] is True) and (heap[child] is not True):
+*/
+      goto __pyx_L4_break;
+
+      /* "optimized_pop.pyx":176
+ *     while True:
+ *         child = (pos << 1) + 1
+ *         if child >= n:             # <<<<<<<<<<<<<<
+ *             break
+ *         right = child + 1
+*/
+    }
+
+    /* "optimized_pop.pyx":178
+ *         if child >= n:
+ *             break
+ *         right = child + 1             # <<<<<<<<<<<<<<
+ *         if right < n and (heap[right] is True) and (heap[child] is not True):
+ *             child = right
+*/
+    __pyx_v_right = (__pyx_v_child + 1);
+
+    /* "optimized_pop.pyx":179
+ *             break
+ *         right = child + 1
+ *         if right < n and (heap[right] is True) and (heap[child] is not True):             # <<<<<<<<<<<<<<
+ *             child = right
+ *         heap[pos] = heap[child]
+*/
+    __pyx_t_3 = (__pyx_v_right < __pyx_v_n);
+    if (__pyx_t_3) {
+    } else {
+      __pyx_t_2 = __pyx_t_3;
+      goto __pyx_L7_bool_binop_done;
+    }
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 179, __pyx_L1_error)
+    }
+    __pyx_t_3 = (__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right) == Py_True);
+    if (__pyx_t_3) {
+    } else {
+      __pyx_t_2 = __pyx_t_3;
+      goto __pyx_L7_bool_binop_done;
+    }
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 179, __pyx_L1_error)
+    }
+    __pyx_t_3 = (__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child) != Py_True);
+    __pyx_t_2 = __pyx_t_3;
+    __pyx_L7_bool_binop_done:;
+    if (__pyx_t_2) {
+
+      /* "optimized_pop.pyx":180
+ *         right = child + 1
+ *         if right < n and (heap[right] is True) and (heap[child] is not True):
+ *             child = right             # <<<<<<<<<<<<<<
+ *         heap[pos] = heap[child]
+ *         pos = child
+*/
+      __pyx_v_child = __pyx_v_right;
+
+      /* "optimized_pop.pyx":179
+ *             break
+ *         right = child + 1
+ *         if right < n and (heap[right] is True) and (heap[child] is not True):             # <<<<<<<<<<<<<<
+ *             child = right
+ *         heap[pos] = heap[child]
+*/
+    }
+
+    /* "optimized_pop.pyx":181
+ *         if right < n and (heap[right] is True) and (heap[child] is not True):
+ *             child = right
+ *         heap[pos] = heap[child]             # <<<<<<<<<<<<<<
+ *         pos = child
+ * 
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 181, __pyx_L1_error)
+    }
+    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
+    __Pyx_INCREF(__pyx_t_1);
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 181, __pyx_L1_error)
+    }
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 181, __pyx_L1_error)
+    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+
+    /* "optimized_pop.pyx":182
+ *             child = right
+ *         heap[pos] = heap[child]
+ *         pos = child             # <<<<<<<<<<<<<<
+ * 
+ *     while pos > 0:
+*/
+    __pyx_v_pos = __pyx_v_child;
+  }
+  __pyx_L4_break:;
+
+  /* "optimized_pop.pyx":184
+ *         pos = child
+ * 
+ *     while pos > 0:             # <<<<<<<<<<<<<<
+ *         parent = (pos - 1) >> 1
+ *         if item_val <= (heap[parent] is True):
+*/
+  while (1) {
+    __pyx_t_2 = (__pyx_v_pos > 0);
+    if (!__pyx_t_2) break;
+
+    /* "optimized_pop.pyx":185
+ * 
+ *     while pos > 0:
+ *         parent = (pos - 1) >> 1             # <<<<<<<<<<<<<<
+ *         if item_val <= (heap[parent] is True):
+ *             break
+*/
+    __pyx_v_parent = ((__pyx_v_pos - 1) >> 1);
+
+    /* "optimized_pop.pyx":186
+ *     while pos > 0:
+ *         parent = (pos - 1) >> 1
+ *         if item_val <= (heap[parent] is True):             # <<<<<<<<<<<<<<
+ *             break
+ *         heap[pos] = heap[parent]
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 186, __pyx_L1_error)
+    }
+    __pyx_t_2 = (__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent) == Py_True);
+    __pyx_t_3 = (__pyx_v_item_val <= __pyx_t_2);
+    if (__pyx_t_3) {
+
+      /* "optimized_pop.pyx":187
+ *         parent = (pos - 1) >> 1
+ *         if item_val <= (heap[parent] is True):
+ *             break             # <<<<<<<<<<<<<<
+ *         heap[pos] = heap[parent]
+ *         pos = parent
+*/
+      goto __pyx_L11_break;
+
+      /* "optimized_pop.pyx":186
+ *     while pos > 0:
+ *         parent = (pos - 1) >> 1
+ *         if item_val <= (heap[parent] is True):             # <<<<<<<<<<<<<<
+ *             break
+ *         heap[pos] = heap[parent]
+*/
+    }
+
+    /* "optimized_pop.pyx":188
+ *         if item_val <= (heap[parent] is True):
+ *             break
+ *         heap[pos] = heap[parent]             # <<<<<<<<<<<<<<
+ *         pos = parent
+ *     heap[pos] = item
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 188, __pyx_L1_error)
+    }
+    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
+    __Pyx_INCREF(__pyx_t_1);
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 188, __pyx_L1_error)
+    }
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 188, __pyx_L1_error)
+    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+
+    /* "optimized_pop.pyx":189
+ *             break
+ *         heap[pos] = heap[parent]
+ *         pos = parent             # <<<<<<<<<<<<<<
+ *     heap[pos] = item
+ * 
+*/
+    __pyx_v_pos = __pyx_v_parent;
+  }
+  __pyx_L11_break:;
+
+  /* "optimized_pop.pyx":190
+ *         heap[pos] = heap[parent]
+ *         pos = parent
+ *     heap[pos] = item             # <<<<<<<<<<<<<<
+ * 
+ * cdef inline void _sift_generic_max(list heap, Py_ssize_t n):
+*/
+  if (unlikely(__pyx_v_heap == Py_None)) {
+    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+    __PYX_ERR(0, 190, __pyx_L1_error)
+  }
+  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 190, __pyx_L1_error)
+
+  /* "optimized_pop.pyx":168
+ *     heap[pos] = item
+ * 
+ * cdef inline void _sift_bool_max(list heap, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
+ *     cdef:
+ *         Py_ssize_t pos = 0, child, right, parent
+*/
+
+  /* function exit code */
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_1);
+  __Pyx_WriteUnraisable("optimized_pop._sift_bool_max", __pyx_clineno, __pyx_lineno, __pyx_filename, 1, 0);
+  __pyx_L0:;
+  __Pyx_XDECREF(__pyx_v_item);
+  __Pyx_RefNannyFinishContext();
+}
+
+/* "optimized_pop.pyx":192
+ *     heap[pos] = item
+ * 
+ * cdef inline void _sift_generic_max(list heap, Py_ssize_t n):             # <<<<<<<<<<<<<<
+ *     """Generic max-heap sift-down for any type."""
+ *     cdef:
+*/
+
+static CYTHON_INLINE void __pyx_f_13optimized_pop__sift_generic_max(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_n) {
+  Py_ssize_t __pyx_v_pos;
+  Py_ssize_t __pyx_v_child;
+  Py_ssize_t __pyx_v_right;
+  Py_ssize_t __pyx_v_parent;
+  PyObject *__pyx_v_item = 0;
+  __Pyx_RefNannyDeclarations
+  PyObject *__pyx_t_1 = NULL;
+  int __pyx_t_2;
+  int __pyx_t_3;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("_sift_generic_max", 0);
+
+  /* "optimized_pop.pyx":195
+ *     """Generic max-heap sift-down for any type."""
+ *     cdef:
+ *         Py_ssize_t pos = 0, child, right, parent             # <<<<<<<<<<<<<<
+ *         object item = heap[0]
+ * 
+*/
+  __pyx_v_pos = 0;
+
+  /* "optimized_pop.pyx":196
+ *     cdef:
+ *         Py_ssize_t pos = 0, child, right, parent
+ *         object item = heap[0]             # <<<<<<<<<<<<<<
  * 
  *     while True:
 */
-  __pyx_v_start = __pyx_v_pos;
+  if (unlikely(__pyx_v_heap == Py_None)) {
+    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+    __PYX_ERR(0, 196, __pyx_L1_error)
+  }
+  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, 0);
+  __Pyx_INCREF(__pyx_t_1);
+  __pyx_v_item = __pyx_t_1;
+  __pyx_t_1 = 0;
 
   /* "optimized_pop.pyx":198
- *         Py_ssize_t start = pos
+ *         object item = heap[0]
  * 
  *     while True:             # <<<<<<<<<<<<<<
  *         child = (pos << 1) + 1
@@ -4281,7 +4716,7 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_bool_min(PyObject *_
  *         child = (pos << 1) + 1
  *         if child >= n:             # <<<<<<<<<<<<<<
  *             break
- *         gc = (child << 1) + 1
+ *         right = child + 1
 */
     __pyx_t_2 = (__pyx_v_child >= __pyx_v_n);
     if (__pyx_t_2) {
@@ -4290,8 +4725,8 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_bool_min(PyObject *_
  *         child = (pos << 1) + 1
  *         if child >= n:
  *             break             # <<<<<<<<<<<<<<
- *         gc = (child << 1) + 1
- *         if gc < n:
+ *         right = child + 1
+ *         if right < n and heap[right] > heap[child]:
 */
       goto __pyx_L4_break;
 
@@ -4300,64 +4735,23 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_bool_min(PyObject *_
  *         child = (pos << 1) + 1
  *         if child >= n:             # <<<<<<<<<<<<<<
  *             break
- *         gc = (child << 1) + 1
+ *         right = child + 1
 */
     }
 
     /* "optimized_pop.pyx":202
  *         if child >= n:
  *             break
- *         gc = (child << 1) + 1             # <<<<<<<<<<<<<<
- *         if gc < n:
- *             PREFETCH(<void*>heap[gc])
-*/
-    __pyx_v_gc = ((__pyx_v_child << 1) + 1);
-
-    /* "optimized_pop.pyx":203
- *             break
- *         gc = (child << 1) + 1
- *         if gc < n:             # <<<<<<<<<<<<<<
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1
-*/
-    __pyx_t_2 = (__pyx_v_gc < __pyx_v_n);
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":204
- *         gc = (child << 1) + 1
- *         if gc < n:
- *             PREFETCH(<void*>heap[gc])             # <<<<<<<<<<<<<<
- *         right = child + 1
- *         # False < True, so prefer False (not True)
-*/
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-        __PYX_ERR(0, 204, __pyx_L1_error)
-      }
-      PREFETCH(((void *)__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_gc)));
-
-      /* "optimized_pop.pyx":203
- *             break
- *         gc = (child << 1) + 1
- *         if gc < n:             # <<<<<<<<<<<<<<
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1
-*/
-    }
-
-    /* "optimized_pop.pyx":205
- *         if gc < n:
- *             PREFETCH(<void*>heap[gc])
  *         right = child + 1             # <<<<<<<<<<<<<<
- *         # False < True, so prefer False (not True)
- *         if right < n and (heap[right] is not True) and (heap[child] is True):
+ *         if right < n and heap[right] > heap[child]:
+ *             child = right
 */
     __pyx_v_right = (__pyx_v_child + 1);
 
-    /* "optimized_pop.pyx":207
+    /* "optimized_pop.pyx":203
+ *             break
  *         right = child + 1
- *         # False < True, so prefer False (not True)
- *         if right < n and (heap[right] is not True) and (heap[child] is True):             # <<<<<<<<<<<<<<
+ *         if right < n and heap[right] > heap[child]:             # <<<<<<<<<<<<<<
  *             child = right
  *         heap[pos] = heap[child]
 */
@@ -4365,47 +4759,43 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_bool_min(PyObject *_
     if (__pyx_t_3) {
     } else {
       __pyx_t_2 = __pyx_t_3;
-      goto __pyx_L8_bool_binop_done;
+      goto __pyx_L7_bool_binop_done;
     }
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 207, __pyx_L1_error)
-    }
-    __pyx_t_3 = (__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right) != Py_True);
-    if (__pyx_t_3) {
-    } else {
-      __pyx_t_2 = __pyx_t_3;
-      goto __pyx_L8_bool_binop_done;
+      __PYX_ERR(0, 203, __pyx_L1_error)
     }
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 207, __pyx_L1_error)
+      __PYX_ERR(0, 203, __pyx_L1_error)
     }
-    __pyx_t_3 = (__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child) == Py_True);
+    __pyx_t_1 = PyObject_RichCompare(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right), __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child), Py_GT); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 203, __pyx_L1_error)
+    __pyx_t_3 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_3 < 0))) __PYX_ERR(0, 203, __pyx_L1_error)
+    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
     __pyx_t_2 = __pyx_t_3;
-    __pyx_L8_bool_binop_done:;
+    __pyx_L7_bool_binop_done:;
     if (__pyx_t_2) {
 
-      /* "optimized_pop.pyx":208
- *         # False < True, so prefer False (not True)
- *         if right < n and (heap[right] is not True) and (heap[child] is True):
+      /* "optimized_pop.pyx":204
+ *         right = child + 1
+ *         if right < n and heap[right] > heap[child]:
  *             child = right             # <<<<<<<<<<<<<<
  *         heap[pos] = heap[child]
  *         pos = child
 */
       __pyx_v_child = __pyx_v_right;
 
-      /* "optimized_pop.pyx":207
+      /* "optimized_pop.pyx":203
+ *             break
  *         right = child + 1
- *         # False < True, so prefer False (not True)
- *         if right < n and (heap[right] is not True) and (heap[child] is True):             # <<<<<<<<<<<<<<
+ *         if right < n and heap[right] > heap[child]:             # <<<<<<<<<<<<<<
  *             child = right
  *         heap[pos] = heap[child]
 */
     }
 
-    /* "optimized_pop.pyx":209
- *         if right < n and (heap[right] is not True) and (heap[child] is True):
+    /* "optimized_pop.pyx":205
+ *         if right < n and heap[right] > heap[child]:
  *             child = right
  *         heap[pos] = heap[child]             # <<<<<<<<<<<<<<
  *         pos = child
@@ -4413,83 +4803,85 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_bool_min(PyObject *_
 */
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 209, __pyx_L1_error)
+      __PYX_ERR(0, 205, __pyx_L1_error)
     }
     __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
     __Pyx_INCREF(__pyx_t_1);
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 209, __pyx_L1_error)
+      __PYX_ERR(0, 205, __pyx_L1_error)
     }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 209, __pyx_L1_error)
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 205, __pyx_L1_error)
     __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
 
-    /* "optimized_pop.pyx":210
+    /* "optimized_pop.pyx":206
  *             child = right
  *         heap[pos] = heap[child]
  *         pos = child             # <<<<<<<<<<<<<<
  * 
- *     while pos > start:
+ *     while pos > 0:
 */
     __pyx_v_pos = __pyx_v_child;
   }
   __pyx_L4_break:;
 
-  /* "optimized_pop.pyx":212
+  /* "optimized_pop.pyx":208
  *         pos = child
  * 
- *     while pos > start:             # <<<<<<<<<<<<<<
+ *     while pos > 0:             # <<<<<<<<<<<<<<
  *         parent = (pos - 1) >> 1
- *         if item_val >= (heap[parent] is True):
+ *         if not (item > heap[parent]):
 */
   while (1) {
-    __pyx_t_2 = (__pyx_v_pos > __pyx_v_start);
+    __pyx_t_2 = (__pyx_v_pos > 0);
     if (!__pyx_t_2) break;
 
-    /* "optimized_pop.pyx":213
+    /* "optimized_pop.pyx":209
  * 
- *     while pos > start:
+ *     while pos > 0:
  *         parent = (pos - 1) >> 1             # <<<<<<<<<<<<<<
- *         if item_val >= (heap[parent] is True):
+ *         if not (item > heap[parent]):
  *             break
 */
     __pyx_v_parent = ((__pyx_v_pos - 1) >> 1);
 
-    /* "optimized_pop.pyx":214
- *     while pos > start:
+    /* "optimized_pop.pyx":210
+ *     while pos > 0:
  *         parent = (pos - 1) >> 1
- *         if item_val >= (heap[parent] is True):             # <<<<<<<<<<<<<<
+ *         if not (item > heap[parent]):             # <<<<<<<<<<<<<<
  *             break
  *         heap[pos] = heap[parent]
 */
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 214, __pyx_L1_error)
+      __PYX_ERR(0, 210, __pyx_L1_error)
     }
-    __pyx_t_2 = (__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent) == Py_True);
-    __pyx_t_3 = (__pyx_v_item_val >= __pyx_t_2);
+    __pyx_t_1 = PyObject_RichCompare(__pyx_v_item, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent), Py_GT); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 210, __pyx_L1_error)
+    __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 210, __pyx_L1_error)
+    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+    __pyx_t_3 = (!__pyx_t_2);
     if (__pyx_t_3) {
 
-      /* "optimized_pop.pyx":215
+      /* "optimized_pop.pyx":211
  *         parent = (pos - 1) >> 1
- *         if item_val >= (heap[parent] is True):
+ *         if not (item > heap[parent]):
  *             break             # <<<<<<<<<<<<<<
  *         heap[pos] = heap[parent]
  *         pos = parent
 */
-      goto __pyx_L12_break;
+      goto __pyx_L10_break;
 
-      /* "optimized_pop.pyx":214
- *     while pos > start:
+      /* "optimized_pop.pyx":210
+ *     while pos > 0:
  *         parent = (pos - 1) >> 1
- *         if item_val >= (heap[parent] is True):             # <<<<<<<<<<<<<<
+ *         if not (item > heap[parent]):             # <<<<<<<<<<<<<<
  *             break
  *         heap[pos] = heap[parent]
 */
     }
 
-    /* "optimized_pop.pyx":216
- *         if item_val >= (heap[parent] is True):
+    /* "optimized_pop.pyx":212
+ *         if not (item > heap[parent]):
  *             break
  *         heap[pos] = heap[parent]             # <<<<<<<<<<<<<<
  *         pos = parent
@@ -4497,18 +4889,18 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_bool_min(PyObject *_
 */
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 216, __pyx_L1_error)
+      __PYX_ERR(0, 212, __pyx_L1_error)
     }
     __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
     __Pyx_INCREF(__pyx_t_1);
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 216, __pyx_L1_error)
+      __PYX_ERR(0, 212, __pyx_L1_error)
     }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 216, __pyx_L1_error)
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 212, __pyx_L1_error)
     __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
 
-    /* "optimized_pop.pyx":217
+    /* "optimized_pop.pyx":213
  *             break
  *         heap[pos] = heap[parent]
  *         pos = parent             # <<<<<<<<<<<<<<
@@ -4517,351 +4909,2926 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_bool_min(PyObject *_
 */
     __pyx_v_pos = __pyx_v_parent;
   }
-  __pyx_L12_break:;
+  __pyx_L10_break:;
 
-  /* "optimized_pop.pyx":218
+  /* "optimized_pop.pyx":214
  *         heap[pos] = heap[parent]
  *         pos = parent
  *     heap[pos] = item             # <<<<<<<<<<<<<<
  * 
- * cdef inline void sift_down_bool_max(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:
+ * # =============================================================================
 */
   if (unlikely(__pyx_v_heap == Py_None)) {
     PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 218, __pyx_L1_error)
+    __PYX_ERR(0, 214, __pyx_L1_error)
   }
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 218, __pyx_L1_error)
+  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 214, __pyx_L1_error)
 
-  /* "optimized_pop.pyx":191
- * # =============================================================================
+  /* "optimized_pop.pyx":192
+ *     heap[pos] = item
  * 
- * cdef inline void sift_down_bool_min(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
+ * cdef inline void _sift_generic_max(list heap, Py_ssize_t n):             # <<<<<<<<<<<<<<
+ *     """Generic max-heap sift-down for any type."""
  *     cdef:
- *         Py_ssize_t child, right, parent, gc
 */
 
   /* function exit code */
   goto __pyx_L0;
   __pyx_L1_error:;
   __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_WriteUnraisable("optimized_pop.sift_down_bool_min", __pyx_clineno, __pyx_lineno, __pyx_filename, 1, 0);
+  __Pyx_AddTraceback("optimized_pop._sift_generic_max", __pyx_clineno, __pyx_lineno, __pyx_filename);
   __pyx_L0:;
   __Pyx_XDECREF(__pyx_v_item);
   __Pyx_RefNannyFinishContext();
 }
 
 /* "optimized_pop.pyx":220
- *     heap[pos] = item
+ * # =============================================================================
  * 
- * cdef inline void sift_down_bool_max(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t child, right, parent, gc
+ * cdef inline void _heapify_int(list heap, Py_ssize_t n, bint is_max) noexcept:             # <<<<<<<<<<<<<<
+ *     cdef Py_ssize_t i, pos, child, right, parent, start
+ *     cdef object item
 */
 
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_bool_max(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, Py_ssize_t __pyx_v_n) {
+static CYTHON_INLINE void __pyx_f_13optimized_pop__heapify_int(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_n, int __pyx_v_is_max) {
+  Py_ssize_t __pyx_v_i;
+  Py_ssize_t __pyx_v_pos;
   Py_ssize_t __pyx_v_child;
   Py_ssize_t __pyx_v_right;
   Py_ssize_t __pyx_v_parent;
-  Py_ssize_t __pyx_v_gc;
-  PyObject *__pyx_v_item = 0;
-  int __pyx_v_item_val;
   Py_ssize_t __pyx_v_start;
+  PyObject *__pyx_v_item = 0;
+  long __pyx_v_item_val;
   __Pyx_RefNannyDeclarations
-  PyObject *__pyx_t_1 = NULL;
-  int __pyx_t_2;
-  int __pyx_t_3;
+  Py_ssize_t __pyx_t_1;
+  PyObject *__pyx_t_2 = NULL;
+  long __pyx_t_3;
+  int __pyx_t_4;
+  int __pyx_t_5;
+  long __pyx_t_6;
   int __pyx_lineno = 0;
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("sift_down_bool_max", 0);
+  __Pyx_RefNannySetupContext("_heapify_int", 0);
 
-  /* "optimized_pop.pyx":223
+  /* "optimized_pop.pyx":225
+ *     cdef long item_val
+ * 
+ *     for i in range((n >> 1) - 1, -1, -1):             # <<<<<<<<<<<<<<
+ *         pos = i
+ *         start = i
+*/
+  for (__pyx_t_1 = ((__pyx_v_n >> 1) - 1); __pyx_t_1 > -1L; __pyx_t_1-=1) {
+    __pyx_v_i = __pyx_t_1;
+
+    /* "optimized_pop.pyx":226
+ * 
+ *     for i in range((n >> 1) - 1, -1, -1):
+ *         pos = i             # <<<<<<<<<<<<<<
+ *         start = i
+ *         item = heap[pos]
+*/
+    __pyx_v_pos = __pyx_v_i;
+
+    /* "optimized_pop.pyx":227
+ *     for i in range((n >> 1) - 1, -1, -1):
+ *         pos = i
+ *         start = i             # <<<<<<<<<<<<<<
+ *         item = heap[pos]
+ *         item_val = <long>item
+*/
+    __pyx_v_start = __pyx_v_i;
+
+    /* "optimized_pop.pyx":228
+ *         pos = i
+ *         start = i
+ *         item = heap[pos]             # <<<<<<<<<<<<<<
+ *         item_val = <long>item
+ * 
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 228, __pyx_L1_error)
+    }
+    __pyx_t_2 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
+    __Pyx_INCREF(__pyx_t_2);
+    __Pyx_XDECREF_SET(__pyx_v_item, __pyx_t_2);
+    __pyx_t_2 = 0;
+
+    /* "optimized_pop.pyx":229
+ *         start = i
+ *         item = heap[pos]
+ *         item_val = <long>item             # <<<<<<<<<<<<<<
+ * 
+ *         while True:
+*/
+    __pyx_t_3 = __Pyx_PyLong_As_long(__pyx_v_item); if (unlikely((__pyx_t_3 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 229, __pyx_L1_error)
+    __pyx_v_item_val = ((long)__pyx_t_3);
+
+    /* "optimized_pop.pyx":231
+ *         item_val = <long>item
+ * 
+ *         while True:             # <<<<<<<<<<<<<<
+ *             child = (pos << 1) + 1
+ *             if child >= n:
+*/
+    while (1) {
+
+      /* "optimized_pop.pyx":232
+ * 
+ *         while True:
+ *             child = (pos << 1) + 1             # <<<<<<<<<<<<<<
+ *             if child >= n:
+ *                 break
+*/
+      __pyx_v_child = ((__pyx_v_pos << 1) + 1);
+
+      /* "optimized_pop.pyx":233
+ *         while True:
+ *             child = (pos << 1) + 1
+ *             if child >= n:             # <<<<<<<<<<<<<<
+ *                 break
+ *             right = child + 1
+*/
+      __pyx_t_4 = (__pyx_v_child >= __pyx_v_n);
+      if (__pyx_t_4) {
+
+        /* "optimized_pop.pyx":234
+ *             child = (pos << 1) + 1
+ *             if child >= n:
+ *                 break             # <<<<<<<<<<<<<<
+ *             right = child + 1
+ *             if is_max:
+*/
+        goto __pyx_L6_break;
+
+        /* "optimized_pop.pyx":233
+ *         while True:
+ *             child = (pos << 1) + 1
+ *             if child >= n:             # <<<<<<<<<<<<<<
+ *                 break
+ *             right = child + 1
+*/
+      }
+
+      /* "optimized_pop.pyx":235
+ *             if child >= n:
+ *                 break
+ *             right = child + 1             # <<<<<<<<<<<<<<
+ *             if is_max:
+ *                 if right < n and <long>heap[right] > <long>heap[child]:
+*/
+      __pyx_v_right = (__pyx_v_child + 1);
+
+      /* "optimized_pop.pyx":236
+ *                 break
+ *             right = child + 1
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if right < n and <long>heap[right] > <long>heap[child]:
+ *                     child = right
+*/
+      if (__pyx_v_is_max) {
+
+        /* "optimized_pop.pyx":237
+ *             right = child + 1
+ *             if is_max:
+ *                 if right < n and <long>heap[right] > <long>heap[child]:             # <<<<<<<<<<<<<<
+ *                     child = right
+ *             else:
+*/
+        __pyx_t_5 = (__pyx_v_right < __pyx_v_n);
+        if (__pyx_t_5) {
+        } else {
+          __pyx_t_4 = __pyx_t_5;
+          goto __pyx_L10_bool_binop_done;
+        }
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 237, __pyx_L1_error)
+        }
+        __pyx_t_3 = __Pyx_PyLong_As_long(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right)); if (unlikely((__pyx_t_3 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 237, __pyx_L1_error)
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 237, __pyx_L1_error)
+        }
+        __pyx_t_6 = __Pyx_PyLong_As_long(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child)); if (unlikely((__pyx_t_6 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 237, __pyx_L1_error)
+        __pyx_t_5 = (((long)__pyx_t_3) > ((long)__pyx_t_6));
+        __pyx_t_4 = __pyx_t_5;
+        __pyx_L10_bool_binop_done:;
+        if (__pyx_t_4) {
+
+          /* "optimized_pop.pyx":238
+ *             if is_max:
+ *                 if right < n and <long>heap[right] > <long>heap[child]:
+ *                     child = right             # <<<<<<<<<<<<<<
+ *             else:
+ *                 if right < n and <long>heap[right] < <long>heap[child]:
+*/
+          __pyx_v_child = __pyx_v_right;
+
+          /* "optimized_pop.pyx":237
+ *             right = child + 1
+ *             if is_max:
+ *                 if right < n and <long>heap[right] > <long>heap[child]:             # <<<<<<<<<<<<<<
+ *                     child = right
+ *             else:
+*/
+        }
+
+        /* "optimized_pop.pyx":236
+ *                 break
+ *             right = child + 1
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if right < n and <long>heap[right] > <long>heap[child]:
+ *                     child = right
+*/
+        goto __pyx_L8;
+      }
+
+      /* "optimized_pop.pyx":240
+ *                     child = right
+ *             else:
+ *                 if right < n and <long>heap[right] < <long>heap[child]:             # <<<<<<<<<<<<<<
+ *                     child = right
+ *             heap[pos] = heap[child]
+*/
+      /*else*/ {
+        __pyx_t_5 = (__pyx_v_right < __pyx_v_n);
+        if (__pyx_t_5) {
+        } else {
+          __pyx_t_4 = __pyx_t_5;
+          goto __pyx_L13_bool_binop_done;
+        }
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 240, __pyx_L1_error)
+        }
+        __pyx_t_6 = __Pyx_PyLong_As_long(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right)); if (unlikely((__pyx_t_6 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 240, __pyx_L1_error)
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 240, __pyx_L1_error)
+        }
+        __pyx_t_3 = __Pyx_PyLong_As_long(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child)); if (unlikely((__pyx_t_3 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 240, __pyx_L1_error)
+        __pyx_t_5 = (((long)__pyx_t_6) < ((long)__pyx_t_3));
+        __pyx_t_4 = __pyx_t_5;
+        __pyx_L13_bool_binop_done:;
+        if (__pyx_t_4) {
+
+          /* "optimized_pop.pyx":241
+ *             else:
+ *                 if right < n and <long>heap[right] < <long>heap[child]:
+ *                     child = right             # <<<<<<<<<<<<<<
+ *             heap[pos] = heap[child]
+ *             pos = child
+*/
+          __pyx_v_child = __pyx_v_right;
+
+          /* "optimized_pop.pyx":240
+ *                     child = right
+ *             else:
+ *                 if right < n and <long>heap[right] < <long>heap[child]:             # <<<<<<<<<<<<<<
+ *                     child = right
+ *             heap[pos] = heap[child]
+*/
+        }
+      }
+      __pyx_L8:;
+
+      /* "optimized_pop.pyx":242
+ *                 if right < n and <long>heap[right] < <long>heap[child]:
+ *                     child = right
+ *             heap[pos] = heap[child]             # <<<<<<<<<<<<<<
+ *             pos = child
+ * 
+*/
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 242, __pyx_L1_error)
+      }
+      __pyx_t_2 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
+      __Pyx_INCREF(__pyx_t_2);
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 242, __pyx_L1_error)
+      }
+      if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_2, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 242, __pyx_L1_error)
+      __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+
+      /* "optimized_pop.pyx":243
+ *                     child = right
+ *             heap[pos] = heap[child]
+ *             pos = child             # <<<<<<<<<<<<<<
+ * 
+ *         while pos > start:
+*/
+      __pyx_v_pos = __pyx_v_child;
+    }
+    __pyx_L6_break:;
+
+    /* "optimized_pop.pyx":245
+ *             pos = child
+ * 
+ *         while pos > start:             # <<<<<<<<<<<<<<
+ *             parent = (pos - 1) >> 1
+ *             if is_max:
+*/
+    while (1) {
+      __pyx_t_4 = (__pyx_v_pos > __pyx_v_start);
+      if (!__pyx_t_4) break;
+
+      /* "optimized_pop.pyx":246
+ * 
+ *         while pos > start:
+ *             parent = (pos - 1) >> 1             # <<<<<<<<<<<<<<
+ *             if is_max:
+ *                 if item_val <= <long>heap[parent]:
+*/
+      __pyx_v_parent = ((__pyx_v_pos - 1) >> 1);
+
+      /* "optimized_pop.pyx":247
+ *         while pos > start:
+ *             parent = (pos - 1) >> 1
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if item_val <= <long>heap[parent]:
+ *                     break
+*/
+      if (__pyx_v_is_max) {
+
+        /* "optimized_pop.pyx":248
+ *             parent = (pos - 1) >> 1
+ *             if is_max:
+ *                 if item_val <= <long>heap[parent]:             # <<<<<<<<<<<<<<
+ *                     break
+ *             else:
+*/
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 248, __pyx_L1_error)
+        }
+        __pyx_t_3 = __Pyx_PyLong_As_long(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent)); if (unlikely((__pyx_t_3 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 248, __pyx_L1_error)
+        __pyx_t_4 = (__pyx_v_item_val <= ((long)__pyx_t_3));
+        if (__pyx_t_4) {
+
+          /* "optimized_pop.pyx":249
+ *             if is_max:
+ *                 if item_val <= <long>heap[parent]:
+ *                     break             # <<<<<<<<<<<<<<
+ *             else:
+ *                 if item_val >= <long>heap[parent]:
+*/
+          goto __pyx_L16_break;
+
+          /* "optimized_pop.pyx":248
+ *             parent = (pos - 1) >> 1
+ *             if is_max:
+ *                 if item_val <= <long>heap[parent]:             # <<<<<<<<<<<<<<
+ *                     break
+ *             else:
+*/
+        }
+
+        /* "optimized_pop.pyx":247
+ *         while pos > start:
+ *             parent = (pos - 1) >> 1
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if item_val <= <long>heap[parent]:
+ *                     break
+*/
+        goto __pyx_L17;
+      }
+
+      /* "optimized_pop.pyx":251
+ *                     break
+ *             else:
+ *                 if item_val >= <long>heap[parent]:             # <<<<<<<<<<<<<<
+ *                     break
+ *             heap[pos] = heap[parent]
+*/
+      /*else*/ {
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 251, __pyx_L1_error)
+        }
+        __pyx_t_3 = __Pyx_PyLong_As_long(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent)); if (unlikely((__pyx_t_3 == (long)-1) && PyErr_Occurred())) __PYX_ERR(0, 251, __pyx_L1_error)
+        __pyx_t_4 = (__pyx_v_item_val >= ((long)__pyx_t_3));
+        if (__pyx_t_4) {
+
+          /* "optimized_pop.pyx":252
+ *             else:
+ *                 if item_val >= <long>heap[parent]:
+ *                     break             # <<<<<<<<<<<<<<
+ *             heap[pos] = heap[parent]
+ *             pos = parent
+*/
+          goto __pyx_L16_break;
+
+          /* "optimized_pop.pyx":251
+ *                     break
+ *             else:
+ *                 if item_val >= <long>heap[parent]:             # <<<<<<<<<<<<<<
+ *                     break
+ *             heap[pos] = heap[parent]
+*/
+        }
+      }
+      __pyx_L17:;
+
+      /* "optimized_pop.pyx":253
+ *                 if item_val >= <long>heap[parent]:
+ *                     break
+ *             heap[pos] = heap[parent]             # <<<<<<<<<<<<<<
+ *             pos = parent
+ *         heap[pos] = item
+*/
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 253, __pyx_L1_error)
+      }
+      __pyx_t_2 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
+      __Pyx_INCREF(__pyx_t_2);
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 253, __pyx_L1_error)
+      }
+      if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_2, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 253, __pyx_L1_error)
+      __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+
+      /* "optimized_pop.pyx":254
+ *                     break
+ *             heap[pos] = heap[parent]
+ *             pos = parent             # <<<<<<<<<<<<<<
+ *         heap[pos] = item
+ * 
+*/
+      __pyx_v_pos = __pyx_v_parent;
+    }
+    __pyx_L16_break:;
+
+    /* "optimized_pop.pyx":255
+ *             heap[pos] = heap[parent]
+ *             pos = parent
+ *         heap[pos] = item             # <<<<<<<<<<<<<<
+ * 
+ * cdef inline void _heapify_float(list heap, Py_ssize_t n, bint is_max) noexcept:
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 255, __pyx_L1_error)
+    }
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 255, __pyx_L1_error)
+  }
+
+  /* "optimized_pop.pyx":220
+ * # =============================================================================
+ * 
+ * cdef inline void _heapify_int(list heap, Py_ssize_t n, bint is_max) noexcept:             # <<<<<<<<<<<<<<
+ *     cdef Py_ssize_t i, pos, child, right, parent, start
+ *     cdef object item
+*/
+
+  /* function exit code */
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_2);
+  __Pyx_WriteUnraisable("optimized_pop._heapify_int", __pyx_clineno, __pyx_lineno, __pyx_filename, 1, 0);
+  __pyx_L0:;
+  __Pyx_XDECREF(__pyx_v_item);
+  __Pyx_RefNannyFinishContext();
+}
+
+/* "optimized_pop.pyx":257
+ *         heap[pos] = item
+ * 
+ * cdef inline void _heapify_float(list heap, Py_ssize_t n, bint is_max) noexcept:             # <<<<<<<<<<<<<<
+ *     cdef Py_ssize_t i, pos, child, right, parent, start
+ *     cdef object item
+*/
+
+static CYTHON_INLINE void __pyx_f_13optimized_pop__heapify_float(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_n, int __pyx_v_is_max) {
+  Py_ssize_t __pyx_v_i;
+  Py_ssize_t __pyx_v_pos;
+  Py_ssize_t __pyx_v_child;
+  Py_ssize_t __pyx_v_right;
+  Py_ssize_t __pyx_v_parent;
+  Py_ssize_t __pyx_v_start;
+  PyObject *__pyx_v_item = 0;
+  double __pyx_v_item_val;
+  __Pyx_RefNannyDeclarations
+  Py_ssize_t __pyx_t_1;
+  PyObject *__pyx_t_2 = NULL;
+  int __pyx_t_3;
+  int __pyx_t_4;
+  PyObject *__pyx_t_5 = NULL;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("_heapify_float", 0);
+
+  /* "optimized_pop.pyx":262
+ *     cdef double item_val
+ * 
+ *     for i in range((n >> 1) - 1, -1, -1):             # <<<<<<<<<<<<<<
+ *         pos = i
+ *         start = i
+*/
+  for (__pyx_t_1 = ((__pyx_v_n >> 1) - 1); __pyx_t_1 > -1L; __pyx_t_1-=1) {
+    __pyx_v_i = __pyx_t_1;
+
+    /* "optimized_pop.pyx":263
+ * 
+ *     for i in range((n >> 1) - 1, -1, -1):
+ *         pos = i             # <<<<<<<<<<<<<<
+ *         start = i
+ *         item = heap[pos]
+*/
+    __pyx_v_pos = __pyx_v_i;
+
+    /* "optimized_pop.pyx":264
+ *     for i in range((n >> 1) - 1, -1, -1):
+ *         pos = i
+ *         start = i             # <<<<<<<<<<<<<<
+ *         item = heap[pos]
+ *         item_val = PyFloat_AS_DOUBLE(item)
+*/
+    __pyx_v_start = __pyx_v_i;
+
+    /* "optimized_pop.pyx":265
+ *         pos = i
+ *         start = i
+ *         item = heap[pos]             # <<<<<<<<<<<<<<
+ *         item_val = PyFloat_AS_DOUBLE(item)
+ * 
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 265, __pyx_L1_error)
+    }
+    __pyx_t_2 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
+    __Pyx_INCREF(__pyx_t_2);
+    __Pyx_XDECREF_SET(__pyx_v_item, __pyx_t_2);
+    __pyx_t_2 = 0;
+
+    /* "optimized_pop.pyx":266
+ *         start = i
+ *         item = heap[pos]
+ *         item_val = PyFloat_AS_DOUBLE(item)             # <<<<<<<<<<<<<<
+ * 
+ *         while True:
+*/
+    __pyx_v_item_val = PyFloat_AS_DOUBLE(__pyx_v_item);
+
+    /* "optimized_pop.pyx":268
+ *         item_val = PyFloat_AS_DOUBLE(item)
+ * 
+ *         while True:             # <<<<<<<<<<<<<<
+ *             child = (pos << 1) + 1
+ *             if child >= n:
+*/
+    while (1) {
+
+      /* "optimized_pop.pyx":269
+ * 
+ *         while True:
+ *             child = (pos << 1) + 1             # <<<<<<<<<<<<<<
+ *             if child >= n:
+ *                 break
+*/
+      __pyx_v_child = ((__pyx_v_pos << 1) + 1);
+
+      /* "optimized_pop.pyx":270
+ *         while True:
+ *             child = (pos << 1) + 1
+ *             if child >= n:             # <<<<<<<<<<<<<<
+ *                 break
+ *             right = child + 1
+*/
+      __pyx_t_3 = (__pyx_v_child >= __pyx_v_n);
+      if (__pyx_t_3) {
+
+        /* "optimized_pop.pyx":271
+ *             child = (pos << 1) + 1
+ *             if child >= n:
+ *                 break             # <<<<<<<<<<<<<<
+ *             right = child + 1
+ *             if is_max:
+*/
+        goto __pyx_L6_break;
+
+        /* "optimized_pop.pyx":270
+ *         while True:
+ *             child = (pos << 1) + 1
+ *             if child >= n:             # <<<<<<<<<<<<<<
+ *                 break
+ *             right = child + 1
+*/
+      }
+
+      /* "optimized_pop.pyx":272
+ *             if child >= n:
+ *                 break
+ *             right = child + 1             # <<<<<<<<<<<<<<
+ *             if is_max:
+ *                 if right < n and PyFloat_AS_DOUBLE(heap[right]) > PyFloat_AS_DOUBLE(heap[child]):
+*/
+      __pyx_v_right = (__pyx_v_child + 1);
+
+      /* "optimized_pop.pyx":273
+ *                 break
+ *             right = child + 1
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if right < n and PyFloat_AS_DOUBLE(heap[right]) > PyFloat_AS_DOUBLE(heap[child]):
+ *                     child = right
+*/
+      if (__pyx_v_is_max) {
+
+        /* "optimized_pop.pyx":274
+ *             right = child + 1
+ *             if is_max:
+ *                 if right < n and PyFloat_AS_DOUBLE(heap[right]) > PyFloat_AS_DOUBLE(heap[child]):             # <<<<<<<<<<<<<<
+ *                     child = right
+ *             else:
+*/
+        __pyx_t_4 = (__pyx_v_right < __pyx_v_n);
+        if (__pyx_t_4) {
+        } else {
+          __pyx_t_3 = __pyx_t_4;
+          goto __pyx_L10_bool_binop_done;
+        }
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 274, __pyx_L1_error)
+        }
+        __pyx_t_2 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right);
+        __Pyx_INCREF(__pyx_t_2);
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 274, __pyx_L1_error)
+        }
+        __pyx_t_5 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
+        __Pyx_INCREF(__pyx_t_5);
+        __pyx_t_4 = (PyFloat_AS_DOUBLE(__pyx_t_2) > PyFloat_AS_DOUBLE(__pyx_t_5));
+        __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+        __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+        __pyx_t_3 = __pyx_t_4;
+        __pyx_L10_bool_binop_done:;
+        if (__pyx_t_3) {
+
+          /* "optimized_pop.pyx":275
+ *             if is_max:
+ *                 if right < n and PyFloat_AS_DOUBLE(heap[right]) > PyFloat_AS_DOUBLE(heap[child]):
+ *                     child = right             # <<<<<<<<<<<<<<
+ *             else:
+ *                 if right < n and PyFloat_AS_DOUBLE(heap[right]) < PyFloat_AS_DOUBLE(heap[child]):
+*/
+          __pyx_v_child = __pyx_v_right;
+
+          /* "optimized_pop.pyx":274
+ *             right = child + 1
+ *             if is_max:
+ *                 if right < n and PyFloat_AS_DOUBLE(heap[right]) > PyFloat_AS_DOUBLE(heap[child]):             # <<<<<<<<<<<<<<
+ *                     child = right
+ *             else:
+*/
+        }
+
+        /* "optimized_pop.pyx":273
+ *                 break
+ *             right = child + 1
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if right < n and PyFloat_AS_DOUBLE(heap[right]) > PyFloat_AS_DOUBLE(heap[child]):
+ *                     child = right
+*/
+        goto __pyx_L8;
+      }
+
+      /* "optimized_pop.pyx":277
+ *                     child = right
+ *             else:
+ *                 if right < n and PyFloat_AS_DOUBLE(heap[right]) < PyFloat_AS_DOUBLE(heap[child]):             # <<<<<<<<<<<<<<
+ *                     child = right
+ *             heap[pos] = heap[child]
+*/
+      /*else*/ {
+        __pyx_t_4 = (__pyx_v_right < __pyx_v_n);
+        if (__pyx_t_4) {
+        } else {
+          __pyx_t_3 = __pyx_t_4;
+          goto __pyx_L13_bool_binop_done;
+        }
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 277, __pyx_L1_error)
+        }
+        __pyx_t_5 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right);
+        __Pyx_INCREF(__pyx_t_5);
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 277, __pyx_L1_error)
+        }
+        __pyx_t_2 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
+        __Pyx_INCREF(__pyx_t_2);
+        __pyx_t_4 = (PyFloat_AS_DOUBLE(__pyx_t_5) < PyFloat_AS_DOUBLE(__pyx_t_2));
+        __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+        __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+        __pyx_t_3 = __pyx_t_4;
+        __pyx_L13_bool_binop_done:;
+        if (__pyx_t_3) {
+
+          /* "optimized_pop.pyx":278
+ *             else:
+ *                 if right < n and PyFloat_AS_DOUBLE(heap[right]) < PyFloat_AS_DOUBLE(heap[child]):
+ *                     child = right             # <<<<<<<<<<<<<<
+ *             heap[pos] = heap[child]
+ *             pos = child
+*/
+          __pyx_v_child = __pyx_v_right;
+
+          /* "optimized_pop.pyx":277
+ *                     child = right
+ *             else:
+ *                 if right < n and PyFloat_AS_DOUBLE(heap[right]) < PyFloat_AS_DOUBLE(heap[child]):             # <<<<<<<<<<<<<<
+ *                     child = right
+ *             heap[pos] = heap[child]
+*/
+        }
+      }
+      __pyx_L8:;
+
+      /* "optimized_pop.pyx":279
+ *                 if right < n and PyFloat_AS_DOUBLE(heap[right]) < PyFloat_AS_DOUBLE(heap[child]):
+ *                     child = right
+ *             heap[pos] = heap[child]             # <<<<<<<<<<<<<<
+ *             pos = child
+ * 
+*/
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 279, __pyx_L1_error)
+      }
+      __pyx_t_2 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
+      __Pyx_INCREF(__pyx_t_2);
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 279, __pyx_L1_error)
+      }
+      if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_2, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 279, __pyx_L1_error)
+      __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+
+      /* "optimized_pop.pyx":280
+ *                     child = right
+ *             heap[pos] = heap[child]
+ *             pos = child             # <<<<<<<<<<<<<<
+ * 
+ *         while pos > start:
+*/
+      __pyx_v_pos = __pyx_v_child;
+    }
+    __pyx_L6_break:;
+
+    /* "optimized_pop.pyx":282
+ *             pos = child
+ * 
+ *         while pos > start:             # <<<<<<<<<<<<<<
+ *             parent = (pos - 1) >> 1
+ *             if is_max:
+*/
+    while (1) {
+      __pyx_t_3 = (__pyx_v_pos > __pyx_v_start);
+      if (!__pyx_t_3) break;
+
+      /* "optimized_pop.pyx":283
+ * 
+ *         while pos > start:
+ *             parent = (pos - 1) >> 1             # <<<<<<<<<<<<<<
+ *             if is_max:
+ *                 if item_val <= PyFloat_AS_DOUBLE(heap[parent]):
+*/
+      __pyx_v_parent = ((__pyx_v_pos - 1) >> 1);
+
+      /* "optimized_pop.pyx":284
+ *         while pos > start:
+ *             parent = (pos - 1) >> 1
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if item_val <= PyFloat_AS_DOUBLE(heap[parent]):
+ *                     break
+*/
+      if (__pyx_v_is_max) {
+
+        /* "optimized_pop.pyx":285
+ *             parent = (pos - 1) >> 1
+ *             if is_max:
+ *                 if item_val <= PyFloat_AS_DOUBLE(heap[parent]):             # <<<<<<<<<<<<<<
+ *                     break
+ *             else:
+*/
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 285, __pyx_L1_error)
+        }
+        __pyx_t_2 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
+        __Pyx_INCREF(__pyx_t_2);
+        __pyx_t_3 = (__pyx_v_item_val <= PyFloat_AS_DOUBLE(__pyx_t_2));
+        __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+        if (__pyx_t_3) {
+
+          /* "optimized_pop.pyx":286
+ *             if is_max:
+ *                 if item_val <= PyFloat_AS_DOUBLE(heap[parent]):
+ *                     break             # <<<<<<<<<<<<<<
+ *             else:
+ *                 if item_val >= PyFloat_AS_DOUBLE(heap[parent]):
+*/
+          goto __pyx_L16_break;
+
+          /* "optimized_pop.pyx":285
+ *             parent = (pos - 1) >> 1
+ *             if is_max:
+ *                 if item_val <= PyFloat_AS_DOUBLE(heap[parent]):             # <<<<<<<<<<<<<<
+ *                     break
+ *             else:
+*/
+        }
+
+        /* "optimized_pop.pyx":284
+ *         while pos > start:
+ *             parent = (pos - 1) >> 1
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if item_val <= PyFloat_AS_DOUBLE(heap[parent]):
+ *                     break
+*/
+        goto __pyx_L17;
+      }
+
+      /* "optimized_pop.pyx":288
+ *                     break
+ *             else:
+ *                 if item_val >= PyFloat_AS_DOUBLE(heap[parent]):             # <<<<<<<<<<<<<<
+ *                     break
+ *             heap[pos] = heap[parent]
+*/
+      /*else*/ {
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 288, __pyx_L1_error)
+        }
+        __pyx_t_2 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
+        __Pyx_INCREF(__pyx_t_2);
+        __pyx_t_3 = (__pyx_v_item_val >= PyFloat_AS_DOUBLE(__pyx_t_2));
+        __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+        if (__pyx_t_3) {
+
+          /* "optimized_pop.pyx":289
+ *             else:
+ *                 if item_val >= PyFloat_AS_DOUBLE(heap[parent]):
+ *                     break             # <<<<<<<<<<<<<<
+ *             heap[pos] = heap[parent]
+ *             pos = parent
+*/
+          goto __pyx_L16_break;
+
+          /* "optimized_pop.pyx":288
+ *                     break
+ *             else:
+ *                 if item_val >= PyFloat_AS_DOUBLE(heap[parent]):             # <<<<<<<<<<<<<<
+ *                     break
+ *             heap[pos] = heap[parent]
+*/
+        }
+      }
+      __pyx_L17:;
+
+      /* "optimized_pop.pyx":290
+ *                 if item_val >= PyFloat_AS_DOUBLE(heap[parent]):
+ *                     break
+ *             heap[pos] = heap[parent]             # <<<<<<<<<<<<<<
+ *             pos = parent
+ *         heap[pos] = item
+*/
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 290, __pyx_L1_error)
+      }
+      __pyx_t_2 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
+      __Pyx_INCREF(__pyx_t_2);
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 290, __pyx_L1_error)
+      }
+      if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_2, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 290, __pyx_L1_error)
+      __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+
+      /* "optimized_pop.pyx":291
+ *                     break
+ *             heap[pos] = heap[parent]
+ *             pos = parent             # <<<<<<<<<<<<<<
+ *         heap[pos] = item
+ * 
+*/
+      __pyx_v_pos = __pyx_v_parent;
+    }
+    __pyx_L16_break:;
+
+    /* "optimized_pop.pyx":292
+ *             heap[pos] = heap[parent]
+ *             pos = parent
+ *         heap[pos] = item             # <<<<<<<<<<<<<<
+ * 
+ * cdef inline void _heapify_bool(list heap, Py_ssize_t n, bint is_max) noexcept:
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 292, __pyx_L1_error)
+    }
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 292, __pyx_L1_error)
+  }
+
+  /* "optimized_pop.pyx":257
+ *         heap[pos] = item
+ * 
+ * cdef inline void _heapify_float(list heap, Py_ssize_t n, bint is_max) noexcept:             # <<<<<<<<<<<<<<
+ *     cdef Py_ssize_t i, pos, child, right, parent, start
+ *     cdef object item
+*/
+
+  /* function exit code */
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_2);
+  __Pyx_XDECREF(__pyx_t_5);
+  __Pyx_WriteUnraisable("optimized_pop._heapify_float", __pyx_clineno, __pyx_lineno, __pyx_filename, 1, 0);
+  __pyx_L0:;
+  __Pyx_XDECREF(__pyx_v_item);
+  __Pyx_RefNannyFinishContext();
+}
+
+/* "optimized_pop.pyx":294
+ *         heap[pos] = item
+ * 
+ * cdef inline void _heapify_bool(list heap, Py_ssize_t n, bint is_max) noexcept:             # <<<<<<<<<<<<<<
+ *     cdef Py_ssize_t i, pos, child, right, parent, start
+ *     cdef object item
+*/
+
+static CYTHON_INLINE void __pyx_f_13optimized_pop__heapify_bool(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_n, int __pyx_v_is_max) {
+  Py_ssize_t __pyx_v_i;
+  Py_ssize_t __pyx_v_pos;
+  Py_ssize_t __pyx_v_child;
+  Py_ssize_t __pyx_v_right;
+  Py_ssize_t __pyx_v_parent;
+  Py_ssize_t __pyx_v_start;
+  PyObject *__pyx_v_item = 0;
+  int __pyx_v_item_val;
+  __Pyx_RefNannyDeclarations
+  Py_ssize_t __pyx_t_1;
+  PyObject *__pyx_t_2 = NULL;
+  int __pyx_t_3;
+  int __pyx_t_4;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("_heapify_bool", 0);
+
+  /* "optimized_pop.pyx":299
+ *     cdef bint item_val
+ * 
+ *     for i in range((n >> 1) - 1, -1, -1):             # <<<<<<<<<<<<<<
+ *         pos = i
+ *         start = i
+*/
+  for (__pyx_t_1 = ((__pyx_v_n >> 1) - 1); __pyx_t_1 > -1L; __pyx_t_1-=1) {
+    __pyx_v_i = __pyx_t_1;
+
+    /* "optimized_pop.pyx":300
+ * 
+ *     for i in range((n >> 1) - 1, -1, -1):
+ *         pos = i             # <<<<<<<<<<<<<<
+ *         start = i
+ *         item = heap[pos]
+*/
+    __pyx_v_pos = __pyx_v_i;
+
+    /* "optimized_pop.pyx":301
+ *     for i in range((n >> 1) - 1, -1, -1):
+ *         pos = i
+ *         start = i             # <<<<<<<<<<<<<<
+ *         item = heap[pos]
+ *         item_val = item is True
+*/
+    __pyx_v_start = __pyx_v_i;
+
+    /* "optimized_pop.pyx":302
+ *         pos = i
+ *         start = i
+ *         item = heap[pos]             # <<<<<<<<<<<<<<
+ *         item_val = item is True
+ * 
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 302, __pyx_L1_error)
+    }
+    __pyx_t_2 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
+    __Pyx_INCREF(__pyx_t_2);
+    __Pyx_XDECREF_SET(__pyx_v_item, __pyx_t_2);
+    __pyx_t_2 = 0;
+
+    /* "optimized_pop.pyx":303
+ *         start = i
+ *         item = heap[pos]
+ *         item_val = item is True             # <<<<<<<<<<<<<<
+ * 
+ *         while True:
+*/
+    __pyx_t_3 = (__pyx_v_item == Py_True);
+    __pyx_v_item_val = __pyx_t_3;
+
+    /* "optimized_pop.pyx":305
+ *         item_val = item is True
+ * 
+ *         while True:             # <<<<<<<<<<<<<<
+ *             child = (pos << 1) + 1
+ *             if child >= n:
+*/
+    while (1) {
+
+      /* "optimized_pop.pyx":306
+ * 
+ *         while True:
+ *             child = (pos << 1) + 1             # <<<<<<<<<<<<<<
+ *             if child >= n:
+ *                 break
+*/
+      __pyx_v_child = ((__pyx_v_pos << 1) + 1);
+
+      /* "optimized_pop.pyx":307
+ *         while True:
+ *             child = (pos << 1) + 1
+ *             if child >= n:             # <<<<<<<<<<<<<<
+ *                 break
+ *             right = child + 1
+*/
+      __pyx_t_3 = (__pyx_v_child >= __pyx_v_n);
+      if (__pyx_t_3) {
+
+        /* "optimized_pop.pyx":308
+ *             child = (pos << 1) + 1
+ *             if child >= n:
+ *                 break             # <<<<<<<<<<<<<<
+ *             right = child + 1
+ *             if is_max:
+*/
+        goto __pyx_L6_break;
+
+        /* "optimized_pop.pyx":307
+ *         while True:
+ *             child = (pos << 1) + 1
+ *             if child >= n:             # <<<<<<<<<<<<<<
+ *                 break
+ *             right = child + 1
+*/
+      }
+
+      /* "optimized_pop.pyx":309
+ *             if child >= n:
+ *                 break
+ *             right = child + 1             # <<<<<<<<<<<<<<
+ *             if is_max:
+ *                 if right < n and (heap[right] is True) and (heap[child] is not True):
+*/
+      __pyx_v_right = (__pyx_v_child + 1);
+
+      /* "optimized_pop.pyx":310
+ *                 break
+ *             right = child + 1
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if right < n and (heap[right] is True) and (heap[child] is not True):
+ *                     child = right
+*/
+      if (__pyx_v_is_max) {
+
+        /* "optimized_pop.pyx":311
+ *             right = child + 1
+ *             if is_max:
+ *                 if right < n and (heap[right] is True) and (heap[child] is not True):             # <<<<<<<<<<<<<<
+ *                     child = right
+ *             else:
+*/
+        __pyx_t_4 = (__pyx_v_right < __pyx_v_n);
+        if (__pyx_t_4) {
+        } else {
+          __pyx_t_3 = __pyx_t_4;
+          goto __pyx_L10_bool_binop_done;
+        }
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 311, __pyx_L1_error)
+        }
+        __pyx_t_4 = (__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right) == Py_True);
+        if (__pyx_t_4) {
+        } else {
+          __pyx_t_3 = __pyx_t_4;
+          goto __pyx_L10_bool_binop_done;
+        }
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 311, __pyx_L1_error)
+        }
+        __pyx_t_4 = (__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child) != Py_True);
+        __pyx_t_3 = __pyx_t_4;
+        __pyx_L10_bool_binop_done:;
+        if (__pyx_t_3) {
+
+          /* "optimized_pop.pyx":312
+ *             if is_max:
+ *                 if right < n and (heap[right] is True) and (heap[child] is not True):
+ *                     child = right             # <<<<<<<<<<<<<<
+ *             else:
+ *                 if right < n and (heap[right] is not True) and (heap[child] is True):
+*/
+          __pyx_v_child = __pyx_v_right;
+
+          /* "optimized_pop.pyx":311
+ *             right = child + 1
+ *             if is_max:
+ *                 if right < n and (heap[right] is True) and (heap[child] is not True):             # <<<<<<<<<<<<<<
+ *                     child = right
+ *             else:
+*/
+        }
+
+        /* "optimized_pop.pyx":310
+ *                 break
+ *             right = child + 1
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if right < n and (heap[right] is True) and (heap[child] is not True):
+ *                     child = right
+*/
+        goto __pyx_L8;
+      }
+
+      /* "optimized_pop.pyx":314
+ *                     child = right
+ *             else:
+ *                 if right < n and (heap[right] is not True) and (heap[child] is True):             # <<<<<<<<<<<<<<
+ *                     child = right
+ *             heap[pos] = heap[child]
+*/
+      /*else*/ {
+        __pyx_t_4 = (__pyx_v_right < __pyx_v_n);
+        if (__pyx_t_4) {
+        } else {
+          __pyx_t_3 = __pyx_t_4;
+          goto __pyx_L14_bool_binop_done;
+        }
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 314, __pyx_L1_error)
+        }
+        __pyx_t_4 = (__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right) != Py_True);
+        if (__pyx_t_4) {
+        } else {
+          __pyx_t_3 = __pyx_t_4;
+          goto __pyx_L14_bool_binop_done;
+        }
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 314, __pyx_L1_error)
+        }
+        __pyx_t_4 = (__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child) == Py_True);
+        __pyx_t_3 = __pyx_t_4;
+        __pyx_L14_bool_binop_done:;
+        if (__pyx_t_3) {
+
+          /* "optimized_pop.pyx":315
+ *             else:
+ *                 if right < n and (heap[right] is not True) and (heap[child] is True):
+ *                     child = right             # <<<<<<<<<<<<<<
+ *             heap[pos] = heap[child]
+ *             pos = child
+*/
+          __pyx_v_child = __pyx_v_right;
+
+          /* "optimized_pop.pyx":314
+ *                     child = right
+ *             else:
+ *                 if right < n and (heap[right] is not True) and (heap[child] is True):             # <<<<<<<<<<<<<<
+ *                     child = right
+ *             heap[pos] = heap[child]
+*/
+        }
+      }
+      __pyx_L8:;
+
+      /* "optimized_pop.pyx":316
+ *                 if right < n and (heap[right] is not True) and (heap[child] is True):
+ *                     child = right
+ *             heap[pos] = heap[child]             # <<<<<<<<<<<<<<
+ *             pos = child
+ * 
+*/
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 316, __pyx_L1_error)
+      }
+      __pyx_t_2 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
+      __Pyx_INCREF(__pyx_t_2);
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 316, __pyx_L1_error)
+      }
+      if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_2, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 316, __pyx_L1_error)
+      __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+
+      /* "optimized_pop.pyx":317
+ *                     child = right
+ *             heap[pos] = heap[child]
+ *             pos = child             # <<<<<<<<<<<<<<
+ * 
+ *         while pos > start:
+*/
+      __pyx_v_pos = __pyx_v_child;
+    }
+    __pyx_L6_break:;
+
+    /* "optimized_pop.pyx":319
+ *             pos = child
+ * 
+ *         while pos > start:             # <<<<<<<<<<<<<<
+ *             parent = (pos - 1) >> 1
+ *             if is_max:
+*/
+    while (1) {
+      __pyx_t_3 = (__pyx_v_pos > __pyx_v_start);
+      if (!__pyx_t_3) break;
+
+      /* "optimized_pop.pyx":320
+ * 
+ *         while pos > start:
+ *             parent = (pos - 1) >> 1             # <<<<<<<<<<<<<<
+ *             if is_max:
+ *                 if item_val <= (heap[parent] is True):
+*/
+      __pyx_v_parent = ((__pyx_v_pos - 1) >> 1);
+
+      /* "optimized_pop.pyx":321
+ *         while pos > start:
+ *             parent = (pos - 1) >> 1
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if item_val <= (heap[parent] is True):
+ *                     break
+*/
+      if (__pyx_v_is_max) {
+
+        /* "optimized_pop.pyx":322
+ *             parent = (pos - 1) >> 1
+ *             if is_max:
+ *                 if item_val <= (heap[parent] is True):             # <<<<<<<<<<<<<<
+ *                     break
+ *             else:
+*/
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 322, __pyx_L1_error)
+        }
+        __pyx_t_3 = (__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent) == Py_True);
+        __pyx_t_4 = (__pyx_v_item_val <= __pyx_t_3);
+        if (__pyx_t_4) {
+
+          /* "optimized_pop.pyx":323
+ *             if is_max:
+ *                 if item_val <= (heap[parent] is True):
+ *                     break             # <<<<<<<<<<<<<<
+ *             else:
+ *                 if item_val >= (heap[parent] is True):
+*/
+          goto __pyx_L18_break;
+
+          /* "optimized_pop.pyx":322
+ *             parent = (pos - 1) >> 1
+ *             if is_max:
+ *                 if item_val <= (heap[parent] is True):             # <<<<<<<<<<<<<<
+ *                     break
+ *             else:
+*/
+        }
+
+        /* "optimized_pop.pyx":321
+ *         while pos > start:
+ *             parent = (pos - 1) >> 1
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if item_val <= (heap[parent] is True):
+ *                     break
+*/
+        goto __pyx_L19;
+      }
+
+      /* "optimized_pop.pyx":325
+ *                     break
+ *             else:
+ *                 if item_val >= (heap[parent] is True):             # <<<<<<<<<<<<<<
+ *                     break
+ *             heap[pos] = heap[parent]
+*/
+      /*else*/ {
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 325, __pyx_L1_error)
+        }
+        __pyx_t_4 = (__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent) == Py_True);
+        __pyx_t_3 = (__pyx_v_item_val >= __pyx_t_4);
+        if (__pyx_t_3) {
+
+          /* "optimized_pop.pyx":326
+ *             else:
+ *                 if item_val >= (heap[parent] is True):
+ *                     break             # <<<<<<<<<<<<<<
+ *             heap[pos] = heap[parent]
+ *             pos = parent
+*/
+          goto __pyx_L18_break;
+
+          /* "optimized_pop.pyx":325
+ *                     break
+ *             else:
+ *                 if item_val >= (heap[parent] is True):             # <<<<<<<<<<<<<<
+ *                     break
+ *             heap[pos] = heap[parent]
+*/
+        }
+      }
+      __pyx_L19:;
+
+      /* "optimized_pop.pyx":327
+ *                 if item_val >= (heap[parent] is True):
+ *                     break
+ *             heap[pos] = heap[parent]             # <<<<<<<<<<<<<<
+ *             pos = parent
+ *         heap[pos] = item
+*/
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 327, __pyx_L1_error)
+      }
+      __pyx_t_2 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
+      __Pyx_INCREF(__pyx_t_2);
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 327, __pyx_L1_error)
+      }
+      if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_2, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 327, __pyx_L1_error)
+      __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+
+      /* "optimized_pop.pyx":328
+ *                     break
+ *             heap[pos] = heap[parent]
+ *             pos = parent             # <<<<<<<<<<<<<<
+ *         heap[pos] = item
+ * 
+*/
+      __pyx_v_pos = __pyx_v_parent;
+    }
+    __pyx_L18_break:;
+
+    /* "optimized_pop.pyx":329
+ *             heap[pos] = heap[parent]
+ *             pos = parent
+ *         heap[pos] = item             # <<<<<<<<<<<<<<
+ * 
+ * cdef inline void _heapify_generic_max(list heap, Py_ssize_t n):
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 329, __pyx_L1_error)
+    }
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 329, __pyx_L1_error)
+  }
+
+  /* "optimized_pop.pyx":294
+ *         heap[pos] = item
+ * 
+ * cdef inline void _heapify_bool(list heap, Py_ssize_t n, bint is_max) noexcept:             # <<<<<<<<<<<<<<
+ *     cdef Py_ssize_t i, pos, child, right, parent, start
+ *     cdef object item
+*/
+
+  /* function exit code */
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_2);
+  __Pyx_WriteUnraisable("optimized_pop._heapify_bool", __pyx_clineno, __pyx_lineno, __pyx_filename, 1, 0);
+  __pyx_L0:;
+  __Pyx_XDECREF(__pyx_v_item);
+  __Pyx_RefNannyFinishContext();
+}
+
+/* "optimized_pop.pyx":331
+ *         heap[pos] = item
+ * 
+ * cdef inline void _heapify_generic_max(list heap, Py_ssize_t n):             # <<<<<<<<<<<<<<
+ *     cdef Py_ssize_t i, pos, child, right, parent, start
+ *     cdef object item
+*/
+
+static CYTHON_INLINE void __pyx_f_13optimized_pop__heapify_generic_max(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_n) {
+  Py_ssize_t __pyx_v_i;
+  Py_ssize_t __pyx_v_pos;
+  Py_ssize_t __pyx_v_child;
+  Py_ssize_t __pyx_v_right;
+  Py_ssize_t __pyx_v_parent;
+  Py_ssize_t __pyx_v_start;
+  PyObject *__pyx_v_item = 0;
+  __Pyx_RefNannyDeclarations
+  Py_ssize_t __pyx_t_1;
+  PyObject *__pyx_t_2 = NULL;
+  int __pyx_t_3;
+  int __pyx_t_4;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("_heapify_generic_max", 0);
+
+  /* "optimized_pop.pyx":335
+ *     cdef object item
+ * 
+ *     for i in range((n >> 1) - 1, -1, -1):             # <<<<<<<<<<<<<<
+ *         pos = i
+ *         start = i
+*/
+  for (__pyx_t_1 = ((__pyx_v_n >> 1) - 1); __pyx_t_1 > -1L; __pyx_t_1-=1) {
+    __pyx_v_i = __pyx_t_1;
+
+    /* "optimized_pop.pyx":336
+ * 
+ *     for i in range((n >> 1) - 1, -1, -1):
+ *         pos = i             # <<<<<<<<<<<<<<
+ *         start = i
+ *         item = heap[pos]
+*/
+    __pyx_v_pos = __pyx_v_i;
+
+    /* "optimized_pop.pyx":337
+ *     for i in range((n >> 1) - 1, -1, -1):
+ *         pos = i
+ *         start = i             # <<<<<<<<<<<<<<
+ *         item = heap[pos]
+ * 
+*/
+    __pyx_v_start = __pyx_v_i;
+
+    /* "optimized_pop.pyx":338
+ *         pos = i
+ *         start = i
+ *         item = heap[pos]             # <<<<<<<<<<<<<<
+ * 
+ *         while True:
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 338, __pyx_L1_error)
+    }
+    __pyx_t_2 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
+    __Pyx_INCREF(__pyx_t_2);
+    __Pyx_XDECREF_SET(__pyx_v_item, __pyx_t_2);
+    __pyx_t_2 = 0;
+
+    /* "optimized_pop.pyx":340
+ *         item = heap[pos]
+ * 
+ *         while True:             # <<<<<<<<<<<<<<
+ *             child = (pos << 1) + 1
+ *             if child >= n:
+*/
+    while (1) {
+
+      /* "optimized_pop.pyx":341
+ * 
+ *         while True:
+ *             child = (pos << 1) + 1             # <<<<<<<<<<<<<<
+ *             if child >= n:
+ *                 break
+*/
+      __pyx_v_child = ((__pyx_v_pos << 1) + 1);
+
+      /* "optimized_pop.pyx":342
+ *         while True:
+ *             child = (pos << 1) + 1
+ *             if child >= n:             # <<<<<<<<<<<<<<
+ *                 break
+ *             right = child + 1
+*/
+      __pyx_t_3 = (__pyx_v_child >= __pyx_v_n);
+      if (__pyx_t_3) {
+
+        /* "optimized_pop.pyx":343
+ *             child = (pos << 1) + 1
+ *             if child >= n:
+ *                 break             # <<<<<<<<<<<<<<
+ *             right = child + 1
+ *             if right < n and heap[right] > heap[child]:
+*/
+        goto __pyx_L6_break;
+
+        /* "optimized_pop.pyx":342
+ *         while True:
+ *             child = (pos << 1) + 1
+ *             if child >= n:             # <<<<<<<<<<<<<<
+ *                 break
+ *             right = child + 1
+*/
+      }
+
+      /* "optimized_pop.pyx":344
+ *             if child >= n:
+ *                 break
+ *             right = child + 1             # <<<<<<<<<<<<<<
+ *             if right < n and heap[right] > heap[child]:
+ *                 child = right
+*/
+      __pyx_v_right = (__pyx_v_child + 1);
+
+      /* "optimized_pop.pyx":345
+ *                 break
+ *             right = child + 1
+ *             if right < n and heap[right] > heap[child]:             # <<<<<<<<<<<<<<
+ *                 child = right
+ *             heap[pos] = heap[child]
+*/
+      __pyx_t_4 = (__pyx_v_right < __pyx_v_n);
+      if (__pyx_t_4) {
+      } else {
+        __pyx_t_3 = __pyx_t_4;
+        goto __pyx_L9_bool_binop_done;
+      }
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 345, __pyx_L1_error)
+      }
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 345, __pyx_L1_error)
+      }
+      __pyx_t_2 = PyObject_RichCompare(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right), __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child), Py_GT); __Pyx_XGOTREF(__pyx_t_2); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 345, __pyx_L1_error)
+      __pyx_t_4 = __Pyx_PyObject_IsTrue(__pyx_t_2); if (unlikely((__pyx_t_4 < 0))) __PYX_ERR(0, 345, __pyx_L1_error)
+      __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+      __pyx_t_3 = __pyx_t_4;
+      __pyx_L9_bool_binop_done:;
+      if (__pyx_t_3) {
+
+        /* "optimized_pop.pyx":346
+ *             right = child + 1
+ *             if right < n and heap[right] > heap[child]:
+ *                 child = right             # <<<<<<<<<<<<<<
+ *             heap[pos] = heap[child]
+ *             pos = child
+*/
+        __pyx_v_child = __pyx_v_right;
+
+        /* "optimized_pop.pyx":345
+ *                 break
+ *             right = child + 1
+ *             if right < n and heap[right] > heap[child]:             # <<<<<<<<<<<<<<
+ *                 child = right
+ *             heap[pos] = heap[child]
+*/
+      }
+
+      /* "optimized_pop.pyx":347
+ *             if right < n and heap[right] > heap[child]:
+ *                 child = right
+ *             heap[pos] = heap[child]             # <<<<<<<<<<<<<<
+ *             pos = child
+ * 
+*/
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 347, __pyx_L1_error)
+      }
+      __pyx_t_2 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
+      __Pyx_INCREF(__pyx_t_2);
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 347, __pyx_L1_error)
+      }
+      if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_2, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 347, __pyx_L1_error)
+      __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+
+      /* "optimized_pop.pyx":348
+ *                 child = right
+ *             heap[pos] = heap[child]
+ *             pos = child             # <<<<<<<<<<<<<<
+ * 
+ *         while pos > start:
+*/
+      __pyx_v_pos = __pyx_v_child;
+    }
+    __pyx_L6_break:;
+
+    /* "optimized_pop.pyx":350
+ *             pos = child
+ * 
+ *         while pos > start:             # <<<<<<<<<<<<<<
+ *             parent = (pos - 1) >> 1
+ *             if not (item > heap[parent]):
+*/
+    while (1) {
+      __pyx_t_3 = (__pyx_v_pos > __pyx_v_start);
+      if (!__pyx_t_3) break;
+
+      /* "optimized_pop.pyx":351
+ * 
+ *         while pos > start:
+ *             parent = (pos - 1) >> 1             # <<<<<<<<<<<<<<
+ *             if not (item > heap[parent]):
+ *                 break
+*/
+      __pyx_v_parent = ((__pyx_v_pos - 1) >> 1);
+
+      /* "optimized_pop.pyx":352
+ *         while pos > start:
+ *             parent = (pos - 1) >> 1
+ *             if not (item > heap[parent]):             # <<<<<<<<<<<<<<
+ *                 break
+ *             heap[pos] = heap[parent]
+*/
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 352, __pyx_L1_error)
+      }
+      __pyx_t_2 = PyObject_RichCompare(__pyx_v_item, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent), Py_GT); __Pyx_XGOTREF(__pyx_t_2); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 352, __pyx_L1_error)
+      __pyx_t_3 = __Pyx_PyObject_IsTrue(__pyx_t_2); if (unlikely((__pyx_t_3 < 0))) __PYX_ERR(0, 352, __pyx_L1_error)
+      __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+      __pyx_t_4 = (!__pyx_t_3);
+      if (__pyx_t_4) {
+
+        /* "optimized_pop.pyx":353
+ *             parent = (pos - 1) >> 1
+ *             if not (item > heap[parent]):
+ *                 break             # <<<<<<<<<<<<<<
+ *             heap[pos] = heap[parent]
+ *             pos = parent
+*/
+        goto __pyx_L12_break;
+
+        /* "optimized_pop.pyx":352
+ *         while pos > start:
+ *             parent = (pos - 1) >> 1
+ *             if not (item > heap[parent]):             # <<<<<<<<<<<<<<
+ *                 break
+ *             heap[pos] = heap[parent]
+*/
+      }
+
+      /* "optimized_pop.pyx":354
+ *             if not (item > heap[parent]):
+ *                 break
+ *             heap[pos] = heap[parent]             # <<<<<<<<<<<<<<
+ *             pos = parent
+ *         heap[pos] = item
+*/
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 354, __pyx_L1_error)
+      }
+      __pyx_t_2 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
+      __Pyx_INCREF(__pyx_t_2);
+      if (unlikely(__pyx_v_heap == Py_None)) {
+        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+        __PYX_ERR(0, 354, __pyx_L1_error)
+      }
+      if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_2, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 354, __pyx_L1_error)
+      __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+
+      /* "optimized_pop.pyx":355
+ *                 break
+ *             heap[pos] = heap[parent]
+ *             pos = parent             # <<<<<<<<<<<<<<
+ *         heap[pos] = item
+ * 
+*/
+      __pyx_v_pos = __pyx_v_parent;
+    }
+    __pyx_L12_break:;
+
+    /* "optimized_pop.pyx":356
+ *             heap[pos] = heap[parent]
+ *             pos = parent
+ *         heap[pos] = item             # <<<<<<<<<<<<<<
+ * 
+ * # =============================================================================
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 356, __pyx_L1_error)
+    }
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 356, __pyx_L1_error)
+  }
+
+  /* "optimized_pop.pyx":331
+ *         heap[pos] = item
+ * 
+ * cdef inline void _heapify_generic_max(list heap, Py_ssize_t n):             # <<<<<<<<<<<<<<
+ *     cdef Py_ssize_t i, pos, child, right, parent, start
+ *     cdef object item
+*/
+
+  /* function exit code */
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_2);
+  __Pyx_AddTraceback("optimized_pop._heapify_generic_max", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_L0:;
+  __Pyx_XDECREF(__pyx_v_item);
+  __Pyx_RefNannyFinishContext();
+}
+
+/* "optimized_pop.pyx":362
+ * # =============================================================================
+ * 
+ * cdef void _nary_sift_down(list heap, Py_ssize_t pos, Py_ssize_t n, bint is_max, Py_ssize_t arity, object key):             # <<<<<<<<<<<<<<
  *     cdef:
- *         Py_ssize_t child, right, parent, gc
+ *         Py_ssize_t child, best, last, j
+*/
+
+static void __pyx_f_13optimized_pop__nary_sift_down(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, Py_ssize_t __pyx_v_n, int __pyx_v_is_max, Py_ssize_t __pyx_v_arity, PyObject *__pyx_v_key) {
+  Py_ssize_t __pyx_v_child;
+  Py_ssize_t __pyx_v_best;
+  Py_ssize_t __pyx_v_last;
+  Py_ssize_t __pyx_v_j;
+  PyObject *__pyx_v_item = 0;
+  PyObject *__pyx_v_item_key = 0;
+  __Pyx_RefNannyDeclarations
+  PyObject *__pyx_t_1 = NULL;
+  int __pyx_t_2;
+  PyObject *__pyx_t_3 = NULL;
+  PyObject *__pyx_t_4 = NULL;
+  PyObject *__pyx_t_5 = NULL;
+  size_t __pyx_t_6;
+  Py_ssize_t __pyx_t_7;
+  Py_ssize_t __pyx_t_8;
+  Py_ssize_t __pyx_t_9;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("_nary_sift_down", 0);
+
+  /* "optimized_pop.pyx":365
+ *     cdef:
+ *         Py_ssize_t child, best, last, j
  *         object item = heap[pos]             # <<<<<<<<<<<<<<
- *         bint item_val = item is True
- *         Py_ssize_t start = pos
+ *         object item_key = key(item) if key is not None else item
+ * 
 */
   if (unlikely(__pyx_v_heap == Py_None)) {
     PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 223, __pyx_L1_error)
+    __PYX_ERR(0, 365, __pyx_L1_error)
   }
   __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
   __Pyx_INCREF(__pyx_t_1);
   __pyx_v_item = __pyx_t_1;
   __pyx_t_1 = 0;
 
-  /* "optimized_pop.pyx":224
- *         Py_ssize_t child, right, parent, gc
+  /* "optimized_pop.pyx":366
+ *         Py_ssize_t child, best, last, j
  *         object item = heap[pos]
- *         bint item_val = item is True             # <<<<<<<<<<<<<<
- *         Py_ssize_t start = pos
- * 
-*/
-  __pyx_t_2 = (__pyx_v_item == Py_True);
-  __pyx_v_item_val = __pyx_t_2;
-
-  /* "optimized_pop.pyx":225
- *         object item = heap[pos]
- *         bint item_val = item is True
- *         Py_ssize_t start = pos             # <<<<<<<<<<<<<<
+ *         object item_key = key(item) if key is not None else item             # <<<<<<<<<<<<<<
  * 
  *     while True:
 */
-  __pyx_v_start = __pyx_v_pos;
+  __pyx_t_2 = (__pyx_v_key != Py_None);
+  if (__pyx_t_2) {
+    __pyx_t_4 = NULL;
+    __Pyx_INCREF(__pyx_v_key);
+    __pyx_t_5 = __pyx_v_key; 
+    __pyx_t_6 = 1;
+    #if CYTHON_UNPACK_METHODS
+    if (unlikely(PyMethod_Check(__pyx_t_5))) {
+      __pyx_t_4 = PyMethod_GET_SELF(__pyx_t_5);
+      assert(__pyx_t_4);
+      PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_5);
+      __Pyx_INCREF(__pyx_t_4);
+      __Pyx_INCREF(__pyx__function);
+      __Pyx_DECREF_SET(__pyx_t_5, __pyx__function);
+      __pyx_t_6 = 0;
+    }
+    #endif
+    {
+      PyObject *__pyx_callargs[2] = {__pyx_t_4, __pyx_v_item};
+      __pyx_t_3 = __Pyx_PyObject_FastCall(__pyx_t_5, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+      __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
+      __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 366, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_3);
+    }
+    __pyx_t_1 = __pyx_t_3;
+    __pyx_t_3 = 0;
+  } else {
+    __Pyx_INCREF(__pyx_v_item);
+    __pyx_t_1 = __pyx_v_item;
+  }
+  __pyx_v_item_key = __pyx_t_1;
+  __pyx_t_1 = 0;
 
-  /* "optimized_pop.pyx":227
- *         Py_ssize_t start = pos
+  /* "optimized_pop.pyx":368
+ *         object item_key = key(item) if key is not None else item
  * 
  *     while True:             # <<<<<<<<<<<<<<
- *         child = (pos << 1) + 1
+ *         child = arity * pos + 1
  *         if child >= n:
 */
   while (1) {
 
-    /* "optimized_pop.pyx":228
+    /* "optimized_pop.pyx":369
  * 
  *     while True:
- *         child = (pos << 1) + 1             # <<<<<<<<<<<<<<
+ *         child = arity * pos + 1             # <<<<<<<<<<<<<<
  *         if child >= n:
  *             break
 */
-    __pyx_v_child = ((__pyx_v_pos << 1) + 1);
+    __pyx_v_child = ((__pyx_v_arity * __pyx_v_pos) + 1);
 
-    /* "optimized_pop.pyx":229
+    /* "optimized_pop.pyx":370
  *     while True:
- *         child = (pos << 1) + 1
+ *         child = arity * pos + 1
  *         if child >= n:             # <<<<<<<<<<<<<<
  *             break
- *         gc = (child << 1) + 1
+ *         best = child
 */
     __pyx_t_2 = (__pyx_v_child >= __pyx_v_n);
     if (__pyx_t_2) {
 
-      /* "optimized_pop.pyx":230
- *         child = (pos << 1) + 1
+      /* "optimized_pop.pyx":371
+ *         child = arity * pos + 1
  *         if child >= n:
  *             break             # <<<<<<<<<<<<<<
- *         gc = (child << 1) + 1
- *         if gc < n:
+ *         best = child
+ *         last = child + arity
 */
       goto __pyx_L4_break;
 
-      /* "optimized_pop.pyx":229
+      /* "optimized_pop.pyx":370
  *     while True:
- *         child = (pos << 1) + 1
+ *         child = arity * pos + 1
  *         if child >= n:             # <<<<<<<<<<<<<<
  *             break
- *         gc = (child << 1) + 1
+ *         best = child
 */
     }
 
-    /* "optimized_pop.pyx":231
+    /* "optimized_pop.pyx":372
  *         if child >= n:
  *             break
- *         gc = (child << 1) + 1             # <<<<<<<<<<<<<<
- *         if gc < n:
- *             PREFETCH(<void*>heap[gc])
+ *         best = child             # <<<<<<<<<<<<<<
+ *         last = child + arity
+ *         if last > n:
 */
-    __pyx_v_gc = ((__pyx_v_child << 1) + 1);
+    __pyx_v_best = __pyx_v_child;
 
-    /* "optimized_pop.pyx":232
+    /* "optimized_pop.pyx":373
  *             break
- *         gc = (child << 1) + 1
- *         if gc < n:             # <<<<<<<<<<<<<<
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1
+ *         best = child
+ *         last = child + arity             # <<<<<<<<<<<<<<
+ *         if last > n:
+ *             last = n
 */
-    __pyx_t_2 = (__pyx_v_gc < __pyx_v_n);
-    if (__pyx_t_2) {
+    __pyx_v_last = (__pyx_v_child + __pyx_v_arity);
 
-      /* "optimized_pop.pyx":233
- *         gc = (child << 1) + 1
- *         if gc < n:
- *             PREFETCH(<void*>heap[gc])             # <<<<<<<<<<<<<<
- *         right = child + 1
- *         if right < n and (heap[right] is True) and (heap[child] is not True):
-*/
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-        __PYX_ERR(0, 233, __pyx_L1_error)
-      }
-      PREFETCH(((void *)__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_gc)));
-
-      /* "optimized_pop.pyx":232
- *             break
- *         gc = (child << 1) + 1
- *         if gc < n:             # <<<<<<<<<<<<<<
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1
-*/
-    }
-
-    /* "optimized_pop.pyx":234
- *         if gc < n:
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1             # <<<<<<<<<<<<<<
- *         if right < n and (heap[right] is True) and (heap[child] is not True):
- *             child = right
-*/
-    __pyx_v_right = (__pyx_v_child + 1);
-
-    /* "optimized_pop.pyx":235
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1
- *         if right < n and (heap[right] is True) and (heap[child] is not True):             # <<<<<<<<<<<<<<
- *             child = right
- *         heap[pos] = heap[child]
-*/
-    __pyx_t_3 = (__pyx_v_right < __pyx_v_n);
-    if (__pyx_t_3) {
-    } else {
-      __pyx_t_2 = __pyx_t_3;
-      goto __pyx_L8_bool_binop_done;
-    }
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 235, __pyx_L1_error)
-    }
-    __pyx_t_3 = (__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right) == Py_True);
-    if (__pyx_t_3) {
-    } else {
-      __pyx_t_2 = __pyx_t_3;
-      goto __pyx_L8_bool_binop_done;
-    }
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 235, __pyx_L1_error)
-    }
-    __pyx_t_3 = (__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child) != Py_True);
-    __pyx_t_2 = __pyx_t_3;
-    __pyx_L8_bool_binop_done:;
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":236
- *         right = child + 1
- *         if right < n and (heap[right] is True) and (heap[child] is not True):
- *             child = right             # <<<<<<<<<<<<<<
- *         heap[pos] = heap[child]
- *         pos = child
-*/
-      __pyx_v_child = __pyx_v_right;
-
-      /* "optimized_pop.pyx":235
- *             PREFETCH(<void*>heap[gc])
- *         right = child + 1
- *         if right < n and (heap[right] is True) and (heap[child] is not True):             # <<<<<<<<<<<<<<
- *             child = right
- *         heap[pos] = heap[child]
-*/
-    }
-
-    /* "optimized_pop.pyx":237
- *         if right < n and (heap[right] is True) and (heap[child] is not True):
- *             child = right
- *         heap[pos] = heap[child]             # <<<<<<<<<<<<<<
- *         pos = child
+    /* "optimized_pop.pyx":374
+ *         best = child
+ *         last = child + arity
+ *         if last > n:             # <<<<<<<<<<<<<<
+ *             last = n
  * 
 */
+    __pyx_t_2 = (__pyx_v_last > __pyx_v_n);
+    if (__pyx_t_2) {
+
+      /* "optimized_pop.pyx":375
+ *         last = child + arity
+ *         if last > n:
+ *             last = n             # <<<<<<<<<<<<<<
+ * 
+ *         if key is not None:
+*/
+      __pyx_v_last = __pyx_v_n;
+
+      /* "optimized_pop.pyx":374
+ *         best = child
+ *         last = child + arity
+ *         if last > n:             # <<<<<<<<<<<<<<
+ *             last = n
+ * 
+*/
+    }
+
+    /* "optimized_pop.pyx":377
+ *             last = n
+ * 
+ *         if key is not None:             # <<<<<<<<<<<<<<
+ *             for j in range(child + 1, last):
+ *                 if is_max:
+*/
+    __pyx_t_2 = (__pyx_v_key != Py_None);
+    if (__pyx_t_2) {
+
+      /* "optimized_pop.pyx":378
+ * 
+ *         if key is not None:
+ *             for j in range(child + 1, last):             # <<<<<<<<<<<<<<
+ *                 if is_max:
+ *                     if key(heap[j]) > key(heap[best]):
+*/
+      __pyx_t_7 = __pyx_v_last;
+      __pyx_t_8 = __pyx_t_7;
+      for (__pyx_t_9 = (__pyx_v_child + 1); __pyx_t_9 < __pyx_t_8; __pyx_t_9+=1) {
+        __pyx_v_j = __pyx_t_9;
+
+        /* "optimized_pop.pyx":379
+ *         if key is not None:
+ *             for j in range(child + 1, last):
+ *                 if is_max:             # <<<<<<<<<<<<<<
+ *                     if key(heap[j]) > key(heap[best]):
+ *                         best = j
+*/
+        if (__pyx_v_is_max) {
+
+          /* "optimized_pop.pyx":380
+ *             for j in range(child + 1, last):
+ *                 if is_max:
+ *                     if key(heap[j]) > key(heap[best]):             # <<<<<<<<<<<<<<
+ *                         best = j
+ *                 else:
+*/
+          __pyx_t_3 = NULL;
+          __Pyx_INCREF(__pyx_v_key);
+          __pyx_t_5 = __pyx_v_key; 
+          if (unlikely(__pyx_v_heap == Py_None)) {
+            PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+            __PYX_ERR(0, 380, __pyx_L1_error)
+          }
+          __pyx_t_6 = 1;
+          #if CYTHON_UNPACK_METHODS
+          if (unlikely(PyMethod_Check(__pyx_t_5))) {
+            __pyx_t_3 = PyMethod_GET_SELF(__pyx_t_5);
+            assert(__pyx_t_3);
+            PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_5);
+            __Pyx_INCREF(__pyx_t_3);
+            __Pyx_INCREF(__pyx__function);
+            __Pyx_DECREF_SET(__pyx_t_5, __pyx__function);
+            __pyx_t_6 = 0;
+          }
+          #endif
+          {
+            PyObject *__pyx_callargs[2] = {__pyx_t_3, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_j)};
+            __pyx_t_1 = __Pyx_PyObject_FastCall(__pyx_t_5, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+            __Pyx_XDECREF(__pyx_t_3); __pyx_t_3 = 0;
+            __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+            if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 380, __pyx_L1_error)
+            __Pyx_GOTREF(__pyx_t_1);
+          }
+          __pyx_t_3 = NULL;
+          __Pyx_INCREF(__pyx_v_key);
+          __pyx_t_4 = __pyx_v_key; 
+          if (unlikely(__pyx_v_heap == Py_None)) {
+            PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+            __PYX_ERR(0, 380, __pyx_L1_error)
+          }
+          __pyx_t_6 = 1;
+          #if CYTHON_UNPACK_METHODS
+          if (unlikely(PyMethod_Check(__pyx_t_4))) {
+            __pyx_t_3 = PyMethod_GET_SELF(__pyx_t_4);
+            assert(__pyx_t_3);
+            PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_4);
+            __Pyx_INCREF(__pyx_t_3);
+            __Pyx_INCREF(__pyx__function);
+            __Pyx_DECREF_SET(__pyx_t_4, __pyx__function);
+            __pyx_t_6 = 0;
+          }
+          #endif
+          {
+            PyObject *__pyx_callargs[2] = {__pyx_t_3, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best)};
+            __pyx_t_5 = __Pyx_PyObject_FastCall(__pyx_t_4, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+            __Pyx_XDECREF(__pyx_t_3); __pyx_t_3 = 0;
+            __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+            if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 380, __pyx_L1_error)
+            __Pyx_GOTREF(__pyx_t_5);
+          }
+          __pyx_t_4 = PyObject_RichCompare(__pyx_t_1, __pyx_t_5, Py_GT); __Pyx_XGOTREF(__pyx_t_4); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 380, __pyx_L1_error)
+          __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+          __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+          __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_4); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 380, __pyx_L1_error)
+          __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+          if (__pyx_t_2) {
+
+            /* "optimized_pop.pyx":381
+ *                 if is_max:
+ *                     if key(heap[j]) > key(heap[best]):
+ *                         best = j             # <<<<<<<<<<<<<<
+ *                 else:
+ *                     if key(heap[j]) < key(heap[best]):
+*/
+            __pyx_v_best = __pyx_v_j;
+
+            /* "optimized_pop.pyx":380
+ *             for j in range(child + 1, last):
+ *                 if is_max:
+ *                     if key(heap[j]) > key(heap[best]):             # <<<<<<<<<<<<<<
+ *                         best = j
+ *                 else:
+*/
+          }
+
+          /* "optimized_pop.pyx":379
+ *         if key is not None:
+ *             for j in range(child + 1, last):
+ *                 if is_max:             # <<<<<<<<<<<<<<
+ *                     if key(heap[j]) > key(heap[best]):
+ *                         best = j
+*/
+          goto __pyx_L10;
+        }
+
+        /* "optimized_pop.pyx":383
+ *                         best = j
+ *                 else:
+ *                     if key(heap[j]) < key(heap[best]):             # <<<<<<<<<<<<<<
+ *                         best = j
+ *             if is_max:
+*/
+        /*else*/ {
+          __pyx_t_5 = NULL;
+          __Pyx_INCREF(__pyx_v_key);
+          __pyx_t_1 = __pyx_v_key; 
+          if (unlikely(__pyx_v_heap == Py_None)) {
+            PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+            __PYX_ERR(0, 383, __pyx_L1_error)
+          }
+          __pyx_t_6 = 1;
+          #if CYTHON_UNPACK_METHODS
+          if (unlikely(PyMethod_Check(__pyx_t_1))) {
+            __pyx_t_5 = PyMethod_GET_SELF(__pyx_t_1);
+            assert(__pyx_t_5);
+            PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_1);
+            __Pyx_INCREF(__pyx_t_5);
+            __Pyx_INCREF(__pyx__function);
+            __Pyx_DECREF_SET(__pyx_t_1, __pyx__function);
+            __pyx_t_6 = 0;
+          }
+          #endif
+          {
+            PyObject *__pyx_callargs[2] = {__pyx_t_5, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_j)};
+            __pyx_t_4 = __Pyx_PyObject_FastCall(__pyx_t_1, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+            __Pyx_XDECREF(__pyx_t_5); __pyx_t_5 = 0;
+            __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+            if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 383, __pyx_L1_error)
+            __Pyx_GOTREF(__pyx_t_4);
+          }
+          __pyx_t_5 = NULL;
+          __Pyx_INCREF(__pyx_v_key);
+          __pyx_t_3 = __pyx_v_key; 
+          if (unlikely(__pyx_v_heap == Py_None)) {
+            PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+            __PYX_ERR(0, 383, __pyx_L1_error)
+          }
+          __pyx_t_6 = 1;
+          #if CYTHON_UNPACK_METHODS
+          if (unlikely(PyMethod_Check(__pyx_t_3))) {
+            __pyx_t_5 = PyMethod_GET_SELF(__pyx_t_3);
+            assert(__pyx_t_5);
+            PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_3);
+            __Pyx_INCREF(__pyx_t_5);
+            __Pyx_INCREF(__pyx__function);
+            __Pyx_DECREF_SET(__pyx_t_3, __pyx__function);
+            __pyx_t_6 = 0;
+          }
+          #endif
+          {
+            PyObject *__pyx_callargs[2] = {__pyx_t_5, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best)};
+            __pyx_t_1 = __Pyx_PyObject_FastCall(__pyx_t_3, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+            __Pyx_XDECREF(__pyx_t_5); __pyx_t_5 = 0;
+            __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+            if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 383, __pyx_L1_error)
+            __Pyx_GOTREF(__pyx_t_1);
+          }
+          __pyx_t_3 = PyObject_RichCompare(__pyx_t_4, __pyx_t_1, Py_LT); __Pyx_XGOTREF(__pyx_t_3); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 383, __pyx_L1_error)
+          __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+          __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+          __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_3); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 383, __pyx_L1_error)
+          __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+          if (__pyx_t_2) {
+
+            /* "optimized_pop.pyx":384
+ *                 else:
+ *                     if key(heap[j]) < key(heap[best]):
+ *                         best = j             # <<<<<<<<<<<<<<
+ *             if is_max:
+ *                 if item_key >= key(heap[best]):
+*/
+            __pyx_v_best = __pyx_v_j;
+
+            /* "optimized_pop.pyx":383
+ *                         best = j
+ *                 else:
+ *                     if key(heap[j]) < key(heap[best]):             # <<<<<<<<<<<<<<
+ *                         best = j
+ *             if is_max:
+*/
+          }
+        }
+        __pyx_L10:;
+      }
+
+      /* "optimized_pop.pyx":385
+ *                     if key(heap[j]) < key(heap[best]):
+ *                         best = j
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if item_key >= key(heap[best]):
+ *                     break
+*/
+      if (__pyx_v_is_max) {
+
+        /* "optimized_pop.pyx":386
+ *                         best = j
+ *             if is_max:
+ *                 if item_key >= key(heap[best]):             # <<<<<<<<<<<<<<
+ *                     break
+ *             else:
+*/
+        __pyx_t_1 = NULL;
+        __Pyx_INCREF(__pyx_v_key);
+        __pyx_t_4 = __pyx_v_key; 
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 386, __pyx_L1_error)
+        }
+        __pyx_t_6 = 1;
+        #if CYTHON_UNPACK_METHODS
+        if (unlikely(PyMethod_Check(__pyx_t_4))) {
+          __pyx_t_1 = PyMethod_GET_SELF(__pyx_t_4);
+          assert(__pyx_t_1);
+          PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_4);
+          __Pyx_INCREF(__pyx_t_1);
+          __Pyx_INCREF(__pyx__function);
+          __Pyx_DECREF_SET(__pyx_t_4, __pyx__function);
+          __pyx_t_6 = 0;
+        }
+        #endif
+        {
+          PyObject *__pyx_callargs[2] = {__pyx_t_1, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best)};
+          __pyx_t_3 = __Pyx_PyObject_FastCall(__pyx_t_4, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+          __Pyx_XDECREF(__pyx_t_1); __pyx_t_1 = 0;
+          __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+          if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 386, __pyx_L1_error)
+          __Pyx_GOTREF(__pyx_t_3);
+        }
+        __pyx_t_4 = PyObject_RichCompare(__pyx_v_item_key, __pyx_t_3, Py_GE); __Pyx_XGOTREF(__pyx_t_4); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 386, __pyx_L1_error)
+        __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+        __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_4); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 386, __pyx_L1_error)
+        __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+        if (__pyx_t_2) {
+
+          /* "optimized_pop.pyx":387
+ *             if is_max:
+ *                 if item_key >= key(heap[best]):
+ *                     break             # <<<<<<<<<<<<<<
+ *             else:
+ *                 if item_key <= key(heap[best]):
+*/
+          goto __pyx_L4_break;
+
+          /* "optimized_pop.pyx":386
+ *                         best = j
+ *             if is_max:
+ *                 if item_key >= key(heap[best]):             # <<<<<<<<<<<<<<
+ *                     break
+ *             else:
+*/
+        }
+
+        /* "optimized_pop.pyx":385
+ *                     if key(heap[j]) < key(heap[best]):
+ *                         best = j
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if item_key >= key(heap[best]):
+ *                     break
+*/
+        goto __pyx_L13;
+      }
+
+      /* "optimized_pop.pyx":389
+ *                     break
+ *             else:
+ *                 if item_key <= key(heap[best]):             # <<<<<<<<<<<<<<
+ *                     break
+ *         else:
+*/
+      /*else*/ {
+        __pyx_t_3 = NULL;
+        __Pyx_INCREF(__pyx_v_key);
+        __pyx_t_1 = __pyx_v_key; 
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 389, __pyx_L1_error)
+        }
+        __pyx_t_6 = 1;
+        #if CYTHON_UNPACK_METHODS
+        if (unlikely(PyMethod_Check(__pyx_t_1))) {
+          __pyx_t_3 = PyMethod_GET_SELF(__pyx_t_1);
+          assert(__pyx_t_3);
+          PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_1);
+          __Pyx_INCREF(__pyx_t_3);
+          __Pyx_INCREF(__pyx__function);
+          __Pyx_DECREF_SET(__pyx_t_1, __pyx__function);
+          __pyx_t_6 = 0;
+        }
+        #endif
+        {
+          PyObject *__pyx_callargs[2] = {__pyx_t_3, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best)};
+          __pyx_t_4 = __Pyx_PyObject_FastCall(__pyx_t_1, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+          __Pyx_XDECREF(__pyx_t_3); __pyx_t_3 = 0;
+          __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+          if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 389, __pyx_L1_error)
+          __Pyx_GOTREF(__pyx_t_4);
+        }
+        __pyx_t_1 = PyObject_RichCompare(__pyx_v_item_key, __pyx_t_4, Py_LE); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 389, __pyx_L1_error)
+        __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+        __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 389, __pyx_L1_error)
+        __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+        if (__pyx_t_2) {
+
+          /* "optimized_pop.pyx":390
+ *             else:
+ *                 if item_key <= key(heap[best]):
+ *                     break             # <<<<<<<<<<<<<<
+ *         else:
+ *             for j in range(child + 1, last):
+*/
+          goto __pyx_L4_break;
+
+          /* "optimized_pop.pyx":389
+ *                     break
+ *             else:
+ *                 if item_key <= key(heap[best]):             # <<<<<<<<<<<<<<
+ *                     break
+ *         else:
+*/
+        }
+      }
+      __pyx_L13:;
+
+      /* "optimized_pop.pyx":377
+ *             last = n
+ * 
+ *         if key is not None:             # <<<<<<<<<<<<<<
+ *             for j in range(child + 1, last):
+ *                 if is_max:
+*/
+      goto __pyx_L7;
+    }
+
+    /* "optimized_pop.pyx":392
+ *                     break
+ *         else:
+ *             for j in range(child + 1, last):             # <<<<<<<<<<<<<<
+ *                 if is_max:
+ *                     if heap[j] > heap[best]:
+*/
+    /*else*/ {
+      __pyx_t_7 = __pyx_v_last;
+      __pyx_t_8 = __pyx_t_7;
+      for (__pyx_t_9 = (__pyx_v_child + 1); __pyx_t_9 < __pyx_t_8; __pyx_t_9+=1) {
+        __pyx_v_j = __pyx_t_9;
+
+        /* "optimized_pop.pyx":393
+ *         else:
+ *             for j in range(child + 1, last):
+ *                 if is_max:             # <<<<<<<<<<<<<<
+ *                     if heap[j] > heap[best]:
+ *                         best = j
+*/
+        if (__pyx_v_is_max) {
+
+          /* "optimized_pop.pyx":394
+ *             for j in range(child + 1, last):
+ *                 if is_max:
+ *                     if heap[j] > heap[best]:             # <<<<<<<<<<<<<<
+ *                         best = j
+ *                 else:
+*/
+          if (unlikely(__pyx_v_heap == Py_None)) {
+            PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+            __PYX_ERR(0, 394, __pyx_L1_error)
+          }
+          if (unlikely(__pyx_v_heap == Py_None)) {
+            PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+            __PYX_ERR(0, 394, __pyx_L1_error)
+          }
+          __pyx_t_1 = PyObject_RichCompare(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_j), __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best), Py_GT); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 394, __pyx_L1_error)
+          __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 394, __pyx_L1_error)
+          __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+          if (__pyx_t_2) {
+
+            /* "optimized_pop.pyx":395
+ *                 if is_max:
+ *                     if heap[j] > heap[best]:
+ *                         best = j             # <<<<<<<<<<<<<<
+ *                 else:
+ *                     if heap[j] < heap[best]:
+*/
+            __pyx_v_best = __pyx_v_j;
+
+            /* "optimized_pop.pyx":394
+ *             for j in range(child + 1, last):
+ *                 if is_max:
+ *                     if heap[j] > heap[best]:             # <<<<<<<<<<<<<<
+ *                         best = j
+ *                 else:
+*/
+          }
+
+          /* "optimized_pop.pyx":393
+ *         else:
+ *             for j in range(child + 1, last):
+ *                 if is_max:             # <<<<<<<<<<<<<<
+ *                     if heap[j] > heap[best]:
+ *                         best = j
+*/
+          goto __pyx_L18;
+        }
+
+        /* "optimized_pop.pyx":397
+ *                         best = j
+ *                 else:
+ *                     if heap[j] < heap[best]:             # <<<<<<<<<<<<<<
+ *                         best = j
+ *             if is_max:
+*/
+        /*else*/ {
+          if (unlikely(__pyx_v_heap == Py_None)) {
+            PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+            __PYX_ERR(0, 397, __pyx_L1_error)
+          }
+          if (unlikely(__pyx_v_heap == Py_None)) {
+            PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+            __PYX_ERR(0, 397, __pyx_L1_error)
+          }
+          __pyx_t_1 = PyObject_RichCompare(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_j), __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best), Py_LT); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 397, __pyx_L1_error)
+          __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 397, __pyx_L1_error)
+          __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+          if (__pyx_t_2) {
+
+            /* "optimized_pop.pyx":398
+ *                 else:
+ *                     if heap[j] < heap[best]:
+ *                         best = j             # <<<<<<<<<<<<<<
+ *             if is_max:
+ *                 if item >= heap[best]:
+*/
+            __pyx_v_best = __pyx_v_j;
+
+            /* "optimized_pop.pyx":397
+ *                         best = j
+ *                 else:
+ *                     if heap[j] < heap[best]:             # <<<<<<<<<<<<<<
+ *                         best = j
+ *             if is_max:
+*/
+          }
+        }
+        __pyx_L18:;
+      }
+
+      /* "optimized_pop.pyx":399
+ *                     if heap[j] < heap[best]:
+ *                         best = j
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if item >= heap[best]:
+ *                     break
+*/
+      if (__pyx_v_is_max) {
+
+        /* "optimized_pop.pyx":400
+ *                         best = j
+ *             if is_max:
+ *                 if item >= heap[best]:             # <<<<<<<<<<<<<<
+ *                     break
+ *             else:
+*/
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 400, __pyx_L1_error)
+        }
+        __pyx_t_1 = PyObject_RichCompare(__pyx_v_item, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best), Py_GE); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 400, __pyx_L1_error)
+        __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 400, __pyx_L1_error)
+        __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+        if (__pyx_t_2) {
+
+          /* "optimized_pop.pyx":401
+ *             if is_max:
+ *                 if item >= heap[best]:
+ *                     break             # <<<<<<<<<<<<<<
+ *             else:
+ *                 if item <= heap[best]:
+*/
+          goto __pyx_L4_break;
+
+          /* "optimized_pop.pyx":400
+ *                         best = j
+ *             if is_max:
+ *                 if item >= heap[best]:             # <<<<<<<<<<<<<<
+ *                     break
+ *             else:
+*/
+        }
+
+        /* "optimized_pop.pyx":399
+ *                     if heap[j] < heap[best]:
+ *                         best = j
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if item >= heap[best]:
+ *                     break
+*/
+        goto __pyx_L21;
+      }
+
+      /* "optimized_pop.pyx":403
+ *                     break
+ *             else:
+ *                 if item <= heap[best]:             # <<<<<<<<<<<<<<
+ *                     break
+ * 
+*/
+      /*else*/ {
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 403, __pyx_L1_error)
+        }
+        __pyx_t_1 = PyObject_RichCompare(__pyx_v_item, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best), Py_LE); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 403, __pyx_L1_error)
+        __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 403, __pyx_L1_error)
+        __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+        if (__pyx_t_2) {
+
+          /* "optimized_pop.pyx":404
+ *             else:
+ *                 if item <= heap[best]:
+ *                     break             # <<<<<<<<<<<<<<
+ * 
+ *         heap[pos] = heap[best]
+*/
+          goto __pyx_L4_break;
+
+          /* "optimized_pop.pyx":403
+ *                     break
+ *             else:
+ *                 if item <= heap[best]:             # <<<<<<<<<<<<<<
+ *                     break
+ * 
+*/
+        }
+      }
+      __pyx_L21:;
+    }
+    __pyx_L7:;
+
+    /* "optimized_pop.pyx":406
+ *                     break
+ * 
+ *         heap[pos] = heap[best]             # <<<<<<<<<<<<<<
+ *         pos = best
+ *     heap[pos] = item
+*/
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 237, __pyx_L1_error)
+      __PYX_ERR(0, 406, __pyx_L1_error)
     }
-    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
+    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best);
     __Pyx_INCREF(__pyx_t_1);
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 237, __pyx_L1_error)
+      __PYX_ERR(0, 406, __pyx_L1_error)
     }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 237, __pyx_L1_error)
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 406, __pyx_L1_error)
     __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
 
-    /* "optimized_pop.pyx":238
- *             child = right
- *         heap[pos] = heap[child]
- *         pos = child             # <<<<<<<<<<<<<<
+    /* "optimized_pop.pyx":407
  * 
- *     while pos > start:
+ *         heap[pos] = heap[best]
+ *         pos = best             # <<<<<<<<<<<<<<
+ *     heap[pos] = item
+ * 
 */
-    __pyx_v_pos = __pyx_v_child;
+    __pyx_v_pos = __pyx_v_best;
   }
   __pyx_L4_break:;
 
-  /* "optimized_pop.pyx":240
- *         pos = child
+  /* "optimized_pop.pyx":408
+ *         heap[pos] = heap[best]
+ *         pos = best
+ *     heap[pos] = item             # <<<<<<<<<<<<<<
  * 
- *     while pos > start:             # <<<<<<<<<<<<<<
- *         parent = (pos - 1) >> 1
- *         if item_val <= (heap[parent] is True):
+ * cdef void _nary_sift_up(list heap, Py_ssize_t pos, bint is_max, Py_ssize_t arity, object key):
+*/
+  if (unlikely(__pyx_v_heap == Py_None)) {
+    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+    __PYX_ERR(0, 408, __pyx_L1_error)
+  }
+  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 408, __pyx_L1_error)
+
+  /* "optimized_pop.pyx":362
+ * # =============================================================================
+ * 
+ * cdef void _nary_sift_down(list heap, Py_ssize_t pos, Py_ssize_t n, bint is_max, Py_ssize_t arity, object key):             # <<<<<<<<<<<<<<
+ *     cdef:
+ *         Py_ssize_t child, best, last, j
+*/
+
+  /* function exit code */
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_1);
+  __Pyx_XDECREF(__pyx_t_3);
+  __Pyx_XDECREF(__pyx_t_4);
+  __Pyx_XDECREF(__pyx_t_5);
+  __Pyx_AddTraceback("optimized_pop._nary_sift_down", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_L0:;
+  __Pyx_XDECREF(__pyx_v_item);
+  __Pyx_XDECREF(__pyx_v_item_key);
+  __Pyx_RefNannyFinishContext();
+}
+
+/* "optimized_pop.pyx":410
+ *     heap[pos] = item
+ * 
+ * cdef void _nary_sift_up(list heap, Py_ssize_t pos, bint is_max, Py_ssize_t arity, object key):             # <<<<<<<<<<<<<<
+ *     cdef:
+ *         Py_ssize_t parent
+*/
+
+static void __pyx_f_13optimized_pop__nary_sift_up(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, int __pyx_v_is_max, Py_ssize_t __pyx_v_arity, PyObject *__pyx_v_key) {
+  Py_ssize_t __pyx_v_parent;
+  PyObject *__pyx_v_item = 0;
+  PyObject *__pyx_v_item_key = 0;
+  __Pyx_RefNannyDeclarations
+  PyObject *__pyx_t_1 = NULL;
+  int __pyx_t_2;
+  PyObject *__pyx_t_3 = NULL;
+  PyObject *__pyx_t_4 = NULL;
+  PyObject *__pyx_t_5 = NULL;
+  size_t __pyx_t_6;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("_nary_sift_up", 0);
+
+  /* "optimized_pop.pyx":413
+ *     cdef:
+ *         Py_ssize_t parent
+ *         object item = heap[pos]             # <<<<<<<<<<<<<<
+ *         object item_key = key(item) if key is not None else item
+ * 
+*/
+  if (unlikely(__pyx_v_heap == Py_None)) {
+    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+    __PYX_ERR(0, 413, __pyx_L1_error)
+  }
+  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
+  __Pyx_INCREF(__pyx_t_1);
+  __pyx_v_item = __pyx_t_1;
+  __pyx_t_1 = 0;
+
+  /* "optimized_pop.pyx":414
+ *         Py_ssize_t parent
+ *         object item = heap[pos]
+ *         object item_key = key(item) if key is not None else item             # <<<<<<<<<<<<<<
+ * 
+ *     while pos > 0:
+*/
+  __pyx_t_2 = (__pyx_v_key != Py_None);
+  if (__pyx_t_2) {
+    __pyx_t_4 = NULL;
+    __Pyx_INCREF(__pyx_v_key);
+    __pyx_t_5 = __pyx_v_key; 
+    __pyx_t_6 = 1;
+    #if CYTHON_UNPACK_METHODS
+    if (unlikely(PyMethod_Check(__pyx_t_5))) {
+      __pyx_t_4 = PyMethod_GET_SELF(__pyx_t_5);
+      assert(__pyx_t_4);
+      PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_5);
+      __Pyx_INCREF(__pyx_t_4);
+      __Pyx_INCREF(__pyx__function);
+      __Pyx_DECREF_SET(__pyx_t_5, __pyx__function);
+      __pyx_t_6 = 0;
+    }
+    #endif
+    {
+      PyObject *__pyx_callargs[2] = {__pyx_t_4, __pyx_v_item};
+      __pyx_t_3 = __Pyx_PyObject_FastCall(__pyx_t_5, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+      __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
+      __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 414, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_3);
+    }
+    __pyx_t_1 = __pyx_t_3;
+    __pyx_t_3 = 0;
+  } else {
+    __Pyx_INCREF(__pyx_v_item);
+    __pyx_t_1 = __pyx_v_item;
+  }
+  __pyx_v_item_key = __pyx_t_1;
+  __pyx_t_1 = 0;
+
+  /* "optimized_pop.pyx":416
+ *         object item_key = key(item) if key is not None else item
+ * 
+ *     while pos > 0:             # <<<<<<<<<<<<<<
+ *         parent = (pos - 1) // arity
+ *         if key is not None:
 */
   while (1) {
-    __pyx_t_2 = (__pyx_v_pos > __pyx_v_start);
+    __pyx_t_2 = (__pyx_v_pos > 0);
     if (!__pyx_t_2) break;
 
-    /* "optimized_pop.pyx":241
+    /* "optimized_pop.pyx":417
  * 
- *     while pos > start:
- *         parent = (pos - 1) >> 1             # <<<<<<<<<<<<<<
- *         if item_val <= (heap[parent] is True):
- *             break
+ *     while pos > 0:
+ *         parent = (pos - 1) // arity             # <<<<<<<<<<<<<<
+ *         if key is not None:
+ *             if is_max:
 */
-    __pyx_v_parent = ((__pyx_v_pos - 1) >> 1);
+    __pyx_v_parent = ((__pyx_v_pos - 1) / __pyx_v_arity);
 
-    /* "optimized_pop.pyx":242
- *     while pos > start:
- *         parent = (pos - 1) >> 1
- *         if item_val <= (heap[parent] is True):             # <<<<<<<<<<<<<<
- *             break
+    /* "optimized_pop.pyx":418
+ *     while pos > 0:
+ *         parent = (pos - 1) // arity
+ *         if key is not None:             # <<<<<<<<<<<<<<
+ *             if is_max:
+ *                 if item_key <= key(heap[parent]):
+*/
+    __pyx_t_2 = (__pyx_v_key != Py_None);
+    if (__pyx_t_2) {
+
+      /* "optimized_pop.pyx":419
+ *         parent = (pos - 1) // arity
+ *         if key is not None:
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if item_key <= key(heap[parent]):
+ *                     break
+*/
+      if (__pyx_v_is_max) {
+
+        /* "optimized_pop.pyx":420
+ *         if key is not None:
+ *             if is_max:
+ *                 if item_key <= key(heap[parent]):             # <<<<<<<<<<<<<<
+ *                     break
+ *             else:
+*/
+        __pyx_t_3 = NULL;
+        __Pyx_INCREF(__pyx_v_key);
+        __pyx_t_5 = __pyx_v_key; 
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 420, __pyx_L1_error)
+        }
+        __pyx_t_6 = 1;
+        #if CYTHON_UNPACK_METHODS
+        if (unlikely(PyMethod_Check(__pyx_t_5))) {
+          __pyx_t_3 = PyMethod_GET_SELF(__pyx_t_5);
+          assert(__pyx_t_3);
+          PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_5);
+          __Pyx_INCREF(__pyx_t_3);
+          __Pyx_INCREF(__pyx__function);
+          __Pyx_DECREF_SET(__pyx_t_5, __pyx__function);
+          __pyx_t_6 = 0;
+        }
+        #endif
+        {
+          PyObject *__pyx_callargs[2] = {__pyx_t_3, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent)};
+          __pyx_t_1 = __Pyx_PyObject_FastCall(__pyx_t_5, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+          __Pyx_XDECREF(__pyx_t_3); __pyx_t_3 = 0;
+          __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+          if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 420, __pyx_L1_error)
+          __Pyx_GOTREF(__pyx_t_1);
+        }
+        __pyx_t_5 = PyObject_RichCompare(__pyx_v_item_key, __pyx_t_1, Py_LE); __Pyx_XGOTREF(__pyx_t_5); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 420, __pyx_L1_error)
+        __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+        __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_5); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 420, __pyx_L1_error)
+        __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+        if (__pyx_t_2) {
+
+          /* "optimized_pop.pyx":421
+ *             if is_max:
+ *                 if item_key <= key(heap[parent]):
+ *                     break             # <<<<<<<<<<<<<<
+ *             else:
+ *                 if item_key >= key(heap[parent]):
+*/
+          goto __pyx_L4_break;
+
+          /* "optimized_pop.pyx":420
+ *         if key is not None:
+ *             if is_max:
+ *                 if item_key <= key(heap[parent]):             # <<<<<<<<<<<<<<
+ *                     break
+ *             else:
+*/
+        }
+
+        /* "optimized_pop.pyx":419
+ *         parent = (pos - 1) // arity
+ *         if key is not None:
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if item_key <= key(heap[parent]):
+ *                     break
+*/
+        goto __pyx_L6;
+      }
+
+      /* "optimized_pop.pyx":423
+ *                     break
+ *             else:
+ *                 if item_key >= key(heap[parent]):             # <<<<<<<<<<<<<<
+ *                     break
+ *         else:
+*/
+      /*else*/ {
+        __pyx_t_1 = NULL;
+        __Pyx_INCREF(__pyx_v_key);
+        __pyx_t_3 = __pyx_v_key; 
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 423, __pyx_L1_error)
+        }
+        __pyx_t_6 = 1;
+        #if CYTHON_UNPACK_METHODS
+        if (unlikely(PyMethod_Check(__pyx_t_3))) {
+          __pyx_t_1 = PyMethod_GET_SELF(__pyx_t_3);
+          assert(__pyx_t_1);
+          PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_3);
+          __Pyx_INCREF(__pyx_t_1);
+          __Pyx_INCREF(__pyx__function);
+          __Pyx_DECREF_SET(__pyx_t_3, __pyx__function);
+          __pyx_t_6 = 0;
+        }
+        #endif
+        {
+          PyObject *__pyx_callargs[2] = {__pyx_t_1, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent)};
+          __pyx_t_5 = __Pyx_PyObject_FastCall(__pyx_t_3, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+          __Pyx_XDECREF(__pyx_t_1); __pyx_t_1 = 0;
+          __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+          if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 423, __pyx_L1_error)
+          __Pyx_GOTREF(__pyx_t_5);
+        }
+        __pyx_t_3 = PyObject_RichCompare(__pyx_v_item_key, __pyx_t_5, Py_GE); __Pyx_XGOTREF(__pyx_t_3); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 423, __pyx_L1_error)
+        __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+        __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_3); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 423, __pyx_L1_error)
+        __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+        if (__pyx_t_2) {
+
+          /* "optimized_pop.pyx":424
+ *             else:
+ *                 if item_key >= key(heap[parent]):
+ *                     break             # <<<<<<<<<<<<<<
+ *         else:
+ *             if is_max:
+*/
+          goto __pyx_L4_break;
+
+          /* "optimized_pop.pyx":423
+ *                     break
+ *             else:
+ *                 if item_key >= key(heap[parent]):             # <<<<<<<<<<<<<<
+ *                     break
+ *         else:
+*/
+        }
+      }
+      __pyx_L6:;
+
+      /* "optimized_pop.pyx":418
+ *     while pos > 0:
+ *         parent = (pos - 1) // arity
+ *         if key is not None:             # <<<<<<<<<<<<<<
+ *             if is_max:
+ *                 if item_key <= key(heap[parent]):
+*/
+      goto __pyx_L5;
+    }
+
+    /* "optimized_pop.pyx":426
+ *                     break
+ *         else:
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if item <= heap[parent]:
+ *                     break
+*/
+    /*else*/ {
+      if (__pyx_v_is_max) {
+
+        /* "optimized_pop.pyx":427
+ *         else:
+ *             if is_max:
+ *                 if item <= heap[parent]:             # <<<<<<<<<<<<<<
+ *                     break
+ *             else:
+*/
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 427, __pyx_L1_error)
+        }
+        __pyx_t_3 = PyObject_RichCompare(__pyx_v_item, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent), Py_LE); __Pyx_XGOTREF(__pyx_t_3); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 427, __pyx_L1_error)
+        __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_3); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 427, __pyx_L1_error)
+        __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+        if (__pyx_t_2) {
+
+          /* "optimized_pop.pyx":428
+ *             if is_max:
+ *                 if item <= heap[parent]:
+ *                     break             # <<<<<<<<<<<<<<
+ *             else:
+ *                 if item >= heap[parent]:
+*/
+          goto __pyx_L4_break;
+
+          /* "optimized_pop.pyx":427
+ *         else:
+ *             if is_max:
+ *                 if item <= heap[parent]:             # <<<<<<<<<<<<<<
+ *                     break
+ *             else:
+*/
+        }
+
+        /* "optimized_pop.pyx":426
+ *                     break
+ *         else:
+ *             if is_max:             # <<<<<<<<<<<<<<
+ *                 if item <= heap[parent]:
+ *                     break
+*/
+        goto __pyx_L9;
+      }
+
+      /* "optimized_pop.pyx":430
+ *                     break
+ *             else:
+ *                 if item >= heap[parent]:             # <<<<<<<<<<<<<<
+ *                     break
  *         heap[pos] = heap[parent]
 */
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 242, __pyx_L1_error)
-    }
-    __pyx_t_2 = (__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent) == Py_True);
-    __pyx_t_3 = (__pyx_v_item_val <= __pyx_t_2);
-    if (__pyx_t_3) {
+      /*else*/ {
+        if (unlikely(__pyx_v_heap == Py_None)) {
+          PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+          __PYX_ERR(0, 430, __pyx_L1_error)
+        }
+        __pyx_t_3 = PyObject_RichCompare(__pyx_v_item, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent), Py_GE); __Pyx_XGOTREF(__pyx_t_3); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 430, __pyx_L1_error)
+        __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_3); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 430, __pyx_L1_error)
+        __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+        if (__pyx_t_2) {
 
-      /* "optimized_pop.pyx":243
- *         parent = (pos - 1) >> 1
- *         if item_val <= (heap[parent] is True):
- *             break             # <<<<<<<<<<<<<<
+          /* "optimized_pop.pyx":431
+ *             else:
+ *                 if item >= heap[parent]:
+ *                     break             # <<<<<<<<<<<<<<
  *         heap[pos] = heap[parent]
  *         pos = parent
 */
-      goto __pyx_L12_break;
+          goto __pyx_L4_break;
 
-      /* "optimized_pop.pyx":242
- *     while pos > start:
- *         parent = (pos - 1) >> 1
- *         if item_val <= (heap[parent] is True):             # <<<<<<<<<<<<<<
- *             break
+          /* "optimized_pop.pyx":430
+ *                     break
+ *             else:
+ *                 if item >= heap[parent]:             # <<<<<<<<<<<<<<
+ *                     break
  *         heap[pos] = heap[parent]
 */
+        }
+      }
+      __pyx_L9:;
     }
+    __pyx_L5:;
 
-    /* "optimized_pop.pyx":244
- *         if item_val <= (heap[parent] is True):
- *             break
+    /* "optimized_pop.pyx":432
+ *                 if item >= heap[parent]:
+ *                     break
  *         heap[pos] = heap[parent]             # <<<<<<<<<<<<<<
  *         pos = parent
  *     heap[pos] = item
 */
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 244, __pyx_L1_error)
+      __PYX_ERR(0, 432, __pyx_L1_error)
     }
-    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
-    __Pyx_INCREF(__pyx_t_1);
+    __pyx_t_3 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
+    __Pyx_INCREF(__pyx_t_3);
     if (unlikely(__pyx_v_heap == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 244, __pyx_L1_error)
+      __PYX_ERR(0, 432, __pyx_L1_error)
     }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 244, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_3, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 432, __pyx_L1_error)
+    __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
 
-    /* "optimized_pop.pyx":245
- *             break
+    /* "optimized_pop.pyx":433
+ *                     break
  *         heap[pos] = heap[parent]
  *         pos = parent             # <<<<<<<<<<<<<<
  *     heap[pos] = item
@@ -4869,9 +7836,9 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_bool_max(PyObject *_
 */
     __pyx_v_pos = __pyx_v_parent;
   }
-  __pyx_L12_break:;
+  __pyx_L4_break:;
 
-  /* "optimized_pop.pyx":246
+  /* "optimized_pop.pyx":434
  *         heap[pos] = heap[parent]
  *         pos = parent
  *     heap[pos] = item             # <<<<<<<<<<<<<<
@@ -4880,2512 +7847,26 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_bool_max(PyObject *_
 */
   if (unlikely(__pyx_v_heap == Py_None)) {
     PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 246, __pyx_L1_error)
+    __PYX_ERR(0, 434, __pyx_L1_error)
   }
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 246, __pyx_L1_error)
+  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 434, __pyx_L1_error)
 
-  /* "optimized_pop.pyx":220
+  /* "optimized_pop.pyx":410
  *     heap[pos] = item
  * 
- * cdef inline void sift_down_bool_max(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:             # <<<<<<<<<<<<<<
+ * cdef void _nary_sift_up(list heap, Py_ssize_t pos, bint is_max, Py_ssize_t arity, object key):             # <<<<<<<<<<<<<<
  *     cdef:
- *         Py_ssize_t child, right, parent, gc
+ *         Py_ssize_t parent
 */
 
   /* function exit code */
   goto __pyx_L0;
   __pyx_L1_error:;
   __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_WriteUnraisable("optimized_pop.sift_down_bool_max", __pyx_clineno, __pyx_lineno, __pyx_filename, 1, 0);
-  __pyx_L0:;
-  __Pyx_XDECREF(__pyx_v_item);
-  __Pyx_RefNannyFinishContext();
-}
-
-/* "optimized_pop.pyx":253
- * # =============================================================================
- * 
- * cdef inline void sift_down_str_min(list heap, Py_ssize_t pos, Py_ssize_t n):             # <<<<<<<<<<<<<<
- *     """Standard sift-down for strings using native Python comparison."""
- *     cdef:
-*/
-
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_str_min(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, Py_ssize_t __pyx_v_n) {
-  Py_ssize_t __pyx_v_child;
-  Py_ssize_t __pyx_v_right;
-  Py_ssize_t __pyx_v_limit;
-  PyObject *__pyx_v_item = 0;
-  __Pyx_RefNannyDeclarations
-  PyObject *__pyx_t_1 = NULL;
-  int __pyx_t_2;
-  int __pyx_t_3;
-  int __pyx_lineno = 0;
-  const char *__pyx_filename = NULL;
-  int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("sift_down_str_min", 0);
-
-  /* "optimized_pop.pyx":257
- *     cdef:
- *         Py_ssize_t child, right, limit
- *         object item = heap[pos]             # <<<<<<<<<<<<<<
- * 
- *     limit = n >> 1
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 257, __pyx_L1_error)
-  }
-  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
-  __Pyx_INCREF(__pyx_t_1);
-  __pyx_v_item = __pyx_t_1;
-  __pyx_t_1 = 0;
-
-  /* "optimized_pop.pyx":259
- *         object item = heap[pos]
- * 
- *     limit = n >> 1             # <<<<<<<<<<<<<<
- *     while pos < limit:
- *         child = (pos << 1) + 1
-*/
-  __pyx_v_limit = (__pyx_v_n >> 1);
-
-  /* "optimized_pop.pyx":260
- * 
- *     limit = n >> 1
- *     while pos < limit:             # <<<<<<<<<<<<<<
- *         child = (pos << 1) + 1
- *         right = child + 1
-*/
-  while (1) {
-    __pyx_t_2 = (__pyx_v_pos < __pyx_v_limit);
-    if (!__pyx_t_2) break;
-
-    /* "optimized_pop.pyx":261
- *     limit = n >> 1
- *     while pos < limit:
- *         child = (pos << 1) + 1             # <<<<<<<<<<<<<<
- *         right = child + 1
- *         if right < n and heap[right] < heap[child]:
-*/
-    __pyx_v_child = ((__pyx_v_pos << 1) + 1);
-
-    /* "optimized_pop.pyx":262
- *     while pos < limit:
- *         child = (pos << 1) + 1
- *         right = child + 1             # <<<<<<<<<<<<<<
- *         if right < n and heap[right] < heap[child]:
- *             child = right
-*/
-    __pyx_v_right = (__pyx_v_child + 1);
-
-    /* "optimized_pop.pyx":263
- *         child = (pos << 1) + 1
- *         right = child + 1
- *         if right < n and heap[right] < heap[child]:             # <<<<<<<<<<<<<<
- *             child = right
- *         if item <= heap[child]:
-*/
-    __pyx_t_3 = (__pyx_v_right < __pyx_v_n);
-    if (__pyx_t_3) {
-    } else {
-      __pyx_t_2 = __pyx_t_3;
-      goto __pyx_L6_bool_binop_done;
-    }
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 263, __pyx_L1_error)
-    }
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 263, __pyx_L1_error)
-    }
-    __pyx_t_1 = PyObject_RichCompare(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right), __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child), Py_LT); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 263, __pyx_L1_error)
-    __pyx_t_3 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_3 < 0))) __PYX_ERR(0, 263, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    __pyx_t_2 = __pyx_t_3;
-    __pyx_L6_bool_binop_done:;
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":264
- *         right = child + 1
- *         if right < n and heap[right] < heap[child]:
- *             child = right             # <<<<<<<<<<<<<<
- *         if item <= heap[child]:
- *             break
-*/
-      __pyx_v_child = __pyx_v_right;
-
-      /* "optimized_pop.pyx":263
- *         child = (pos << 1) + 1
- *         right = child + 1
- *         if right < n and heap[right] < heap[child]:             # <<<<<<<<<<<<<<
- *             child = right
- *         if item <= heap[child]:
-*/
-    }
-
-    /* "optimized_pop.pyx":265
- *         if right < n and heap[right] < heap[child]:
- *             child = right
- *         if item <= heap[child]:             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[child]
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 265, __pyx_L1_error)
-    }
-    __pyx_t_1 = PyObject_RichCompare(__pyx_v_item, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child), Py_LE); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 265, __pyx_L1_error)
-    __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 265, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":266
- *             child = right
- *         if item <= heap[child]:
- *             break             # <<<<<<<<<<<<<<
- *         heap[pos] = heap[child]
- *         pos = child
-*/
-      goto __pyx_L4_break;
-
-      /* "optimized_pop.pyx":265
- *         if right < n and heap[right] < heap[child]:
- *             child = right
- *         if item <= heap[child]:             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[child]
-*/
-    }
-
-    /* "optimized_pop.pyx":267
- *         if item <= heap[child]:
- *             break
- *         heap[pos] = heap[child]             # <<<<<<<<<<<<<<
- *         pos = child
- *     heap[pos] = item
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 267, __pyx_L1_error)
-    }
-    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
-    __Pyx_INCREF(__pyx_t_1);
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 267, __pyx_L1_error)
-    }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 267, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-
-    /* "optimized_pop.pyx":268
- *             break
- *         heap[pos] = heap[child]
- *         pos = child             # <<<<<<<<<<<<<<
- *     heap[pos] = item
- * 
-*/
-    __pyx_v_pos = __pyx_v_child;
-  }
-  __pyx_L4_break:;
-
-  /* "optimized_pop.pyx":269
- *         heap[pos] = heap[child]
- *         pos = child
- *     heap[pos] = item             # <<<<<<<<<<<<<<
- * 
- * cdef inline void sift_down_str_max(list heap, Py_ssize_t pos, Py_ssize_t n):
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 269, __pyx_L1_error)
-  }
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 269, __pyx_L1_error)
-
-  /* "optimized_pop.pyx":253
- * # =============================================================================
- * 
- * cdef inline void sift_down_str_min(list heap, Py_ssize_t pos, Py_ssize_t n):             # <<<<<<<<<<<<<<
- *     """Standard sift-down for strings using native Python comparison."""
- *     cdef:
-*/
-
-  /* function exit code */
-  goto __pyx_L0;
-  __pyx_L1_error:;
-  __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_AddTraceback("optimized_pop.sift_down_str_min", __pyx_clineno, __pyx_lineno, __pyx_filename);
-  __pyx_L0:;
-  __Pyx_XDECREF(__pyx_v_item);
-  __Pyx_RefNannyFinishContext();
-}
-
-/* "optimized_pop.pyx":271
- *     heap[pos] = item
- * 
- * cdef inline void sift_down_str_max(list heap, Py_ssize_t pos, Py_ssize_t n):             # <<<<<<<<<<<<<<
- *     """Standard sift-down for strings (max-heap)."""
- *     cdef:
-*/
-
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_str_max(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, Py_ssize_t __pyx_v_n) {
-  Py_ssize_t __pyx_v_child;
-  Py_ssize_t __pyx_v_right;
-  Py_ssize_t __pyx_v_limit;
-  PyObject *__pyx_v_item = 0;
-  __Pyx_RefNannyDeclarations
-  PyObject *__pyx_t_1 = NULL;
-  int __pyx_t_2;
-  int __pyx_t_3;
-  int __pyx_lineno = 0;
-  const char *__pyx_filename = NULL;
-  int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("sift_down_str_max", 0);
-
-  /* "optimized_pop.pyx":275
- *     cdef:
- *         Py_ssize_t child, right, limit
- *         object item = heap[pos]             # <<<<<<<<<<<<<<
- * 
- *     limit = n >> 1
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 275, __pyx_L1_error)
-  }
-  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
-  __Pyx_INCREF(__pyx_t_1);
-  __pyx_v_item = __pyx_t_1;
-  __pyx_t_1 = 0;
-
-  /* "optimized_pop.pyx":277
- *         object item = heap[pos]
- * 
- *     limit = n >> 1             # <<<<<<<<<<<<<<
- *     while pos < limit:
- *         child = (pos << 1) + 1
-*/
-  __pyx_v_limit = (__pyx_v_n >> 1);
-
-  /* "optimized_pop.pyx":278
- * 
- *     limit = n >> 1
- *     while pos < limit:             # <<<<<<<<<<<<<<
- *         child = (pos << 1) + 1
- *         right = child + 1
-*/
-  while (1) {
-    __pyx_t_2 = (__pyx_v_pos < __pyx_v_limit);
-    if (!__pyx_t_2) break;
-
-    /* "optimized_pop.pyx":279
- *     limit = n >> 1
- *     while pos < limit:
- *         child = (pos << 1) + 1             # <<<<<<<<<<<<<<
- *         right = child + 1
- *         if right < n and heap[right] > heap[child]:
-*/
-    __pyx_v_child = ((__pyx_v_pos << 1) + 1);
-
-    /* "optimized_pop.pyx":280
- *     while pos < limit:
- *         child = (pos << 1) + 1
- *         right = child + 1             # <<<<<<<<<<<<<<
- *         if right < n and heap[right] > heap[child]:
- *             child = right
-*/
-    __pyx_v_right = (__pyx_v_child + 1);
-
-    /* "optimized_pop.pyx":281
- *         child = (pos << 1) + 1
- *         right = child + 1
- *         if right < n and heap[right] > heap[child]:             # <<<<<<<<<<<<<<
- *             child = right
- *         if item >= heap[child]:
-*/
-    __pyx_t_3 = (__pyx_v_right < __pyx_v_n);
-    if (__pyx_t_3) {
-    } else {
-      __pyx_t_2 = __pyx_t_3;
-      goto __pyx_L6_bool_binop_done;
-    }
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 281, __pyx_L1_error)
-    }
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 281, __pyx_L1_error)
-    }
-    __pyx_t_1 = PyObject_RichCompare(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right), __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child), Py_GT); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 281, __pyx_L1_error)
-    __pyx_t_3 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_3 < 0))) __PYX_ERR(0, 281, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    __pyx_t_2 = __pyx_t_3;
-    __pyx_L6_bool_binop_done:;
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":282
- *         right = child + 1
- *         if right < n and heap[right] > heap[child]:
- *             child = right             # <<<<<<<<<<<<<<
- *         if item >= heap[child]:
- *             break
-*/
-      __pyx_v_child = __pyx_v_right;
-
-      /* "optimized_pop.pyx":281
- *         child = (pos << 1) + 1
- *         right = child + 1
- *         if right < n and heap[right] > heap[child]:             # <<<<<<<<<<<<<<
- *             child = right
- *         if item >= heap[child]:
-*/
-    }
-
-    /* "optimized_pop.pyx":283
- *         if right < n and heap[right] > heap[child]:
- *             child = right
- *         if item >= heap[child]:             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[child]
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 283, __pyx_L1_error)
-    }
-    __pyx_t_1 = PyObject_RichCompare(__pyx_v_item, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child), Py_GE); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 283, __pyx_L1_error)
-    __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 283, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":284
- *             child = right
- *         if item >= heap[child]:
- *             break             # <<<<<<<<<<<<<<
- *         heap[pos] = heap[child]
- *         pos = child
-*/
-      goto __pyx_L4_break;
-
-      /* "optimized_pop.pyx":283
- *         if right < n and heap[right] > heap[child]:
- *             child = right
- *         if item >= heap[child]:             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[child]
-*/
-    }
-
-    /* "optimized_pop.pyx":285
- *         if item >= heap[child]:
- *             break
- *         heap[pos] = heap[child]             # <<<<<<<<<<<<<<
- *         pos = child
- *     heap[pos] = item
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 285, __pyx_L1_error)
-    }
-    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
-    __Pyx_INCREF(__pyx_t_1);
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 285, __pyx_L1_error)
-    }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 285, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-
-    /* "optimized_pop.pyx":286
- *             break
- *         heap[pos] = heap[child]
- *         pos = child             # <<<<<<<<<<<<<<
- *     heap[pos] = item
- * 
-*/
-    __pyx_v_pos = __pyx_v_child;
-  }
-  __pyx_L4_break:;
-
-  /* "optimized_pop.pyx":287
- *         heap[pos] = heap[child]
- *         pos = child
- *     heap[pos] = item             # <<<<<<<<<<<<<<
- * 
- * # =============================================================================
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 287, __pyx_L1_error)
-  }
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 287, __pyx_L1_error)
-
-  /* "optimized_pop.pyx":271
- *     heap[pos] = item
- * 
- * cdef inline void sift_down_str_max(list heap, Py_ssize_t pos, Py_ssize_t n):             # <<<<<<<<<<<<<<
- *     """Standard sift-down for strings (max-heap)."""
- *     cdef:
-*/
-
-  /* function exit code */
-  goto __pyx_L0;
-  __pyx_L1_error:;
-  __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_AddTraceback("optimized_pop.sift_down_str_max", __pyx_clineno, __pyx_lineno, __pyx_filename);
-  __pyx_L0:;
-  __Pyx_XDECREF(__pyx_v_item);
-  __Pyx_RefNannyFinishContext();
-}
-
-/* "optimized_pop.pyx":293
- * # =============================================================================
- * 
- * cdef inline void sift_down_generic_min(list heap, Py_ssize_t pos, Py_ssize_t n):             # <<<<<<<<<<<<<<
- *     """Standard sift-down using native Python comparison."""
- *     cdef:
-*/
-
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_generic_min(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, Py_ssize_t __pyx_v_n) {
-  Py_ssize_t __pyx_v_child;
-  Py_ssize_t __pyx_v_right;
-  Py_ssize_t __pyx_v_limit;
-  PyObject *__pyx_v_item = 0;
-  __Pyx_RefNannyDeclarations
-  PyObject *__pyx_t_1 = NULL;
-  int __pyx_t_2;
-  int __pyx_t_3;
-  int __pyx_lineno = 0;
-  const char *__pyx_filename = NULL;
-  int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("sift_down_generic_min", 0);
-
-  /* "optimized_pop.pyx":297
- *     cdef:
- *         Py_ssize_t child, right, limit
- *         object item = heap[pos]             # <<<<<<<<<<<<<<
- * 
- *     limit = n >> 1
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 297, __pyx_L1_error)
-  }
-  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
-  __Pyx_INCREF(__pyx_t_1);
-  __pyx_v_item = __pyx_t_1;
-  __pyx_t_1 = 0;
-
-  /* "optimized_pop.pyx":299
- *         object item = heap[pos]
- * 
- *     limit = n >> 1             # <<<<<<<<<<<<<<
- *     while pos < limit:
- *         child = (pos << 1) + 1
-*/
-  __pyx_v_limit = (__pyx_v_n >> 1);
-
-  /* "optimized_pop.pyx":300
- * 
- *     limit = n >> 1
- *     while pos < limit:             # <<<<<<<<<<<<<<
- *         child = (pos << 1) + 1
- *         right = child + 1
-*/
-  while (1) {
-    __pyx_t_2 = (__pyx_v_pos < __pyx_v_limit);
-    if (!__pyx_t_2) break;
-
-    /* "optimized_pop.pyx":301
- *     limit = n >> 1
- *     while pos < limit:
- *         child = (pos << 1) + 1             # <<<<<<<<<<<<<<
- *         right = child + 1
- *         if right < n and heap[right] < heap[child]:
-*/
-    __pyx_v_child = ((__pyx_v_pos << 1) + 1);
-
-    /* "optimized_pop.pyx":302
- *     while pos < limit:
- *         child = (pos << 1) + 1
- *         right = child + 1             # <<<<<<<<<<<<<<
- *         if right < n and heap[right] < heap[child]:
- *             child = right
-*/
-    __pyx_v_right = (__pyx_v_child + 1);
-
-    /* "optimized_pop.pyx":303
- *         child = (pos << 1) + 1
- *         right = child + 1
- *         if right < n and heap[right] < heap[child]:             # <<<<<<<<<<<<<<
- *             child = right
- *         if item <= heap[child]:
-*/
-    __pyx_t_3 = (__pyx_v_right < __pyx_v_n);
-    if (__pyx_t_3) {
-    } else {
-      __pyx_t_2 = __pyx_t_3;
-      goto __pyx_L6_bool_binop_done;
-    }
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 303, __pyx_L1_error)
-    }
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 303, __pyx_L1_error)
-    }
-    __pyx_t_1 = PyObject_RichCompare(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right), __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child), Py_LT); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 303, __pyx_L1_error)
-    __pyx_t_3 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_3 < 0))) __PYX_ERR(0, 303, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    __pyx_t_2 = __pyx_t_3;
-    __pyx_L6_bool_binop_done:;
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":304
- *         right = child + 1
- *         if right < n and heap[right] < heap[child]:
- *             child = right             # <<<<<<<<<<<<<<
- *         if item <= heap[child]:
- *             break
-*/
-      __pyx_v_child = __pyx_v_right;
-
-      /* "optimized_pop.pyx":303
- *         child = (pos << 1) + 1
- *         right = child + 1
- *         if right < n and heap[right] < heap[child]:             # <<<<<<<<<<<<<<
- *             child = right
- *         if item <= heap[child]:
-*/
-    }
-
-    /* "optimized_pop.pyx":305
- *         if right < n and heap[right] < heap[child]:
- *             child = right
- *         if item <= heap[child]:             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[child]
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 305, __pyx_L1_error)
-    }
-    __pyx_t_1 = PyObject_RichCompare(__pyx_v_item, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child), Py_LE); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 305, __pyx_L1_error)
-    __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 305, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":306
- *             child = right
- *         if item <= heap[child]:
- *             break             # <<<<<<<<<<<<<<
- *         heap[pos] = heap[child]
- *         pos = child
-*/
-      goto __pyx_L4_break;
-
-      /* "optimized_pop.pyx":305
- *         if right < n and heap[right] < heap[child]:
- *             child = right
- *         if item <= heap[child]:             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[child]
-*/
-    }
-
-    /* "optimized_pop.pyx":307
- *         if item <= heap[child]:
- *             break
- *         heap[pos] = heap[child]             # <<<<<<<<<<<<<<
- *         pos = child
- *     heap[pos] = item
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 307, __pyx_L1_error)
-    }
-    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
-    __Pyx_INCREF(__pyx_t_1);
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 307, __pyx_L1_error)
-    }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 307, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-
-    /* "optimized_pop.pyx":308
- *             break
- *         heap[pos] = heap[child]
- *         pos = child             # <<<<<<<<<<<<<<
- *     heap[pos] = item
- * 
-*/
-    __pyx_v_pos = __pyx_v_child;
-  }
-  __pyx_L4_break:;
-
-  /* "optimized_pop.pyx":309
- *         heap[pos] = heap[child]
- *         pos = child
- *     heap[pos] = item             # <<<<<<<<<<<<<<
- * 
- * cdef inline void sift_down_generic_max(list heap, Py_ssize_t pos, Py_ssize_t n):
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 309, __pyx_L1_error)
-  }
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 309, __pyx_L1_error)
-
-  /* "optimized_pop.pyx":293
- * # =============================================================================
- * 
- * cdef inline void sift_down_generic_min(list heap, Py_ssize_t pos, Py_ssize_t n):             # <<<<<<<<<<<<<<
- *     """Standard sift-down using native Python comparison."""
- *     cdef:
-*/
-
-  /* function exit code */
-  goto __pyx_L0;
-  __pyx_L1_error:;
-  __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_AddTraceback("optimized_pop.sift_down_generic_min", __pyx_clineno, __pyx_lineno, __pyx_filename);
-  __pyx_L0:;
-  __Pyx_XDECREF(__pyx_v_item);
-  __Pyx_RefNannyFinishContext();
-}
-
-/* "optimized_pop.pyx":311
- *     heap[pos] = item
- * 
- * cdef inline void sift_down_generic_max(list heap, Py_ssize_t pos, Py_ssize_t n):             # <<<<<<<<<<<<<<
- *     """Standard sift-down for max-heap."""
- *     cdef:
-*/
-
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_generic_max(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, Py_ssize_t __pyx_v_n) {
-  Py_ssize_t __pyx_v_child;
-  Py_ssize_t __pyx_v_right;
-  Py_ssize_t __pyx_v_limit;
-  PyObject *__pyx_v_item = 0;
-  __Pyx_RefNannyDeclarations
-  PyObject *__pyx_t_1 = NULL;
-  int __pyx_t_2;
-  int __pyx_t_3;
-  int __pyx_lineno = 0;
-  const char *__pyx_filename = NULL;
-  int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("sift_down_generic_max", 0);
-
-  /* "optimized_pop.pyx":315
- *     cdef:
- *         Py_ssize_t child, right, limit
- *         object item = heap[pos]             # <<<<<<<<<<<<<<
- * 
- *     limit = n >> 1
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 315, __pyx_L1_error)
-  }
-  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
-  __Pyx_INCREF(__pyx_t_1);
-  __pyx_v_item = __pyx_t_1;
-  __pyx_t_1 = 0;
-
-  /* "optimized_pop.pyx":317
- *         object item = heap[pos]
- * 
- *     limit = n >> 1             # <<<<<<<<<<<<<<
- *     while pos < limit:
- *         child = (pos << 1) + 1
-*/
-  __pyx_v_limit = (__pyx_v_n >> 1);
-
-  /* "optimized_pop.pyx":318
- * 
- *     limit = n >> 1
- *     while pos < limit:             # <<<<<<<<<<<<<<
- *         child = (pos << 1) + 1
- *         right = child + 1
-*/
-  while (1) {
-    __pyx_t_2 = (__pyx_v_pos < __pyx_v_limit);
-    if (!__pyx_t_2) break;
-
-    /* "optimized_pop.pyx":319
- *     limit = n >> 1
- *     while pos < limit:
- *         child = (pos << 1) + 1             # <<<<<<<<<<<<<<
- *         right = child + 1
- *         if right < n and heap[right] > heap[child]:
-*/
-    __pyx_v_child = ((__pyx_v_pos << 1) + 1);
-
-    /* "optimized_pop.pyx":320
- *     while pos < limit:
- *         child = (pos << 1) + 1
- *         right = child + 1             # <<<<<<<<<<<<<<
- *         if right < n and heap[right] > heap[child]:
- *             child = right
-*/
-    __pyx_v_right = (__pyx_v_child + 1);
-
-    /* "optimized_pop.pyx":321
- *         child = (pos << 1) + 1
- *         right = child + 1
- *         if right < n and heap[right] > heap[child]:             # <<<<<<<<<<<<<<
- *             child = right
- *         if item >= heap[child]:
-*/
-    __pyx_t_3 = (__pyx_v_right < __pyx_v_n);
-    if (__pyx_t_3) {
-    } else {
-      __pyx_t_2 = __pyx_t_3;
-      goto __pyx_L6_bool_binop_done;
-    }
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 321, __pyx_L1_error)
-    }
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 321, __pyx_L1_error)
-    }
-    __pyx_t_1 = PyObject_RichCompare(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right), __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child), Py_GT); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 321, __pyx_L1_error)
-    __pyx_t_3 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_3 < 0))) __PYX_ERR(0, 321, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    __pyx_t_2 = __pyx_t_3;
-    __pyx_L6_bool_binop_done:;
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":322
- *         right = child + 1
- *         if right < n and heap[right] > heap[child]:
- *             child = right             # <<<<<<<<<<<<<<
- *         if item >= heap[child]:
- *             break
-*/
-      __pyx_v_child = __pyx_v_right;
-
-      /* "optimized_pop.pyx":321
- *         child = (pos << 1) + 1
- *         right = child + 1
- *         if right < n and heap[right] > heap[child]:             # <<<<<<<<<<<<<<
- *             child = right
- *         if item >= heap[child]:
-*/
-    }
-
-    /* "optimized_pop.pyx":323
- *         if right < n and heap[right] > heap[child]:
- *             child = right
- *         if item >= heap[child]:             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[child]
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 323, __pyx_L1_error)
-    }
-    __pyx_t_1 = PyObject_RichCompare(__pyx_v_item, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child), Py_GE); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 323, __pyx_L1_error)
-    __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 323, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":324
- *             child = right
- *         if item >= heap[child]:
- *             break             # <<<<<<<<<<<<<<
- *         heap[pos] = heap[child]
- *         pos = child
-*/
-      goto __pyx_L4_break;
-
-      /* "optimized_pop.pyx":323
- *         if right < n and heap[right] > heap[child]:
- *             child = right
- *         if item >= heap[child]:             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[child]
-*/
-    }
-
-    /* "optimized_pop.pyx":325
- *         if item >= heap[child]:
- *             break
- *         heap[pos] = heap[child]             # <<<<<<<<<<<<<<
- *         pos = child
- *     heap[pos] = item
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 325, __pyx_L1_error)
-    }
-    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
-    __Pyx_INCREF(__pyx_t_1);
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 325, __pyx_L1_error)
-    }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 325, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-
-    /* "optimized_pop.pyx":326
- *             break
- *         heap[pos] = heap[child]
- *         pos = child             # <<<<<<<<<<<<<<
- *     heap[pos] = item
- * 
-*/
-    __pyx_v_pos = __pyx_v_child;
-  }
-  __pyx_L4_break:;
-
-  /* "optimized_pop.pyx":327
- *         heap[pos] = heap[child]
- *         pos = child
- *     heap[pos] = item             # <<<<<<<<<<<<<<
- * 
- * # =============================================================================
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 327, __pyx_L1_error)
-  }
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 327, __pyx_L1_error)
-
-  /* "optimized_pop.pyx":311
- *     heap[pos] = item
- * 
- * cdef inline void sift_down_generic_max(list heap, Py_ssize_t pos, Py_ssize_t n):             # <<<<<<<<<<<<<<
- *     """Standard sift-down for max-heap."""
- *     cdef:
-*/
-
-  /* function exit code */
-  goto __pyx_L0;
-  __pyx_L1_error:;
-  __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_AddTraceback("optimized_pop.sift_down_generic_max", __pyx_clineno, __pyx_lineno, __pyx_filename);
-  __pyx_L0:;
-  __Pyx_XDECREF(__pyx_v_item);
-  __Pyx_RefNannyFinishContext();
-}
-
-/* "optimized_pop.pyx":333
- * # =============================================================================
- * 
- * cdef inline void sift_down_with_key_min(list heap, Py_ssize_t pos, Py_ssize_t n, object key):             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t child, right, limit
-*/
-
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_with_key_min(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, Py_ssize_t __pyx_v_n, PyObject *__pyx_v_key) {
-  Py_ssize_t __pyx_v_child;
-  Py_ssize_t __pyx_v_right;
-  Py_ssize_t __pyx_v_limit;
-  PyObject *__pyx_v_item = 0;
-  PyObject *__pyx_v_item_key = 0;
-  __Pyx_RefNannyDeclarations
-  PyObject *__pyx_t_1 = NULL;
-  PyObject *__pyx_t_2 = NULL;
-  PyObject *__pyx_t_3 = NULL;
-  size_t __pyx_t_4;
-  int __pyx_t_5;
-  int __pyx_t_6;
-  PyObject *__pyx_t_7 = NULL;
-  int __pyx_lineno = 0;
-  const char *__pyx_filename = NULL;
-  int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("sift_down_with_key_min", 0);
-
-  /* "optimized_pop.pyx":336
- *     cdef:
- *         Py_ssize_t child, right, limit
- *         object item = heap[pos]             # <<<<<<<<<<<<<<
- *         object item_key = key(item)
- * 
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 336, __pyx_L1_error)
-  }
-  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
-  __Pyx_INCREF(__pyx_t_1);
-  __pyx_v_item = __pyx_t_1;
-  __pyx_t_1 = 0;
-
-  /* "optimized_pop.pyx":337
- *         Py_ssize_t child, right, limit
- *         object item = heap[pos]
- *         object item_key = key(item)             # <<<<<<<<<<<<<<
- * 
- *     limit = n >> 1
-*/
-  __pyx_t_2 = NULL;
-  __Pyx_INCREF(__pyx_v_key);
-  __pyx_t_3 = __pyx_v_key; 
-  __pyx_t_4 = 1;
-  #if CYTHON_UNPACK_METHODS
-  if (unlikely(PyMethod_Check(__pyx_t_3))) {
-    __pyx_t_2 = PyMethod_GET_SELF(__pyx_t_3);
-    assert(__pyx_t_2);
-    PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_3);
-    __Pyx_INCREF(__pyx_t_2);
-    __Pyx_INCREF(__pyx__function);
-    __Pyx_DECREF_SET(__pyx_t_3, __pyx__function);
-    __pyx_t_4 = 0;
-  }
-  #endif
-  {
-    PyObject *__pyx_callargs[2] = {__pyx_t_2, __pyx_v_item};
-    __pyx_t_1 = __Pyx_PyObject_FastCall(__pyx_t_3, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
-    __Pyx_XDECREF(__pyx_t_2); __pyx_t_2 = 0;
-    __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 337, __pyx_L1_error)
-    __Pyx_GOTREF(__pyx_t_1);
-  }
-  __pyx_v_item_key = __pyx_t_1;
-  __pyx_t_1 = 0;
-
-  /* "optimized_pop.pyx":339
- *         object item_key = key(item)
- * 
- *     limit = n >> 1             # <<<<<<<<<<<<<<
- *     while pos < limit:
- *         child = (pos << 1) + 1
-*/
-  __pyx_v_limit = (__pyx_v_n >> 1);
-
-  /* "optimized_pop.pyx":340
- * 
- *     limit = n >> 1
- *     while pos < limit:             # <<<<<<<<<<<<<<
- *         child = (pos << 1) + 1
- *         right = child + 1
-*/
-  while (1) {
-    __pyx_t_5 = (__pyx_v_pos < __pyx_v_limit);
-    if (!__pyx_t_5) break;
-
-    /* "optimized_pop.pyx":341
- *     limit = n >> 1
- *     while pos < limit:
- *         child = (pos << 1) + 1             # <<<<<<<<<<<<<<
- *         right = child + 1
- *         if right < n and key(heap[right]) < key(heap[child]):
-*/
-    __pyx_v_child = ((__pyx_v_pos << 1) + 1);
-
-    /* "optimized_pop.pyx":342
- *     while pos < limit:
- *         child = (pos << 1) + 1
- *         right = child + 1             # <<<<<<<<<<<<<<
- *         if right < n and key(heap[right]) < key(heap[child]):
- *             child = right
-*/
-    __pyx_v_right = (__pyx_v_child + 1);
-
-    /* "optimized_pop.pyx":343
- *         child = (pos << 1) + 1
- *         right = child + 1
- *         if right < n and key(heap[right]) < key(heap[child]):             # <<<<<<<<<<<<<<
- *             child = right
- *         if item_key <= key(heap[child]):
-*/
-    __pyx_t_6 = (__pyx_v_right < __pyx_v_n);
-    if (__pyx_t_6) {
-    } else {
-      __pyx_t_5 = __pyx_t_6;
-      goto __pyx_L6_bool_binop_done;
-    }
-    __pyx_t_3 = NULL;
-    __Pyx_INCREF(__pyx_v_key);
-    __pyx_t_2 = __pyx_v_key; 
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 343, __pyx_L1_error)
-    }
-    __pyx_t_4 = 1;
-    #if CYTHON_UNPACK_METHODS
-    if (unlikely(PyMethod_Check(__pyx_t_2))) {
-      __pyx_t_3 = PyMethod_GET_SELF(__pyx_t_2);
-      assert(__pyx_t_3);
-      PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_2);
-      __Pyx_INCREF(__pyx_t_3);
-      __Pyx_INCREF(__pyx__function);
-      __Pyx_DECREF_SET(__pyx_t_2, __pyx__function);
-      __pyx_t_4 = 0;
-    }
-    #endif
-    {
-      PyObject *__pyx_callargs[2] = {__pyx_t_3, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right)};
-      __pyx_t_1 = __Pyx_PyObject_FastCall(__pyx_t_2, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
-      __Pyx_XDECREF(__pyx_t_3); __pyx_t_3 = 0;
-      __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-      if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 343, __pyx_L1_error)
-      __Pyx_GOTREF(__pyx_t_1);
-    }
-    __pyx_t_3 = NULL;
-    __Pyx_INCREF(__pyx_v_key);
-    __pyx_t_7 = __pyx_v_key; 
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 343, __pyx_L1_error)
-    }
-    __pyx_t_4 = 1;
-    #if CYTHON_UNPACK_METHODS
-    if (unlikely(PyMethod_Check(__pyx_t_7))) {
-      __pyx_t_3 = PyMethod_GET_SELF(__pyx_t_7);
-      assert(__pyx_t_3);
-      PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_7);
-      __Pyx_INCREF(__pyx_t_3);
-      __Pyx_INCREF(__pyx__function);
-      __Pyx_DECREF_SET(__pyx_t_7, __pyx__function);
-      __pyx_t_4 = 0;
-    }
-    #endif
-    {
-      PyObject *__pyx_callargs[2] = {__pyx_t_3, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child)};
-      __pyx_t_2 = __Pyx_PyObject_FastCall(__pyx_t_7, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
-      __Pyx_XDECREF(__pyx_t_3); __pyx_t_3 = 0;
-      __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-      if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 343, __pyx_L1_error)
-      __Pyx_GOTREF(__pyx_t_2);
-    }
-    __pyx_t_7 = PyObject_RichCompare(__pyx_t_1, __pyx_t_2, Py_LT); __Pyx_XGOTREF(__pyx_t_7); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 343, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-    __pyx_t_6 = __Pyx_PyObject_IsTrue(__pyx_t_7); if (unlikely((__pyx_t_6 < 0))) __PYX_ERR(0, 343, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-    __pyx_t_5 = __pyx_t_6;
-    __pyx_L6_bool_binop_done:;
-    if (__pyx_t_5) {
-
-      /* "optimized_pop.pyx":344
- *         right = child + 1
- *         if right < n and key(heap[right]) < key(heap[child]):
- *             child = right             # <<<<<<<<<<<<<<
- *         if item_key <= key(heap[child]):
- *             break
-*/
-      __pyx_v_child = __pyx_v_right;
-
-      /* "optimized_pop.pyx":343
- *         child = (pos << 1) + 1
- *         right = child + 1
- *         if right < n and key(heap[right]) < key(heap[child]):             # <<<<<<<<<<<<<<
- *             child = right
- *         if item_key <= key(heap[child]):
-*/
-    }
-
-    /* "optimized_pop.pyx":345
- *         if right < n and key(heap[right]) < key(heap[child]):
- *             child = right
- *         if item_key <= key(heap[child]):             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[child]
-*/
-    __pyx_t_2 = NULL;
-    __Pyx_INCREF(__pyx_v_key);
-    __pyx_t_1 = __pyx_v_key; 
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 345, __pyx_L1_error)
-    }
-    __pyx_t_4 = 1;
-    #if CYTHON_UNPACK_METHODS
-    if (unlikely(PyMethod_Check(__pyx_t_1))) {
-      __pyx_t_2 = PyMethod_GET_SELF(__pyx_t_1);
-      assert(__pyx_t_2);
-      PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_1);
-      __Pyx_INCREF(__pyx_t_2);
-      __Pyx_INCREF(__pyx__function);
-      __Pyx_DECREF_SET(__pyx_t_1, __pyx__function);
-      __pyx_t_4 = 0;
-    }
-    #endif
-    {
-      PyObject *__pyx_callargs[2] = {__pyx_t_2, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child)};
-      __pyx_t_7 = __Pyx_PyObject_FastCall(__pyx_t_1, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
-      __Pyx_XDECREF(__pyx_t_2); __pyx_t_2 = 0;
-      __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-      if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 345, __pyx_L1_error)
-      __Pyx_GOTREF(__pyx_t_7);
-    }
-    __pyx_t_1 = PyObject_RichCompare(__pyx_v_item_key, __pyx_t_7, Py_LE); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 345, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-    __pyx_t_5 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_5 < 0))) __PYX_ERR(0, 345, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    if (__pyx_t_5) {
-
-      /* "optimized_pop.pyx":346
- *             child = right
- *         if item_key <= key(heap[child]):
- *             break             # <<<<<<<<<<<<<<
- *         heap[pos] = heap[child]
- *         pos = child
-*/
-      goto __pyx_L4_break;
-
-      /* "optimized_pop.pyx":345
- *         if right < n and key(heap[right]) < key(heap[child]):
- *             child = right
- *         if item_key <= key(heap[child]):             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[child]
-*/
-    }
-
-    /* "optimized_pop.pyx":347
- *         if item_key <= key(heap[child]):
- *             break
- *         heap[pos] = heap[child]             # <<<<<<<<<<<<<<
- *         pos = child
- *     heap[pos] = item
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 347, __pyx_L1_error)
-    }
-    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
-    __Pyx_INCREF(__pyx_t_1);
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 347, __pyx_L1_error)
-    }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 347, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-
-    /* "optimized_pop.pyx":348
- *             break
- *         heap[pos] = heap[child]
- *         pos = child             # <<<<<<<<<<<<<<
- *     heap[pos] = item
- * 
-*/
-    __pyx_v_pos = __pyx_v_child;
-  }
-  __pyx_L4_break:;
-
-  /* "optimized_pop.pyx":349
- *         heap[pos] = heap[child]
- *         pos = child
- *     heap[pos] = item             # <<<<<<<<<<<<<<
- * 
- * cdef inline void sift_down_with_key_max(list heap, Py_ssize_t pos, Py_ssize_t n, object key):
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 349, __pyx_L1_error)
-  }
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 349, __pyx_L1_error)
-
-  /* "optimized_pop.pyx":333
- * # =============================================================================
- * 
- * cdef inline void sift_down_with_key_min(list heap, Py_ssize_t pos, Py_ssize_t n, object key):             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t child, right, limit
-*/
-
-  /* function exit code */
-  goto __pyx_L0;
-  __pyx_L1_error:;
-  __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_XDECREF(__pyx_t_2);
   __Pyx_XDECREF(__pyx_t_3);
-  __Pyx_XDECREF(__pyx_t_7);
-  __Pyx_AddTraceback("optimized_pop.sift_down_with_key_min", __pyx_clineno, __pyx_lineno, __pyx_filename);
-  __pyx_L0:;
-  __Pyx_XDECREF(__pyx_v_item);
-  __Pyx_XDECREF(__pyx_v_item_key);
-  __Pyx_RefNannyFinishContext();
-}
-
-/* "optimized_pop.pyx":351
- *     heap[pos] = item
- * 
- * cdef inline void sift_down_with_key_max(list heap, Py_ssize_t pos, Py_ssize_t n, object key):             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t child, right, limit
-*/
-
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_with_key_max(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, Py_ssize_t __pyx_v_n, PyObject *__pyx_v_key) {
-  Py_ssize_t __pyx_v_child;
-  Py_ssize_t __pyx_v_right;
-  Py_ssize_t __pyx_v_limit;
-  PyObject *__pyx_v_item = 0;
-  PyObject *__pyx_v_item_key = 0;
-  __Pyx_RefNannyDeclarations
-  PyObject *__pyx_t_1 = NULL;
-  PyObject *__pyx_t_2 = NULL;
-  PyObject *__pyx_t_3 = NULL;
-  size_t __pyx_t_4;
-  int __pyx_t_5;
-  int __pyx_t_6;
-  PyObject *__pyx_t_7 = NULL;
-  int __pyx_lineno = 0;
-  const char *__pyx_filename = NULL;
-  int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("sift_down_with_key_max", 0);
-
-  /* "optimized_pop.pyx":354
- *     cdef:
- *         Py_ssize_t child, right, limit
- *         object item = heap[pos]             # <<<<<<<<<<<<<<
- *         object item_key = key(item)
- * 
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 354, __pyx_L1_error)
-  }
-  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
-  __Pyx_INCREF(__pyx_t_1);
-  __pyx_v_item = __pyx_t_1;
-  __pyx_t_1 = 0;
-
-  /* "optimized_pop.pyx":355
- *         Py_ssize_t child, right, limit
- *         object item = heap[pos]
- *         object item_key = key(item)             # <<<<<<<<<<<<<<
- * 
- *     limit = n >> 1
-*/
-  __pyx_t_2 = NULL;
-  __Pyx_INCREF(__pyx_v_key);
-  __pyx_t_3 = __pyx_v_key; 
-  __pyx_t_4 = 1;
-  #if CYTHON_UNPACK_METHODS
-  if (unlikely(PyMethod_Check(__pyx_t_3))) {
-    __pyx_t_2 = PyMethod_GET_SELF(__pyx_t_3);
-    assert(__pyx_t_2);
-    PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_3);
-    __Pyx_INCREF(__pyx_t_2);
-    __Pyx_INCREF(__pyx__function);
-    __Pyx_DECREF_SET(__pyx_t_3, __pyx__function);
-    __pyx_t_4 = 0;
-  }
-  #endif
-  {
-    PyObject *__pyx_callargs[2] = {__pyx_t_2, __pyx_v_item};
-    __pyx_t_1 = __Pyx_PyObject_FastCall(__pyx_t_3, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
-    __Pyx_XDECREF(__pyx_t_2); __pyx_t_2 = 0;
-    __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 355, __pyx_L1_error)
-    __Pyx_GOTREF(__pyx_t_1);
-  }
-  __pyx_v_item_key = __pyx_t_1;
-  __pyx_t_1 = 0;
-
-  /* "optimized_pop.pyx":357
- *         object item_key = key(item)
- * 
- *     limit = n >> 1             # <<<<<<<<<<<<<<
- *     while pos < limit:
- *         child = (pos << 1) + 1
-*/
-  __pyx_v_limit = (__pyx_v_n >> 1);
-
-  /* "optimized_pop.pyx":358
- * 
- *     limit = n >> 1
- *     while pos < limit:             # <<<<<<<<<<<<<<
- *         child = (pos << 1) + 1
- *         right = child + 1
-*/
-  while (1) {
-    __pyx_t_5 = (__pyx_v_pos < __pyx_v_limit);
-    if (!__pyx_t_5) break;
-
-    /* "optimized_pop.pyx":359
- *     limit = n >> 1
- *     while pos < limit:
- *         child = (pos << 1) + 1             # <<<<<<<<<<<<<<
- *         right = child + 1
- *         if right < n and key(heap[right]) > key(heap[child]):
-*/
-    __pyx_v_child = ((__pyx_v_pos << 1) + 1);
-
-    /* "optimized_pop.pyx":360
- *     while pos < limit:
- *         child = (pos << 1) + 1
- *         right = child + 1             # <<<<<<<<<<<<<<
- *         if right < n and key(heap[right]) > key(heap[child]):
- *             child = right
-*/
-    __pyx_v_right = (__pyx_v_child + 1);
-
-    /* "optimized_pop.pyx":361
- *         child = (pos << 1) + 1
- *         right = child + 1
- *         if right < n and key(heap[right]) > key(heap[child]):             # <<<<<<<<<<<<<<
- *             child = right
- *         if item_key >= key(heap[child]):
-*/
-    __pyx_t_6 = (__pyx_v_right < __pyx_v_n);
-    if (__pyx_t_6) {
-    } else {
-      __pyx_t_5 = __pyx_t_6;
-      goto __pyx_L6_bool_binop_done;
-    }
-    __pyx_t_3 = NULL;
-    __Pyx_INCREF(__pyx_v_key);
-    __pyx_t_2 = __pyx_v_key; 
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 361, __pyx_L1_error)
-    }
-    __pyx_t_4 = 1;
-    #if CYTHON_UNPACK_METHODS
-    if (unlikely(PyMethod_Check(__pyx_t_2))) {
-      __pyx_t_3 = PyMethod_GET_SELF(__pyx_t_2);
-      assert(__pyx_t_3);
-      PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_2);
-      __Pyx_INCREF(__pyx_t_3);
-      __Pyx_INCREF(__pyx__function);
-      __Pyx_DECREF_SET(__pyx_t_2, __pyx__function);
-      __pyx_t_4 = 0;
-    }
-    #endif
-    {
-      PyObject *__pyx_callargs[2] = {__pyx_t_3, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_right)};
-      __pyx_t_1 = __Pyx_PyObject_FastCall(__pyx_t_2, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
-      __Pyx_XDECREF(__pyx_t_3); __pyx_t_3 = 0;
-      __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-      if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 361, __pyx_L1_error)
-      __Pyx_GOTREF(__pyx_t_1);
-    }
-    __pyx_t_3 = NULL;
-    __Pyx_INCREF(__pyx_v_key);
-    __pyx_t_7 = __pyx_v_key; 
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 361, __pyx_L1_error)
-    }
-    __pyx_t_4 = 1;
-    #if CYTHON_UNPACK_METHODS
-    if (unlikely(PyMethod_Check(__pyx_t_7))) {
-      __pyx_t_3 = PyMethod_GET_SELF(__pyx_t_7);
-      assert(__pyx_t_3);
-      PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_7);
-      __Pyx_INCREF(__pyx_t_3);
-      __Pyx_INCREF(__pyx__function);
-      __Pyx_DECREF_SET(__pyx_t_7, __pyx__function);
-      __pyx_t_4 = 0;
-    }
-    #endif
-    {
-      PyObject *__pyx_callargs[2] = {__pyx_t_3, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child)};
-      __pyx_t_2 = __Pyx_PyObject_FastCall(__pyx_t_7, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
-      __Pyx_XDECREF(__pyx_t_3); __pyx_t_3 = 0;
-      __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-      if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 361, __pyx_L1_error)
-      __Pyx_GOTREF(__pyx_t_2);
-    }
-    __pyx_t_7 = PyObject_RichCompare(__pyx_t_1, __pyx_t_2, Py_GT); __Pyx_XGOTREF(__pyx_t_7); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 361, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-    __pyx_t_6 = __Pyx_PyObject_IsTrue(__pyx_t_7); if (unlikely((__pyx_t_6 < 0))) __PYX_ERR(0, 361, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-    __pyx_t_5 = __pyx_t_6;
-    __pyx_L6_bool_binop_done:;
-    if (__pyx_t_5) {
-
-      /* "optimized_pop.pyx":362
- *         right = child + 1
- *         if right < n and key(heap[right]) > key(heap[child]):
- *             child = right             # <<<<<<<<<<<<<<
- *         if item_key >= key(heap[child]):
- *             break
-*/
-      __pyx_v_child = __pyx_v_right;
-
-      /* "optimized_pop.pyx":361
- *         child = (pos << 1) + 1
- *         right = child + 1
- *         if right < n and key(heap[right]) > key(heap[child]):             # <<<<<<<<<<<<<<
- *             child = right
- *         if item_key >= key(heap[child]):
-*/
-    }
-
-    /* "optimized_pop.pyx":363
- *         if right < n and key(heap[right]) > key(heap[child]):
- *             child = right
- *         if item_key >= key(heap[child]):             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[child]
-*/
-    __pyx_t_2 = NULL;
-    __Pyx_INCREF(__pyx_v_key);
-    __pyx_t_1 = __pyx_v_key; 
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 363, __pyx_L1_error)
-    }
-    __pyx_t_4 = 1;
-    #if CYTHON_UNPACK_METHODS
-    if (unlikely(PyMethod_Check(__pyx_t_1))) {
-      __pyx_t_2 = PyMethod_GET_SELF(__pyx_t_1);
-      assert(__pyx_t_2);
-      PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_1);
-      __Pyx_INCREF(__pyx_t_2);
-      __Pyx_INCREF(__pyx__function);
-      __Pyx_DECREF_SET(__pyx_t_1, __pyx__function);
-      __pyx_t_4 = 0;
-    }
-    #endif
-    {
-      PyObject *__pyx_callargs[2] = {__pyx_t_2, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child)};
-      __pyx_t_7 = __Pyx_PyObject_FastCall(__pyx_t_1, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
-      __Pyx_XDECREF(__pyx_t_2); __pyx_t_2 = 0;
-      __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-      if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 363, __pyx_L1_error)
-      __Pyx_GOTREF(__pyx_t_7);
-    }
-    __pyx_t_1 = PyObject_RichCompare(__pyx_v_item_key, __pyx_t_7, Py_GE); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 363, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-    __pyx_t_5 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_5 < 0))) __PYX_ERR(0, 363, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    if (__pyx_t_5) {
-
-      /* "optimized_pop.pyx":364
- *             child = right
- *         if item_key >= key(heap[child]):
- *             break             # <<<<<<<<<<<<<<
- *         heap[pos] = heap[child]
- *         pos = child
-*/
-      goto __pyx_L4_break;
-
-      /* "optimized_pop.pyx":363
- *         if right < n and key(heap[right]) > key(heap[child]):
- *             child = right
- *         if item_key >= key(heap[child]):             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[child]
-*/
-    }
-
-    /* "optimized_pop.pyx":365
- *         if item_key >= key(heap[child]):
- *             break
- *         heap[pos] = heap[child]             # <<<<<<<<<<<<<<
- *         pos = child
- *     heap[pos] = item
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 365, __pyx_L1_error)
-    }
-    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child);
-    __Pyx_INCREF(__pyx_t_1);
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 365, __pyx_L1_error)
-    }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 365, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-
-    /* "optimized_pop.pyx":366
- *             break
- *         heap[pos] = heap[child]
- *         pos = child             # <<<<<<<<<<<<<<
- *     heap[pos] = item
- * 
-*/
-    __pyx_v_pos = __pyx_v_child;
-  }
-  __pyx_L4_break:;
-
-  /* "optimized_pop.pyx":367
- *         heap[pos] = heap[child]
- *         pos = child
- *     heap[pos] = item             # <<<<<<<<<<<<<<
- * 
- * # =============================================================================
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 367, __pyx_L1_error)
-  }
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 367, __pyx_L1_error)
-
-  /* "optimized_pop.pyx":351
- *     heap[pos] = item
- * 
- * cdef inline void sift_down_with_key_max(list heap, Py_ssize_t pos, Py_ssize_t n, object key):             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t child, right, limit
-*/
-
-  /* function exit code */
-  goto __pyx_L0;
-  __pyx_L1_error:;
-  __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_XDECREF(__pyx_t_2);
-  __Pyx_XDECREF(__pyx_t_3);
-  __Pyx_XDECREF(__pyx_t_7);
-  __Pyx_AddTraceback("optimized_pop.sift_down_with_key_max", __pyx_clineno, __pyx_lineno, __pyx_filename);
-  __pyx_L0:;
-  __Pyx_XDECREF(__pyx_v_item);
-  __Pyx_XDECREF(__pyx_v_item_key);
-  __Pyx_RefNannyFinishContext();
-}
-
-/* "optimized_pop.pyx":373
- * # =============================================================================
- * 
- * cdef inline void sift_down_nary_min(list heap, Py_ssize_t pos, Py_ssize_t n, Py_ssize_t arity):             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t child, best, last, j
-*/
-
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_nary_min(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, Py_ssize_t __pyx_v_n, Py_ssize_t __pyx_v_arity) {
-  Py_ssize_t __pyx_v_child;
-  Py_ssize_t __pyx_v_best;
-  Py_ssize_t __pyx_v_last;
-  Py_ssize_t __pyx_v_j;
-  PyObject *__pyx_v_item = 0;
-  __Pyx_RefNannyDeclarations
-  PyObject *__pyx_t_1 = NULL;
-  int __pyx_t_2;
-  Py_ssize_t __pyx_t_3;
-  Py_ssize_t __pyx_t_4;
-  Py_ssize_t __pyx_t_5;
-  int __pyx_lineno = 0;
-  const char *__pyx_filename = NULL;
-  int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("sift_down_nary_min", 0);
-
-  /* "optimized_pop.pyx":376
- *     cdef:
- *         Py_ssize_t child, best, last, j
- *         object item = heap[pos]             # <<<<<<<<<<<<<<
- * 
- *     while True:
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 376, __pyx_L1_error)
-  }
-  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
-  __Pyx_INCREF(__pyx_t_1);
-  __pyx_v_item = __pyx_t_1;
-  __pyx_t_1 = 0;
-
-  /* "optimized_pop.pyx":378
- *         object item = heap[pos]
- * 
- *     while True:             # <<<<<<<<<<<<<<
- *         child = arity * pos + 1
- *         if child >= n:
-*/
-  while (1) {
-
-    /* "optimized_pop.pyx":379
- * 
- *     while True:
- *         child = arity * pos + 1             # <<<<<<<<<<<<<<
- *         if child >= n:
- *             break
-*/
-    __pyx_v_child = ((__pyx_v_arity * __pyx_v_pos) + 1);
-
-    /* "optimized_pop.pyx":380
- *     while True:
- *         child = arity * pos + 1
- *         if child >= n:             # <<<<<<<<<<<<<<
- *             break
- *         best = child
-*/
-    __pyx_t_2 = (__pyx_v_child >= __pyx_v_n);
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":381
- *         child = arity * pos + 1
- *         if child >= n:
- *             break             # <<<<<<<<<<<<<<
- *         best = child
- *         last = child + arity
-*/
-      goto __pyx_L4_break;
-
-      /* "optimized_pop.pyx":380
- *     while True:
- *         child = arity * pos + 1
- *         if child >= n:             # <<<<<<<<<<<<<<
- *             break
- *         best = child
-*/
-    }
-
-    /* "optimized_pop.pyx":382
- *         if child >= n:
- *             break
- *         best = child             # <<<<<<<<<<<<<<
- *         last = child + arity
- *         if last > n:
-*/
-    __pyx_v_best = __pyx_v_child;
-
-    /* "optimized_pop.pyx":383
- *             break
- *         best = child
- *         last = child + arity             # <<<<<<<<<<<<<<
- *         if last > n:
- *             last = n
-*/
-    __pyx_v_last = (__pyx_v_child + __pyx_v_arity);
-
-    /* "optimized_pop.pyx":384
- *         best = child
- *         last = child + arity
- *         if last > n:             # <<<<<<<<<<<<<<
- *             last = n
- *         for j in range(child + 1, last):
-*/
-    __pyx_t_2 = (__pyx_v_last > __pyx_v_n);
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":385
- *         last = child + arity
- *         if last > n:
- *             last = n             # <<<<<<<<<<<<<<
- *         for j in range(child + 1, last):
- *             if heap[j] < heap[best]:
-*/
-      __pyx_v_last = __pyx_v_n;
-
-      /* "optimized_pop.pyx":384
- *         best = child
- *         last = child + arity
- *         if last > n:             # <<<<<<<<<<<<<<
- *             last = n
- *         for j in range(child + 1, last):
-*/
-    }
-
-    /* "optimized_pop.pyx":386
- *         if last > n:
- *             last = n
- *         for j in range(child + 1, last):             # <<<<<<<<<<<<<<
- *             if heap[j] < heap[best]:
- *                 best = j
-*/
-    __pyx_t_3 = __pyx_v_last;
-    __pyx_t_4 = __pyx_t_3;
-    for (__pyx_t_5 = (__pyx_v_child + 1); __pyx_t_5 < __pyx_t_4; __pyx_t_5+=1) {
-      __pyx_v_j = __pyx_t_5;
-
-      /* "optimized_pop.pyx":387
- *             last = n
- *         for j in range(child + 1, last):
- *             if heap[j] < heap[best]:             # <<<<<<<<<<<<<<
- *                 best = j
- *         if item <= heap[best]:
-*/
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-        __PYX_ERR(0, 387, __pyx_L1_error)
-      }
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-        __PYX_ERR(0, 387, __pyx_L1_error)
-      }
-      __pyx_t_1 = PyObject_RichCompare(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_j), __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best), Py_LT); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 387, __pyx_L1_error)
-      __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 387, __pyx_L1_error)
-      __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-      if (__pyx_t_2) {
-
-        /* "optimized_pop.pyx":388
- *         for j in range(child + 1, last):
- *             if heap[j] < heap[best]:
- *                 best = j             # <<<<<<<<<<<<<<
- *         if item <= heap[best]:
- *             break
-*/
-        __pyx_v_best = __pyx_v_j;
-
-        /* "optimized_pop.pyx":387
- *             last = n
- *         for j in range(child + 1, last):
- *             if heap[j] < heap[best]:             # <<<<<<<<<<<<<<
- *                 best = j
- *         if item <= heap[best]:
-*/
-      }
-    }
-
-    /* "optimized_pop.pyx":389
- *             if heap[j] < heap[best]:
- *                 best = j
- *         if item <= heap[best]:             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[best]
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 389, __pyx_L1_error)
-    }
-    __pyx_t_1 = PyObject_RichCompare(__pyx_v_item, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best), Py_LE); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 389, __pyx_L1_error)
-    __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 389, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":390
- *                 best = j
- *         if item <= heap[best]:
- *             break             # <<<<<<<<<<<<<<
- *         heap[pos] = heap[best]
- *         pos = best
-*/
-      goto __pyx_L4_break;
-
-      /* "optimized_pop.pyx":389
- *             if heap[j] < heap[best]:
- *                 best = j
- *         if item <= heap[best]:             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[best]
-*/
-    }
-
-    /* "optimized_pop.pyx":391
- *         if item <= heap[best]:
- *             break
- *         heap[pos] = heap[best]             # <<<<<<<<<<<<<<
- *         pos = best
- *     heap[pos] = item
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 391, __pyx_L1_error)
-    }
-    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best);
-    __Pyx_INCREF(__pyx_t_1);
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 391, __pyx_L1_error)
-    }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 391, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-
-    /* "optimized_pop.pyx":392
- *             break
- *         heap[pos] = heap[best]
- *         pos = best             # <<<<<<<<<<<<<<
- *     heap[pos] = item
- * 
-*/
-    __pyx_v_pos = __pyx_v_best;
-  }
-  __pyx_L4_break:;
-
-  /* "optimized_pop.pyx":393
- *         heap[pos] = heap[best]
- *         pos = best
- *     heap[pos] = item             # <<<<<<<<<<<<<<
- * 
- * cdef inline void sift_down_nary_max(list heap, Py_ssize_t pos, Py_ssize_t n, Py_ssize_t arity):
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 393, __pyx_L1_error)
-  }
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 393, __pyx_L1_error)
-
-  /* "optimized_pop.pyx":373
- * # =============================================================================
- * 
- * cdef inline void sift_down_nary_min(list heap, Py_ssize_t pos, Py_ssize_t n, Py_ssize_t arity):             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t child, best, last, j
-*/
-
-  /* function exit code */
-  goto __pyx_L0;
-  __pyx_L1_error:;
-  __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_AddTraceback("optimized_pop.sift_down_nary_min", __pyx_clineno, __pyx_lineno, __pyx_filename);
-  __pyx_L0:;
-  __Pyx_XDECREF(__pyx_v_item);
-  __Pyx_RefNannyFinishContext();
-}
-
-/* "optimized_pop.pyx":395
- *     heap[pos] = item
- * 
- * cdef inline void sift_down_nary_max(list heap, Py_ssize_t pos, Py_ssize_t n, Py_ssize_t arity):             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t child, best, last, j
-*/
-
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_nary_max(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, Py_ssize_t __pyx_v_n, Py_ssize_t __pyx_v_arity) {
-  Py_ssize_t __pyx_v_child;
-  Py_ssize_t __pyx_v_best;
-  Py_ssize_t __pyx_v_last;
-  Py_ssize_t __pyx_v_j;
-  PyObject *__pyx_v_item = 0;
-  __Pyx_RefNannyDeclarations
-  PyObject *__pyx_t_1 = NULL;
-  int __pyx_t_2;
-  Py_ssize_t __pyx_t_3;
-  Py_ssize_t __pyx_t_4;
-  Py_ssize_t __pyx_t_5;
-  int __pyx_lineno = 0;
-  const char *__pyx_filename = NULL;
-  int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("sift_down_nary_max", 0);
-
-  /* "optimized_pop.pyx":398
- *     cdef:
- *         Py_ssize_t child, best, last, j
- *         object item = heap[pos]             # <<<<<<<<<<<<<<
- * 
- *     while True:
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 398, __pyx_L1_error)
-  }
-  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
-  __Pyx_INCREF(__pyx_t_1);
-  __pyx_v_item = __pyx_t_1;
-  __pyx_t_1 = 0;
-
-  /* "optimized_pop.pyx":400
- *         object item = heap[pos]
- * 
- *     while True:             # <<<<<<<<<<<<<<
- *         child = arity * pos + 1
- *         if child >= n:
-*/
-  while (1) {
-
-    /* "optimized_pop.pyx":401
- * 
- *     while True:
- *         child = arity * pos + 1             # <<<<<<<<<<<<<<
- *         if child >= n:
- *             break
-*/
-    __pyx_v_child = ((__pyx_v_arity * __pyx_v_pos) + 1);
-
-    /* "optimized_pop.pyx":402
- *     while True:
- *         child = arity * pos + 1
- *         if child >= n:             # <<<<<<<<<<<<<<
- *             break
- *         best = child
-*/
-    __pyx_t_2 = (__pyx_v_child >= __pyx_v_n);
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":403
- *         child = arity * pos + 1
- *         if child >= n:
- *             break             # <<<<<<<<<<<<<<
- *         best = child
- *         last = child + arity
-*/
-      goto __pyx_L4_break;
-
-      /* "optimized_pop.pyx":402
- *     while True:
- *         child = arity * pos + 1
- *         if child >= n:             # <<<<<<<<<<<<<<
- *             break
- *         best = child
-*/
-    }
-
-    /* "optimized_pop.pyx":404
- *         if child >= n:
- *             break
- *         best = child             # <<<<<<<<<<<<<<
- *         last = child + arity
- *         if last > n:
-*/
-    __pyx_v_best = __pyx_v_child;
-
-    /* "optimized_pop.pyx":405
- *             break
- *         best = child
- *         last = child + arity             # <<<<<<<<<<<<<<
- *         if last > n:
- *             last = n
-*/
-    __pyx_v_last = (__pyx_v_child + __pyx_v_arity);
-
-    /* "optimized_pop.pyx":406
- *         best = child
- *         last = child + arity
- *         if last > n:             # <<<<<<<<<<<<<<
- *             last = n
- *         for j in range(child + 1, last):
-*/
-    __pyx_t_2 = (__pyx_v_last > __pyx_v_n);
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":407
- *         last = child + arity
- *         if last > n:
- *             last = n             # <<<<<<<<<<<<<<
- *         for j in range(child + 1, last):
- *             if heap[j] > heap[best]:
-*/
-      __pyx_v_last = __pyx_v_n;
-
-      /* "optimized_pop.pyx":406
- *         best = child
- *         last = child + arity
- *         if last > n:             # <<<<<<<<<<<<<<
- *             last = n
- *         for j in range(child + 1, last):
-*/
-    }
-
-    /* "optimized_pop.pyx":408
- *         if last > n:
- *             last = n
- *         for j in range(child + 1, last):             # <<<<<<<<<<<<<<
- *             if heap[j] > heap[best]:
- *                 best = j
-*/
-    __pyx_t_3 = __pyx_v_last;
-    __pyx_t_4 = __pyx_t_3;
-    for (__pyx_t_5 = (__pyx_v_child + 1); __pyx_t_5 < __pyx_t_4; __pyx_t_5+=1) {
-      __pyx_v_j = __pyx_t_5;
-
-      /* "optimized_pop.pyx":409
- *             last = n
- *         for j in range(child + 1, last):
- *             if heap[j] > heap[best]:             # <<<<<<<<<<<<<<
- *                 best = j
- *         if item >= heap[best]:
-*/
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-        __PYX_ERR(0, 409, __pyx_L1_error)
-      }
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-        __PYX_ERR(0, 409, __pyx_L1_error)
-      }
-      __pyx_t_1 = PyObject_RichCompare(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_j), __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best), Py_GT); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 409, __pyx_L1_error)
-      __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 409, __pyx_L1_error)
-      __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-      if (__pyx_t_2) {
-
-        /* "optimized_pop.pyx":410
- *         for j in range(child + 1, last):
- *             if heap[j] > heap[best]:
- *                 best = j             # <<<<<<<<<<<<<<
- *         if item >= heap[best]:
- *             break
-*/
-        __pyx_v_best = __pyx_v_j;
-
-        /* "optimized_pop.pyx":409
- *             last = n
- *         for j in range(child + 1, last):
- *             if heap[j] > heap[best]:             # <<<<<<<<<<<<<<
- *                 best = j
- *         if item >= heap[best]:
-*/
-      }
-    }
-
-    /* "optimized_pop.pyx":411
- *             if heap[j] > heap[best]:
- *                 best = j
- *         if item >= heap[best]:             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[best]
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 411, __pyx_L1_error)
-    }
-    __pyx_t_1 = PyObject_RichCompare(__pyx_v_item, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best), Py_GE); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 411, __pyx_L1_error)
-    __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 411, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":412
- *                 best = j
- *         if item >= heap[best]:
- *             break             # <<<<<<<<<<<<<<
- *         heap[pos] = heap[best]
- *         pos = best
-*/
-      goto __pyx_L4_break;
-
-      /* "optimized_pop.pyx":411
- *             if heap[j] > heap[best]:
- *                 best = j
- *         if item >= heap[best]:             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[best]
-*/
-    }
-
-    /* "optimized_pop.pyx":413
- *         if item >= heap[best]:
- *             break
- *         heap[pos] = heap[best]             # <<<<<<<<<<<<<<
- *         pos = best
- *     heap[pos] = item
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 413, __pyx_L1_error)
-    }
-    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best);
-    __Pyx_INCREF(__pyx_t_1);
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 413, __pyx_L1_error)
-    }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 413, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-
-    /* "optimized_pop.pyx":414
- *             break
- *         heap[pos] = heap[best]
- *         pos = best             # <<<<<<<<<<<<<<
- *     heap[pos] = item
- * 
-*/
-    __pyx_v_pos = __pyx_v_best;
-  }
-  __pyx_L4_break:;
-
-  /* "optimized_pop.pyx":415
- *         heap[pos] = heap[best]
- *         pos = best
- *     heap[pos] = item             # <<<<<<<<<<<<<<
- * 
- * cdef inline void sift_down_nary_key_min(list heap, Py_ssize_t pos, Py_ssize_t n, Py_ssize_t arity, object key):
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 415, __pyx_L1_error)
-  }
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 415, __pyx_L1_error)
-
-  /* "optimized_pop.pyx":395
- *     heap[pos] = item
- * 
- * cdef inline void sift_down_nary_max(list heap, Py_ssize_t pos, Py_ssize_t n, Py_ssize_t arity):             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t child, best, last, j
-*/
-
-  /* function exit code */
-  goto __pyx_L0;
-  __pyx_L1_error:;
-  __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_AddTraceback("optimized_pop.sift_down_nary_max", __pyx_clineno, __pyx_lineno, __pyx_filename);
-  __pyx_L0:;
-  __Pyx_XDECREF(__pyx_v_item);
-  __Pyx_RefNannyFinishContext();
-}
-
-/* "optimized_pop.pyx":417
- *     heap[pos] = item
- * 
- * cdef inline void sift_down_nary_key_min(list heap, Py_ssize_t pos, Py_ssize_t n, Py_ssize_t arity, object key):             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t child, best, last, j
-*/
-
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_nary_key_min(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, Py_ssize_t __pyx_v_n, Py_ssize_t __pyx_v_arity, PyObject *__pyx_v_key) {
-  Py_ssize_t __pyx_v_child;
-  Py_ssize_t __pyx_v_best;
-  Py_ssize_t __pyx_v_last;
-  Py_ssize_t __pyx_v_j;
-  PyObject *__pyx_v_item = 0;
-  PyObject *__pyx_v_item_key = 0;
-  __Pyx_RefNannyDeclarations
-  PyObject *__pyx_t_1 = NULL;
-  PyObject *__pyx_t_2 = NULL;
-  PyObject *__pyx_t_3 = NULL;
-  size_t __pyx_t_4;
-  int __pyx_t_5;
-  Py_ssize_t __pyx_t_6;
-  Py_ssize_t __pyx_t_7;
-  Py_ssize_t __pyx_t_8;
-  PyObject *__pyx_t_9 = NULL;
-  int __pyx_lineno = 0;
-  const char *__pyx_filename = NULL;
-  int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("sift_down_nary_key_min", 0);
-
-  /* "optimized_pop.pyx":420
- *     cdef:
- *         Py_ssize_t child, best, last, j
- *         object item = heap[pos]             # <<<<<<<<<<<<<<
- *         object item_key = key(item)
- * 
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 420, __pyx_L1_error)
-  }
-  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
-  __Pyx_INCREF(__pyx_t_1);
-  __pyx_v_item = __pyx_t_1;
-  __pyx_t_1 = 0;
-
-  /* "optimized_pop.pyx":421
- *         Py_ssize_t child, best, last, j
- *         object item = heap[pos]
- *         object item_key = key(item)             # <<<<<<<<<<<<<<
- * 
- *     while True:
-*/
-  __pyx_t_2 = NULL;
-  __Pyx_INCREF(__pyx_v_key);
-  __pyx_t_3 = __pyx_v_key; 
-  __pyx_t_4 = 1;
-  #if CYTHON_UNPACK_METHODS
-  if (unlikely(PyMethod_Check(__pyx_t_3))) {
-    __pyx_t_2 = PyMethod_GET_SELF(__pyx_t_3);
-    assert(__pyx_t_2);
-    PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_3);
-    __Pyx_INCREF(__pyx_t_2);
-    __Pyx_INCREF(__pyx__function);
-    __Pyx_DECREF_SET(__pyx_t_3, __pyx__function);
-    __pyx_t_4 = 0;
-  }
-  #endif
-  {
-    PyObject *__pyx_callargs[2] = {__pyx_t_2, __pyx_v_item};
-    __pyx_t_1 = __Pyx_PyObject_FastCall(__pyx_t_3, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
-    __Pyx_XDECREF(__pyx_t_2); __pyx_t_2 = 0;
-    __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 421, __pyx_L1_error)
-    __Pyx_GOTREF(__pyx_t_1);
-  }
-  __pyx_v_item_key = __pyx_t_1;
-  __pyx_t_1 = 0;
-
-  /* "optimized_pop.pyx":423
- *         object item_key = key(item)
- * 
- *     while True:             # <<<<<<<<<<<<<<
- *         child = arity * pos + 1
- *         if child >= n:
-*/
-  while (1) {
-
-    /* "optimized_pop.pyx":424
- * 
- *     while True:
- *         child = arity * pos + 1             # <<<<<<<<<<<<<<
- *         if child >= n:
- *             break
-*/
-    __pyx_v_child = ((__pyx_v_arity * __pyx_v_pos) + 1);
-
-    /* "optimized_pop.pyx":425
- *     while True:
- *         child = arity * pos + 1
- *         if child >= n:             # <<<<<<<<<<<<<<
- *             break
- *         best = child
-*/
-    __pyx_t_5 = (__pyx_v_child >= __pyx_v_n);
-    if (__pyx_t_5) {
-
-      /* "optimized_pop.pyx":426
- *         child = arity * pos + 1
- *         if child >= n:
- *             break             # <<<<<<<<<<<<<<
- *         best = child
- *         last = child + arity
-*/
-      goto __pyx_L4_break;
-
-      /* "optimized_pop.pyx":425
- *     while True:
- *         child = arity * pos + 1
- *         if child >= n:             # <<<<<<<<<<<<<<
- *             break
- *         best = child
-*/
-    }
-
-    /* "optimized_pop.pyx":427
- *         if child >= n:
- *             break
- *         best = child             # <<<<<<<<<<<<<<
- *         last = child + arity
- *         if last > n:
-*/
-    __pyx_v_best = __pyx_v_child;
-
-    /* "optimized_pop.pyx":428
- *             break
- *         best = child
- *         last = child + arity             # <<<<<<<<<<<<<<
- *         if last > n:
- *             last = n
-*/
-    __pyx_v_last = (__pyx_v_child + __pyx_v_arity);
-
-    /* "optimized_pop.pyx":429
- *         best = child
- *         last = child + arity
- *         if last > n:             # <<<<<<<<<<<<<<
- *             last = n
- *         for j in range(child + 1, last):
-*/
-    __pyx_t_5 = (__pyx_v_last > __pyx_v_n);
-    if (__pyx_t_5) {
-
-      /* "optimized_pop.pyx":430
- *         last = child + arity
- *         if last > n:
- *             last = n             # <<<<<<<<<<<<<<
- *         for j in range(child + 1, last):
- *             if key(heap[j]) < key(heap[best]):
-*/
-      __pyx_v_last = __pyx_v_n;
-
-      /* "optimized_pop.pyx":429
- *         best = child
- *         last = child + arity
- *         if last > n:             # <<<<<<<<<<<<<<
- *             last = n
- *         for j in range(child + 1, last):
-*/
-    }
-
-    /* "optimized_pop.pyx":431
- *         if last > n:
- *             last = n
- *         for j in range(child + 1, last):             # <<<<<<<<<<<<<<
- *             if key(heap[j]) < key(heap[best]):
- *                 best = j
-*/
-    __pyx_t_6 = __pyx_v_last;
-    __pyx_t_7 = __pyx_t_6;
-    for (__pyx_t_8 = (__pyx_v_child + 1); __pyx_t_8 < __pyx_t_7; __pyx_t_8+=1) {
-      __pyx_v_j = __pyx_t_8;
-
-      /* "optimized_pop.pyx":432
- *             last = n
- *         for j in range(child + 1, last):
- *             if key(heap[j]) < key(heap[best]):             # <<<<<<<<<<<<<<
- *                 best = j
- *         if item_key <= key(heap[best]):
-*/
-      __pyx_t_3 = NULL;
-      __Pyx_INCREF(__pyx_v_key);
-      __pyx_t_2 = __pyx_v_key; 
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-        __PYX_ERR(0, 432, __pyx_L1_error)
-      }
-      __pyx_t_4 = 1;
-      #if CYTHON_UNPACK_METHODS
-      if (unlikely(PyMethod_Check(__pyx_t_2))) {
-        __pyx_t_3 = PyMethod_GET_SELF(__pyx_t_2);
-        assert(__pyx_t_3);
-        PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_2);
-        __Pyx_INCREF(__pyx_t_3);
-        __Pyx_INCREF(__pyx__function);
-        __Pyx_DECREF_SET(__pyx_t_2, __pyx__function);
-        __pyx_t_4 = 0;
-      }
-      #endif
-      {
-        PyObject *__pyx_callargs[2] = {__pyx_t_3, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_j)};
-        __pyx_t_1 = __Pyx_PyObject_FastCall(__pyx_t_2, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
-        __Pyx_XDECREF(__pyx_t_3); __pyx_t_3 = 0;
-        __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-        if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 432, __pyx_L1_error)
-        __Pyx_GOTREF(__pyx_t_1);
-      }
-      __pyx_t_3 = NULL;
-      __Pyx_INCREF(__pyx_v_key);
-      __pyx_t_9 = __pyx_v_key; 
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-        __PYX_ERR(0, 432, __pyx_L1_error)
-      }
-      __pyx_t_4 = 1;
-      #if CYTHON_UNPACK_METHODS
-      if (unlikely(PyMethod_Check(__pyx_t_9))) {
-        __pyx_t_3 = PyMethod_GET_SELF(__pyx_t_9);
-        assert(__pyx_t_3);
-        PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_9);
-        __Pyx_INCREF(__pyx_t_3);
-        __Pyx_INCREF(__pyx__function);
-        __Pyx_DECREF_SET(__pyx_t_9, __pyx__function);
-        __pyx_t_4 = 0;
-      }
-      #endif
-      {
-        PyObject *__pyx_callargs[2] = {__pyx_t_3, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best)};
-        __pyx_t_2 = __Pyx_PyObject_FastCall(__pyx_t_9, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
-        __Pyx_XDECREF(__pyx_t_3); __pyx_t_3 = 0;
-        __Pyx_DECREF(__pyx_t_9); __pyx_t_9 = 0;
-        if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 432, __pyx_L1_error)
-        __Pyx_GOTREF(__pyx_t_2);
-      }
-      __pyx_t_9 = PyObject_RichCompare(__pyx_t_1, __pyx_t_2, Py_LT); __Pyx_XGOTREF(__pyx_t_9); if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 432, __pyx_L1_error)
-      __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-      __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-      __pyx_t_5 = __Pyx_PyObject_IsTrue(__pyx_t_9); if (unlikely((__pyx_t_5 < 0))) __PYX_ERR(0, 432, __pyx_L1_error)
-      __Pyx_DECREF(__pyx_t_9); __pyx_t_9 = 0;
-      if (__pyx_t_5) {
-
-        /* "optimized_pop.pyx":433
- *         for j in range(child + 1, last):
- *             if key(heap[j]) < key(heap[best]):
- *                 best = j             # <<<<<<<<<<<<<<
- *         if item_key <= key(heap[best]):
- *             break
-*/
-        __pyx_v_best = __pyx_v_j;
-
-        /* "optimized_pop.pyx":432
- *             last = n
- *         for j in range(child + 1, last):
- *             if key(heap[j]) < key(heap[best]):             # <<<<<<<<<<<<<<
- *                 best = j
- *         if item_key <= key(heap[best]):
-*/
-      }
-    }
-
-    /* "optimized_pop.pyx":434
- *             if key(heap[j]) < key(heap[best]):
- *                 best = j
- *         if item_key <= key(heap[best]):             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[best]
-*/
-    __pyx_t_2 = NULL;
-    __Pyx_INCREF(__pyx_v_key);
-    __pyx_t_1 = __pyx_v_key; 
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 434, __pyx_L1_error)
-    }
-    __pyx_t_4 = 1;
-    #if CYTHON_UNPACK_METHODS
-    if (unlikely(PyMethod_Check(__pyx_t_1))) {
-      __pyx_t_2 = PyMethod_GET_SELF(__pyx_t_1);
-      assert(__pyx_t_2);
-      PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_1);
-      __Pyx_INCREF(__pyx_t_2);
-      __Pyx_INCREF(__pyx__function);
-      __Pyx_DECREF_SET(__pyx_t_1, __pyx__function);
-      __pyx_t_4 = 0;
-    }
-    #endif
-    {
-      PyObject *__pyx_callargs[2] = {__pyx_t_2, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best)};
-      __pyx_t_9 = __Pyx_PyObject_FastCall(__pyx_t_1, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
-      __Pyx_XDECREF(__pyx_t_2); __pyx_t_2 = 0;
-      __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-      if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 434, __pyx_L1_error)
-      __Pyx_GOTREF(__pyx_t_9);
-    }
-    __pyx_t_1 = PyObject_RichCompare(__pyx_v_item_key, __pyx_t_9, Py_LE); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 434, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_9); __pyx_t_9 = 0;
-    __pyx_t_5 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_5 < 0))) __PYX_ERR(0, 434, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    if (__pyx_t_5) {
-
-      /* "optimized_pop.pyx":435
- *                 best = j
- *         if item_key <= key(heap[best]):
- *             break             # <<<<<<<<<<<<<<
- *         heap[pos] = heap[best]
- *         pos = best
-*/
-      goto __pyx_L4_break;
-
-      /* "optimized_pop.pyx":434
- *             if key(heap[j]) < key(heap[best]):
- *                 best = j
- *         if item_key <= key(heap[best]):             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[best]
-*/
-    }
-
-    /* "optimized_pop.pyx":436
- *         if item_key <= key(heap[best]):
- *             break
- *         heap[pos] = heap[best]             # <<<<<<<<<<<<<<
- *         pos = best
- *     heap[pos] = item
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 436, __pyx_L1_error)
-    }
-    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best);
-    __Pyx_INCREF(__pyx_t_1);
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 436, __pyx_L1_error)
-    }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 436, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-
-    /* "optimized_pop.pyx":437
- *             break
- *         heap[pos] = heap[best]
- *         pos = best             # <<<<<<<<<<<<<<
- *     heap[pos] = item
- * 
-*/
-    __pyx_v_pos = __pyx_v_best;
-  }
-  __pyx_L4_break:;
-
-  /* "optimized_pop.pyx":438
- *         heap[pos] = heap[best]
- *         pos = best
- *     heap[pos] = item             # <<<<<<<<<<<<<<
- * 
- * cdef inline void sift_down_nary_key_max(list heap, Py_ssize_t pos, Py_ssize_t n, Py_ssize_t arity, object key):
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 438, __pyx_L1_error)
-  }
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 438, __pyx_L1_error)
-
-  /* "optimized_pop.pyx":417
- *     heap[pos] = item
- * 
- * cdef inline void sift_down_nary_key_min(list heap, Py_ssize_t pos, Py_ssize_t n, Py_ssize_t arity, object key):             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t child, best, last, j
-*/
-
-  /* function exit code */
-  goto __pyx_L0;
-  __pyx_L1_error:;
-  __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_XDECREF(__pyx_t_2);
-  __Pyx_XDECREF(__pyx_t_3);
-  __Pyx_XDECREF(__pyx_t_9);
-  __Pyx_AddTraceback("optimized_pop.sift_down_nary_key_min", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __Pyx_XDECREF(__pyx_t_4);
+  __Pyx_XDECREF(__pyx_t_5);
+  __Pyx_AddTraceback("optimized_pop._nary_sift_up", __pyx_clineno, __pyx_lineno, __pyx_filename);
   __pyx_L0:;
   __Pyx_XDECREF(__pyx_v_item);
   __Pyx_XDECREF(__pyx_v_item_key);
@@ -7393,1048 +7874,7 @@ static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_nary_key_min(PyObjec
 }
 
 /* "optimized_pop.pyx":440
- *     heap[pos] = item
- * 
- * cdef inline void sift_down_nary_key_max(list heap, Py_ssize_t pos, Py_ssize_t n, Py_ssize_t arity, object key):             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t child, best, last, j
-*/
-
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_down_nary_key_max(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, Py_ssize_t __pyx_v_n, Py_ssize_t __pyx_v_arity, PyObject *__pyx_v_key) {
-  Py_ssize_t __pyx_v_child;
-  Py_ssize_t __pyx_v_best;
-  Py_ssize_t __pyx_v_last;
-  Py_ssize_t __pyx_v_j;
-  PyObject *__pyx_v_item = 0;
-  PyObject *__pyx_v_item_key = 0;
-  __Pyx_RefNannyDeclarations
-  PyObject *__pyx_t_1 = NULL;
-  PyObject *__pyx_t_2 = NULL;
-  PyObject *__pyx_t_3 = NULL;
-  size_t __pyx_t_4;
-  int __pyx_t_5;
-  Py_ssize_t __pyx_t_6;
-  Py_ssize_t __pyx_t_7;
-  Py_ssize_t __pyx_t_8;
-  PyObject *__pyx_t_9 = NULL;
-  int __pyx_lineno = 0;
-  const char *__pyx_filename = NULL;
-  int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("sift_down_nary_key_max", 0);
-
-  /* "optimized_pop.pyx":443
- *     cdef:
- *         Py_ssize_t child, best, last, j
- *         object item = heap[pos]             # <<<<<<<<<<<<<<
- *         object item_key = key(item)
- * 
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 443, __pyx_L1_error)
-  }
-  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
-  __Pyx_INCREF(__pyx_t_1);
-  __pyx_v_item = __pyx_t_1;
-  __pyx_t_1 = 0;
-
-  /* "optimized_pop.pyx":444
- *         Py_ssize_t child, best, last, j
- *         object item = heap[pos]
- *         object item_key = key(item)             # <<<<<<<<<<<<<<
- * 
- *     while True:
-*/
-  __pyx_t_2 = NULL;
-  __Pyx_INCREF(__pyx_v_key);
-  __pyx_t_3 = __pyx_v_key; 
-  __pyx_t_4 = 1;
-  #if CYTHON_UNPACK_METHODS
-  if (unlikely(PyMethod_Check(__pyx_t_3))) {
-    __pyx_t_2 = PyMethod_GET_SELF(__pyx_t_3);
-    assert(__pyx_t_2);
-    PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_3);
-    __Pyx_INCREF(__pyx_t_2);
-    __Pyx_INCREF(__pyx__function);
-    __Pyx_DECREF_SET(__pyx_t_3, __pyx__function);
-    __pyx_t_4 = 0;
-  }
-  #endif
-  {
-    PyObject *__pyx_callargs[2] = {__pyx_t_2, __pyx_v_item};
-    __pyx_t_1 = __Pyx_PyObject_FastCall(__pyx_t_3, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
-    __Pyx_XDECREF(__pyx_t_2); __pyx_t_2 = 0;
-    __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 444, __pyx_L1_error)
-    __Pyx_GOTREF(__pyx_t_1);
-  }
-  __pyx_v_item_key = __pyx_t_1;
-  __pyx_t_1 = 0;
-
-  /* "optimized_pop.pyx":446
- *         object item_key = key(item)
- * 
- *     while True:             # <<<<<<<<<<<<<<
- *         child = arity * pos + 1
- *         if child >= n:
-*/
-  while (1) {
-
-    /* "optimized_pop.pyx":447
- * 
- *     while True:
- *         child = arity * pos + 1             # <<<<<<<<<<<<<<
- *         if child >= n:
- *             break
-*/
-    __pyx_v_child = ((__pyx_v_arity * __pyx_v_pos) + 1);
-
-    /* "optimized_pop.pyx":448
- *     while True:
- *         child = arity * pos + 1
- *         if child >= n:             # <<<<<<<<<<<<<<
- *             break
- *         best = child
-*/
-    __pyx_t_5 = (__pyx_v_child >= __pyx_v_n);
-    if (__pyx_t_5) {
-
-      /* "optimized_pop.pyx":449
- *         child = arity * pos + 1
- *         if child >= n:
- *             break             # <<<<<<<<<<<<<<
- *         best = child
- *         last = child + arity
-*/
-      goto __pyx_L4_break;
-
-      /* "optimized_pop.pyx":448
- *     while True:
- *         child = arity * pos + 1
- *         if child >= n:             # <<<<<<<<<<<<<<
- *             break
- *         best = child
-*/
-    }
-
-    /* "optimized_pop.pyx":450
- *         if child >= n:
- *             break
- *         best = child             # <<<<<<<<<<<<<<
- *         last = child + arity
- *         if last > n:
-*/
-    __pyx_v_best = __pyx_v_child;
-
-    /* "optimized_pop.pyx":451
- *             break
- *         best = child
- *         last = child + arity             # <<<<<<<<<<<<<<
- *         if last > n:
- *             last = n
-*/
-    __pyx_v_last = (__pyx_v_child + __pyx_v_arity);
-
-    /* "optimized_pop.pyx":452
- *         best = child
- *         last = child + arity
- *         if last > n:             # <<<<<<<<<<<<<<
- *             last = n
- *         for j in range(child + 1, last):
-*/
-    __pyx_t_5 = (__pyx_v_last > __pyx_v_n);
-    if (__pyx_t_5) {
-
-      /* "optimized_pop.pyx":453
- *         last = child + arity
- *         if last > n:
- *             last = n             # <<<<<<<<<<<<<<
- *         for j in range(child + 1, last):
- *             if key(heap[j]) > key(heap[best]):
-*/
-      __pyx_v_last = __pyx_v_n;
-
-      /* "optimized_pop.pyx":452
- *         best = child
- *         last = child + arity
- *         if last > n:             # <<<<<<<<<<<<<<
- *             last = n
- *         for j in range(child + 1, last):
-*/
-    }
-
-    /* "optimized_pop.pyx":454
- *         if last > n:
- *             last = n
- *         for j in range(child + 1, last):             # <<<<<<<<<<<<<<
- *             if key(heap[j]) > key(heap[best]):
- *                 best = j
-*/
-    __pyx_t_6 = __pyx_v_last;
-    __pyx_t_7 = __pyx_t_6;
-    for (__pyx_t_8 = (__pyx_v_child + 1); __pyx_t_8 < __pyx_t_7; __pyx_t_8+=1) {
-      __pyx_v_j = __pyx_t_8;
-
-      /* "optimized_pop.pyx":455
- *             last = n
- *         for j in range(child + 1, last):
- *             if key(heap[j]) > key(heap[best]):             # <<<<<<<<<<<<<<
- *                 best = j
- *         if item_key >= key(heap[best]):
-*/
-      __pyx_t_3 = NULL;
-      __Pyx_INCREF(__pyx_v_key);
-      __pyx_t_2 = __pyx_v_key; 
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-        __PYX_ERR(0, 455, __pyx_L1_error)
-      }
-      __pyx_t_4 = 1;
-      #if CYTHON_UNPACK_METHODS
-      if (unlikely(PyMethod_Check(__pyx_t_2))) {
-        __pyx_t_3 = PyMethod_GET_SELF(__pyx_t_2);
-        assert(__pyx_t_3);
-        PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_2);
-        __Pyx_INCREF(__pyx_t_3);
-        __Pyx_INCREF(__pyx__function);
-        __Pyx_DECREF_SET(__pyx_t_2, __pyx__function);
-        __pyx_t_4 = 0;
-      }
-      #endif
-      {
-        PyObject *__pyx_callargs[2] = {__pyx_t_3, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_j)};
-        __pyx_t_1 = __Pyx_PyObject_FastCall(__pyx_t_2, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
-        __Pyx_XDECREF(__pyx_t_3); __pyx_t_3 = 0;
-        __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-        if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 455, __pyx_L1_error)
-        __Pyx_GOTREF(__pyx_t_1);
-      }
-      __pyx_t_3 = NULL;
-      __Pyx_INCREF(__pyx_v_key);
-      __pyx_t_9 = __pyx_v_key; 
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-        __PYX_ERR(0, 455, __pyx_L1_error)
-      }
-      __pyx_t_4 = 1;
-      #if CYTHON_UNPACK_METHODS
-      if (unlikely(PyMethod_Check(__pyx_t_9))) {
-        __pyx_t_3 = PyMethod_GET_SELF(__pyx_t_9);
-        assert(__pyx_t_3);
-        PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_9);
-        __Pyx_INCREF(__pyx_t_3);
-        __Pyx_INCREF(__pyx__function);
-        __Pyx_DECREF_SET(__pyx_t_9, __pyx__function);
-        __pyx_t_4 = 0;
-      }
-      #endif
-      {
-        PyObject *__pyx_callargs[2] = {__pyx_t_3, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best)};
-        __pyx_t_2 = __Pyx_PyObject_FastCall(__pyx_t_9, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
-        __Pyx_XDECREF(__pyx_t_3); __pyx_t_3 = 0;
-        __Pyx_DECREF(__pyx_t_9); __pyx_t_9 = 0;
-        if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 455, __pyx_L1_error)
-        __Pyx_GOTREF(__pyx_t_2);
-      }
-      __pyx_t_9 = PyObject_RichCompare(__pyx_t_1, __pyx_t_2, Py_GT); __Pyx_XGOTREF(__pyx_t_9); if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 455, __pyx_L1_error)
-      __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-      __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-      __pyx_t_5 = __Pyx_PyObject_IsTrue(__pyx_t_9); if (unlikely((__pyx_t_5 < 0))) __PYX_ERR(0, 455, __pyx_L1_error)
-      __Pyx_DECREF(__pyx_t_9); __pyx_t_9 = 0;
-      if (__pyx_t_5) {
-
-        /* "optimized_pop.pyx":456
- *         for j in range(child + 1, last):
- *             if key(heap[j]) > key(heap[best]):
- *                 best = j             # <<<<<<<<<<<<<<
- *         if item_key >= key(heap[best]):
- *             break
-*/
-        __pyx_v_best = __pyx_v_j;
-
-        /* "optimized_pop.pyx":455
- *             last = n
- *         for j in range(child + 1, last):
- *             if key(heap[j]) > key(heap[best]):             # <<<<<<<<<<<<<<
- *                 best = j
- *         if item_key >= key(heap[best]):
-*/
-      }
-    }
-
-    /* "optimized_pop.pyx":457
- *             if key(heap[j]) > key(heap[best]):
- *                 best = j
- *         if item_key >= key(heap[best]):             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[best]
-*/
-    __pyx_t_2 = NULL;
-    __Pyx_INCREF(__pyx_v_key);
-    __pyx_t_1 = __pyx_v_key; 
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 457, __pyx_L1_error)
-    }
-    __pyx_t_4 = 1;
-    #if CYTHON_UNPACK_METHODS
-    if (unlikely(PyMethod_Check(__pyx_t_1))) {
-      __pyx_t_2 = PyMethod_GET_SELF(__pyx_t_1);
-      assert(__pyx_t_2);
-      PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_1);
-      __Pyx_INCREF(__pyx_t_2);
-      __Pyx_INCREF(__pyx__function);
-      __Pyx_DECREF_SET(__pyx_t_1, __pyx__function);
-      __pyx_t_4 = 0;
-    }
-    #endif
-    {
-      PyObject *__pyx_callargs[2] = {__pyx_t_2, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best)};
-      __pyx_t_9 = __Pyx_PyObject_FastCall(__pyx_t_1, __pyx_callargs+__pyx_t_4, (2-__pyx_t_4) | (__pyx_t_4*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
-      __Pyx_XDECREF(__pyx_t_2); __pyx_t_2 = 0;
-      __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-      if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 457, __pyx_L1_error)
-      __Pyx_GOTREF(__pyx_t_9);
-    }
-    __pyx_t_1 = PyObject_RichCompare(__pyx_v_item_key, __pyx_t_9, Py_GE); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 457, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_9); __pyx_t_9 = 0;
-    __pyx_t_5 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_5 < 0))) __PYX_ERR(0, 457, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    if (__pyx_t_5) {
-
-      /* "optimized_pop.pyx":458
- *                 best = j
- *         if item_key >= key(heap[best]):
- *             break             # <<<<<<<<<<<<<<
- *         heap[pos] = heap[best]
- *         pos = best
-*/
-      goto __pyx_L4_break;
-
-      /* "optimized_pop.pyx":457
- *             if key(heap[j]) > key(heap[best]):
- *                 best = j
- *         if item_key >= key(heap[best]):             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[best]
-*/
-    }
-
-    /* "optimized_pop.pyx":459
- *         if item_key >= key(heap[best]):
- *             break
- *         heap[pos] = heap[best]             # <<<<<<<<<<<<<<
- *         pos = best
- *     heap[pos] = item
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 459, __pyx_L1_error)
-    }
-    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_best);
-    __Pyx_INCREF(__pyx_t_1);
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 459, __pyx_L1_error)
-    }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 459, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-
-    /* "optimized_pop.pyx":460
- *             break
- *         heap[pos] = heap[best]
- *         pos = best             # <<<<<<<<<<<<<<
- *     heap[pos] = item
- * 
-*/
-    __pyx_v_pos = __pyx_v_best;
-  }
-  __pyx_L4_break:;
-
-  /* "optimized_pop.pyx":461
- *         heap[pos] = heap[best]
- *         pos = best
- *     heap[pos] = item             # <<<<<<<<<<<<<<
- * 
  * # =============================================================================
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 461, __pyx_L1_error)
-  }
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 461, __pyx_L1_error)
-
-  /* "optimized_pop.pyx":440
- *     heap[pos] = item
- * 
- * cdef inline void sift_down_nary_key_max(list heap, Py_ssize_t pos, Py_ssize_t n, Py_ssize_t arity, object key):             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t child, best, last, j
-*/
-
-  /* function exit code */
-  goto __pyx_L0;
-  __pyx_L1_error:;
-  __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_XDECREF(__pyx_t_2);
-  __Pyx_XDECREF(__pyx_t_3);
-  __Pyx_XDECREF(__pyx_t_9);
-  __Pyx_AddTraceback("optimized_pop.sift_down_nary_key_max", __pyx_clineno, __pyx_lineno, __pyx_filename);
-  __pyx_L0:;
-  __Pyx_XDECREF(__pyx_v_item);
-  __Pyx_XDECREF(__pyx_v_item_key);
-  __Pyx_RefNannyFinishContext();
-}
-
-/* "optimized_pop.pyx":467
- * # =============================================================================
- * 
- * cdef inline void sift_up_min(list heap, Py_ssize_t pos):             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t parent
-*/
-
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_up_min(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos) {
-  Py_ssize_t __pyx_v_parent;
-  PyObject *__pyx_v_item = 0;
-  __Pyx_RefNannyDeclarations
-  PyObject *__pyx_t_1 = NULL;
-  int __pyx_t_2;
-  int __pyx_lineno = 0;
-  const char *__pyx_filename = NULL;
-  int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("sift_up_min", 0);
-
-  /* "optimized_pop.pyx":470
- *     cdef:
- *         Py_ssize_t parent
- *         object item = heap[pos]             # <<<<<<<<<<<<<<
- *     while pos > 0:
- *         parent = (pos - 1) >> 1
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 470, __pyx_L1_error)
-  }
-  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
-  __Pyx_INCREF(__pyx_t_1);
-  __pyx_v_item = __pyx_t_1;
-  __pyx_t_1 = 0;
-
-  /* "optimized_pop.pyx":471
- *         Py_ssize_t parent
- *         object item = heap[pos]
- *     while pos > 0:             # <<<<<<<<<<<<<<
- *         parent = (pos - 1) >> 1
- *         if item >= heap[parent]:
-*/
-  while (1) {
-    __pyx_t_2 = (__pyx_v_pos > 0);
-    if (!__pyx_t_2) break;
-
-    /* "optimized_pop.pyx":472
- *         object item = heap[pos]
- *     while pos > 0:
- *         parent = (pos - 1) >> 1             # <<<<<<<<<<<<<<
- *         if item >= heap[parent]:
- *             break
-*/
-    __pyx_v_parent = ((__pyx_v_pos - 1) >> 1);
-
-    /* "optimized_pop.pyx":473
- *     while pos > 0:
- *         parent = (pos - 1) >> 1
- *         if item >= heap[parent]:             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[parent]
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 473, __pyx_L1_error)
-    }
-    __pyx_t_1 = PyObject_RichCompare(__pyx_v_item, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent), Py_GE); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 473, __pyx_L1_error)
-    __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 473, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":474
- *         parent = (pos - 1) >> 1
- *         if item >= heap[parent]:
- *             break             # <<<<<<<<<<<<<<
- *         heap[pos] = heap[parent]
- *         pos = parent
-*/
-      goto __pyx_L4_break;
-
-      /* "optimized_pop.pyx":473
- *     while pos > 0:
- *         parent = (pos - 1) >> 1
- *         if item >= heap[parent]:             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[parent]
-*/
-    }
-
-    /* "optimized_pop.pyx":475
- *         if item >= heap[parent]:
- *             break
- *         heap[pos] = heap[parent]             # <<<<<<<<<<<<<<
- *         pos = parent
- *     heap[pos] = item
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 475, __pyx_L1_error)
-    }
-    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
-    __Pyx_INCREF(__pyx_t_1);
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 475, __pyx_L1_error)
-    }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 475, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-
-    /* "optimized_pop.pyx":476
- *             break
- *         heap[pos] = heap[parent]
- *         pos = parent             # <<<<<<<<<<<<<<
- *     heap[pos] = item
- * 
-*/
-    __pyx_v_pos = __pyx_v_parent;
-  }
-  __pyx_L4_break:;
-
-  /* "optimized_pop.pyx":477
- *         heap[pos] = heap[parent]
- *         pos = parent
- *     heap[pos] = item             # <<<<<<<<<<<<<<
- * 
- * cdef inline void sift_up_max(list heap, Py_ssize_t pos):
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 477, __pyx_L1_error)
-  }
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 477, __pyx_L1_error)
-
-  /* "optimized_pop.pyx":467
- * # =============================================================================
- * 
- * cdef inline void sift_up_min(list heap, Py_ssize_t pos):             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t parent
-*/
-
-  /* function exit code */
-  goto __pyx_L0;
-  __pyx_L1_error:;
-  __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_AddTraceback("optimized_pop.sift_up_min", __pyx_clineno, __pyx_lineno, __pyx_filename);
-  __pyx_L0:;
-  __Pyx_XDECREF(__pyx_v_item);
-  __Pyx_RefNannyFinishContext();
-}
-
-/* "optimized_pop.pyx":479
- *     heap[pos] = item
- * 
- * cdef inline void sift_up_max(list heap, Py_ssize_t pos):             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t parent
-*/
-
-static CYTHON_INLINE void __pyx_f_13optimized_pop_sift_up_max(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos) {
-  Py_ssize_t __pyx_v_parent;
-  PyObject *__pyx_v_item = 0;
-  __Pyx_RefNannyDeclarations
-  PyObject *__pyx_t_1 = NULL;
-  int __pyx_t_2;
-  int __pyx_lineno = 0;
-  const char *__pyx_filename = NULL;
-  int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("sift_up_max", 0);
-
-  /* "optimized_pop.pyx":482
- *     cdef:
- *         Py_ssize_t parent
- *         object item = heap[pos]             # <<<<<<<<<<<<<<
- *     while pos > 0:
- *         parent = (pos - 1) >> 1
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 482, __pyx_L1_error)
-  }
-  __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_pos);
-  __Pyx_INCREF(__pyx_t_1);
-  __pyx_v_item = __pyx_t_1;
-  __pyx_t_1 = 0;
-
-  /* "optimized_pop.pyx":483
- *         Py_ssize_t parent
- *         object item = heap[pos]
- *     while pos > 0:             # <<<<<<<<<<<<<<
- *         parent = (pos - 1) >> 1
- *         if item <= heap[parent]:
-*/
-  while (1) {
-    __pyx_t_2 = (__pyx_v_pos > 0);
-    if (!__pyx_t_2) break;
-
-    /* "optimized_pop.pyx":484
- *         object item = heap[pos]
- *     while pos > 0:
- *         parent = (pos - 1) >> 1             # <<<<<<<<<<<<<<
- *         if item <= heap[parent]:
- *             break
-*/
-    __pyx_v_parent = ((__pyx_v_pos - 1) >> 1);
-
-    /* "optimized_pop.pyx":485
- *     while pos > 0:
- *         parent = (pos - 1) >> 1
- *         if item <= heap[parent]:             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[parent]
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 485, __pyx_L1_error)
-    }
-    __pyx_t_1 = PyObject_RichCompare(__pyx_v_item, __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent), Py_LE); __Pyx_XGOTREF(__pyx_t_1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 485, __pyx_L1_error)
-    __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_1); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 485, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":486
- *         parent = (pos - 1) >> 1
- *         if item <= heap[parent]:
- *             break             # <<<<<<<<<<<<<<
- *         heap[pos] = heap[parent]
- *         pos = parent
-*/
-      goto __pyx_L4_break;
-
-      /* "optimized_pop.pyx":485
- *     while pos > 0:
- *         parent = (pos - 1) >> 1
- *         if item <= heap[parent]:             # <<<<<<<<<<<<<<
- *             break
- *         heap[pos] = heap[parent]
-*/
-    }
-
-    /* "optimized_pop.pyx":487
- *         if item <= heap[parent]:
- *             break
- *         heap[pos] = heap[parent]             # <<<<<<<<<<<<<<
- *         pos = parent
- *     heap[pos] = item
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 487, __pyx_L1_error)
-    }
-    __pyx_t_1 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_parent);
-    __Pyx_INCREF(__pyx_t_1);
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 487, __pyx_L1_error)
-    }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_t_1, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 487, __pyx_L1_error)
-    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-
-    /* "optimized_pop.pyx":488
- *             break
- *         heap[pos] = heap[parent]
- *         pos = parent             # <<<<<<<<<<<<<<
- *     heap[pos] = item
- * 
-*/
-    __pyx_v_pos = __pyx_v_parent;
-  }
-  __pyx_L4_break:;
-
-  /* "optimized_pop.pyx":489
- *         heap[pos] = heap[parent]
- *         pos = parent
- *     heap[pos] = item             # <<<<<<<<<<<<<<
- * 
- * # =============================================================================
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-    __PYX_ERR(0, 489, __pyx_L1_error)
-  }
-  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, __pyx_v_pos, __pyx_v_item, Py_ssize_t, 1, PyLong_FromSsize_t, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 489, __pyx_L1_error)
-
-  /* "optimized_pop.pyx":479
- *     heap[pos] = item
- * 
- * cdef inline void sift_up_max(list heap, Py_ssize_t pos):             # <<<<<<<<<<<<<<
- *     cdef:
- *         Py_ssize_t parent
-*/
-
-  /* function exit code */
-  goto __pyx_L0;
-  __pyx_L1_error:;
-  __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_AddTraceback("optimized_pop.sift_up_max", __pyx_clineno, __pyx_lineno, __pyx_filename);
-  __pyx_L0:;
-  __Pyx_XDECREF(__pyx_v_item);
-  __Pyx_RefNannyFinishContext();
-}
-
-/* "optimized_pop.pyx":495
- * # =============================================================================
- * 
- * cdef inline void dispatch_sift_down(list heap, Py_ssize_t pos, Py_ssize_t n, bint is_max, int dtype):             # <<<<<<<<<<<<<<
- *     if dtype == TYPE_INT:
- *         if is_max:
-*/
-
-static CYTHON_INLINE void __pyx_f_13optimized_pop_dispatch_sift_down(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_pos, Py_ssize_t __pyx_v_n, int __pyx_v_is_max, int __pyx_v_dtype) {
-  int __pyx_lineno = 0;
-  const char *__pyx_filename = NULL;
-  int __pyx_clineno = 0;
-
-  /* "optimized_pop.pyx":496
- * 
- * cdef inline void dispatch_sift_down(list heap, Py_ssize_t pos, Py_ssize_t n, bint is_max, int dtype):
- *     if dtype == TYPE_INT:             # <<<<<<<<<<<<<<
- *         if is_max:
- *             sift_down_int_max(heap, pos, n)
-*/
-  switch (__pyx_v_dtype) {
-    case 1:
-
-    /* "optimized_pop.pyx":497
- * cdef inline void dispatch_sift_down(list heap, Py_ssize_t pos, Py_ssize_t n, bint is_max, int dtype):
- *     if dtype == TYPE_INT:
- *         if is_max:             # <<<<<<<<<<<<<<
- *             sift_down_int_max(heap, pos, n)
- *         else:
-*/
-    if (__pyx_v_is_max) {
-
-      /* "optimized_pop.pyx":498
- *     if dtype == TYPE_INT:
- *         if is_max:
- *             sift_down_int_max(heap, pos, n)             # <<<<<<<<<<<<<<
- *         else:
- *             sift_down_int_min(heap, pos, n)
-*/
-      __pyx_f_13optimized_pop_sift_down_int_max(__pyx_v_heap, __pyx_v_pos, __pyx_v_n);
-
-      /* "optimized_pop.pyx":497
- * cdef inline void dispatch_sift_down(list heap, Py_ssize_t pos, Py_ssize_t n, bint is_max, int dtype):
- *     if dtype == TYPE_INT:
- *         if is_max:             # <<<<<<<<<<<<<<
- *             sift_down_int_max(heap, pos, n)
- *         else:
-*/
-      goto __pyx_L3;
-    }
-
-    /* "optimized_pop.pyx":500
- *             sift_down_int_max(heap, pos, n)
- *         else:
- *             sift_down_int_min(heap, pos, n)             # <<<<<<<<<<<<<<
- *     elif dtype == TYPE_FLOAT:
- *         if is_max:
-*/
-    /*else*/ {
-      __pyx_f_13optimized_pop_sift_down_int_min(__pyx_v_heap, __pyx_v_pos, __pyx_v_n);
-    }
-    __pyx_L3:;
-
-    /* "optimized_pop.pyx":496
- * 
- * cdef inline void dispatch_sift_down(list heap, Py_ssize_t pos, Py_ssize_t n, bint is_max, int dtype):
- *     if dtype == TYPE_INT:             # <<<<<<<<<<<<<<
- *         if is_max:
- *             sift_down_int_max(heap, pos, n)
-*/
-    break;
-    case 2:
-
-    /* "optimized_pop.pyx":502
- *             sift_down_int_min(heap, pos, n)
- *     elif dtype == TYPE_FLOAT:
- *         if is_max:             # <<<<<<<<<<<<<<
- *             sift_down_float_max(heap, pos, n)
- *         else:
-*/
-    if (__pyx_v_is_max) {
-
-      /* "optimized_pop.pyx":503
- *     elif dtype == TYPE_FLOAT:
- *         if is_max:
- *             sift_down_float_max(heap, pos, n)             # <<<<<<<<<<<<<<
- *         else:
- *             sift_down_float_min(heap, pos, n)
-*/
-      __pyx_f_13optimized_pop_sift_down_float_max(__pyx_v_heap, __pyx_v_pos, __pyx_v_n);
-
-      /* "optimized_pop.pyx":502
- *             sift_down_int_min(heap, pos, n)
- *     elif dtype == TYPE_FLOAT:
- *         if is_max:             # <<<<<<<<<<<<<<
- *             sift_down_float_max(heap, pos, n)
- *         else:
-*/
-      goto __pyx_L4;
-    }
-
-    /* "optimized_pop.pyx":505
- *             sift_down_float_max(heap, pos, n)
- *         else:
- *             sift_down_float_min(heap, pos, n)             # <<<<<<<<<<<<<<
- *     elif dtype == TYPE_BOOL:
- *         if is_max:
-*/
-    /*else*/ {
-      __pyx_f_13optimized_pop_sift_down_float_min(__pyx_v_heap, __pyx_v_pos, __pyx_v_n);
-    }
-    __pyx_L4:;
-
-    /* "optimized_pop.pyx":501
- *         else:
- *             sift_down_int_min(heap, pos, n)
- *     elif dtype == TYPE_FLOAT:             # <<<<<<<<<<<<<<
- *         if is_max:
- *             sift_down_float_max(heap, pos, n)
-*/
-    break;
-    case 4:
-
-    /* "optimized_pop.pyx":507
- *             sift_down_float_min(heap, pos, n)
- *     elif dtype == TYPE_BOOL:
- *         if is_max:             # <<<<<<<<<<<<<<
- *             sift_down_bool_max(heap, pos, n)
- *         else:
-*/
-    if (__pyx_v_is_max) {
-
-      /* "optimized_pop.pyx":508
- *     elif dtype == TYPE_BOOL:
- *         if is_max:
- *             sift_down_bool_max(heap, pos, n)             # <<<<<<<<<<<<<<
- *         else:
- *             sift_down_bool_min(heap, pos, n)
-*/
-      __pyx_f_13optimized_pop_sift_down_bool_max(__pyx_v_heap, __pyx_v_pos, __pyx_v_n);
-
-      /* "optimized_pop.pyx":507
- *             sift_down_float_min(heap, pos, n)
- *     elif dtype == TYPE_BOOL:
- *         if is_max:             # <<<<<<<<<<<<<<
- *             sift_down_bool_max(heap, pos, n)
- *         else:
-*/
-      goto __pyx_L5;
-    }
-
-    /* "optimized_pop.pyx":510
- *             sift_down_bool_max(heap, pos, n)
- *         else:
- *             sift_down_bool_min(heap, pos, n)             # <<<<<<<<<<<<<<
- *     elif dtype == TYPE_STR:
- *         if is_max:
-*/
-    /*else*/ {
-      __pyx_f_13optimized_pop_sift_down_bool_min(__pyx_v_heap, __pyx_v_pos, __pyx_v_n);
-    }
-    __pyx_L5:;
-
-    /* "optimized_pop.pyx":506
- *         else:
- *             sift_down_float_min(heap, pos, n)
- *     elif dtype == TYPE_BOOL:             # <<<<<<<<<<<<<<
- *         if is_max:
- *             sift_down_bool_max(heap, pos, n)
-*/
-    break;
-    case 3:
-
-    /* "optimized_pop.pyx":512
- *             sift_down_bool_min(heap, pos, n)
- *     elif dtype == TYPE_STR:
- *         if is_max:             # <<<<<<<<<<<<<<
- *             sift_down_str_max(heap, pos, n)
- *         else:
-*/
-    if (__pyx_v_is_max) {
-
-      /* "optimized_pop.pyx":513
- *     elif dtype == TYPE_STR:
- *         if is_max:
- *             sift_down_str_max(heap, pos, n)             # <<<<<<<<<<<<<<
- *         else:
- *             sift_down_str_min(heap, pos, n)
-*/
-      __pyx_f_13optimized_pop_sift_down_str_max(__pyx_v_heap, __pyx_v_pos, __pyx_v_n); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 513, __pyx_L1_error)
-
-      /* "optimized_pop.pyx":512
- *             sift_down_bool_min(heap, pos, n)
- *     elif dtype == TYPE_STR:
- *         if is_max:             # <<<<<<<<<<<<<<
- *             sift_down_str_max(heap, pos, n)
- *         else:
-*/
-      goto __pyx_L6;
-    }
-
-    /* "optimized_pop.pyx":515
- *             sift_down_str_max(heap, pos, n)
- *         else:
- *             sift_down_str_min(heap, pos, n)             # <<<<<<<<<<<<<<
- *     else:
- *         if is_max:
-*/
-    /*else*/ {
-      __pyx_f_13optimized_pop_sift_down_str_min(__pyx_v_heap, __pyx_v_pos, __pyx_v_n); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 515, __pyx_L1_error)
-    }
-    __pyx_L6:;
-
-    /* "optimized_pop.pyx":511
- *         else:
- *             sift_down_bool_min(heap, pos, n)
- *     elif dtype == TYPE_STR:             # <<<<<<<<<<<<<<
- *         if is_max:
- *             sift_down_str_max(heap, pos, n)
-*/
-    break;
-    default:
-
-    /* "optimized_pop.pyx":517
- *             sift_down_str_min(heap, pos, n)
- *     else:
- *         if is_max:             # <<<<<<<<<<<<<<
- *             sift_down_generic_max(heap, pos, n)
- *         else:
-*/
-    if (__pyx_v_is_max) {
-
-      /* "optimized_pop.pyx":518
- *     else:
- *         if is_max:
- *             sift_down_generic_max(heap, pos, n)             # <<<<<<<<<<<<<<
- *         else:
- *             sift_down_generic_min(heap, pos, n)
-*/
-      __pyx_f_13optimized_pop_sift_down_generic_max(__pyx_v_heap, __pyx_v_pos, __pyx_v_n); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 518, __pyx_L1_error)
-
-      /* "optimized_pop.pyx":517
- *             sift_down_str_min(heap, pos, n)
- *     else:
- *         if is_max:             # <<<<<<<<<<<<<<
- *             sift_down_generic_max(heap, pos, n)
- *         else:
-*/
-      goto __pyx_L7;
-    }
-
-    /* "optimized_pop.pyx":520
- *             sift_down_generic_max(heap, pos, n)
- *         else:
- *             sift_down_generic_min(heap, pos, n)             # <<<<<<<<<<<<<<
- * 
- * # =============================================================================
-*/
-    /*else*/ {
-      __pyx_f_13optimized_pop_sift_down_generic_min(__pyx_v_heap, __pyx_v_pos, __pyx_v_n); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 520, __pyx_L1_error)
-    }
-    __pyx_L7:;
-    break;
-  }
-
-  /* "optimized_pop.pyx":495
- * # =============================================================================
- * 
- * cdef inline void dispatch_sift_down(list heap, Py_ssize_t pos, Py_ssize_t n, bint is_max, int dtype):             # <<<<<<<<<<<<<<
- *     if dtype == TYPE_INT:
- *         if is_max:
-*/
-
-  /* function exit code */
-  goto __pyx_L0;
-  __pyx_L1_error:;
-  __Pyx_AddTraceback("optimized_pop.dispatch_sift_down", __pyx_clineno, __pyx_lineno, __pyx_filename);
-  __pyx_L0:;
-}
-
-/* "optimized_pop.pyx":526
- * # =============================================================================
- * 
- * cdef void do_heapify(list heap, bint is_max, int dtype):             # <<<<<<<<<<<<<<
- *     cdef Py_ssize_t n = len(heap), i
- *     for i in range((n >> 1) - 1, -1, -1):
-*/
-
-static void __pyx_f_13optimized_pop_do_heapify(PyObject *__pyx_v_heap, int __pyx_v_is_max, int __pyx_v_dtype) {
-  Py_ssize_t __pyx_v_n;
-  Py_ssize_t __pyx_v_i;
-  Py_ssize_t __pyx_t_1;
-  int __pyx_lineno = 0;
-  const char *__pyx_filename = NULL;
-  int __pyx_clineno = 0;
-
-  /* "optimized_pop.pyx":527
- * 
- * cdef void do_heapify(list heap, bint is_max, int dtype):
- *     cdef Py_ssize_t n = len(heap), i             # <<<<<<<<<<<<<<
- *     for i in range((n >> 1) - 1, -1, -1):
- *         dispatch_sift_down(heap, i, n, is_max, dtype)
-*/
-  if (unlikely(__pyx_v_heap == Py_None)) {
-    PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
-    __PYX_ERR(0, 527, __pyx_L1_error)
-  }
-  __pyx_t_1 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_1 == ((Py_ssize_t)-1))) __PYX_ERR(0, 527, __pyx_L1_error)
-  __pyx_v_n = __pyx_t_1;
-
-  /* "optimized_pop.pyx":528
- * cdef void do_heapify(list heap, bint is_max, int dtype):
- *     cdef Py_ssize_t n = len(heap), i
- *     for i in range((n >> 1) - 1, -1, -1):             # <<<<<<<<<<<<<<
- *         dispatch_sift_down(heap, i, n, is_max, dtype)
- * 
-*/
-  for (__pyx_t_1 = ((__pyx_v_n >> 1) - 1); __pyx_t_1 > -1L; __pyx_t_1-=1) {
-    __pyx_v_i = __pyx_t_1;
-
-    /* "optimized_pop.pyx":529
- *     cdef Py_ssize_t n = len(heap), i
- *     for i in range((n >> 1) - 1, -1, -1):
- *         dispatch_sift_down(heap, i, n, is_max, dtype)             # <<<<<<<<<<<<<<
- * 
- * def heapify(list heap, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):
-*/
-    __pyx_f_13optimized_pop_dispatch_sift_down(__pyx_v_heap, __pyx_v_i, __pyx_v_n, __pyx_v_is_max, __pyx_v_dtype); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 529, __pyx_L1_error)
-  }
-
-  /* "optimized_pop.pyx":526
- * # =============================================================================
- * 
- * cdef void do_heapify(list heap, bint is_max, int dtype):             # <<<<<<<<<<<<<<
- *     cdef Py_ssize_t n = len(heap), i
- *     for i in range((n >> 1) - 1, -1, -1):
-*/
-
-  /* function exit code */
-  goto __pyx_L0;
-  __pyx_L1_error:;
-  __Pyx_AddTraceback("optimized_pop.do_heapify", __pyx_clineno, __pyx_lineno, __pyx_filename);
-  __pyx_L0:;
-}
-
-/* "optimized_pop.pyx":531
- *         dispatch_sift_down(heap, i, n, is_max, dtype)
  * 
  * def heapify(list heap, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):             # <<<<<<<<<<<<<<
  *     """Transform list into heap in-place."""
@@ -8485,59 +7925,59 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   {
     PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_heap,&__pyx_mstate_global->__pyx_n_u_max_heap,&__pyx_mstate_global->__pyx_n_u_cmp,&__pyx_mstate_global->__pyx_n_u_arity,&__pyx_mstate_global->__pyx_n_u_nogil,0};
     const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
-    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 531, __pyx_L3_error)
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 440, __pyx_L3_error)
     if (__pyx_kwds_len > 0) {
       switch (__pyx_nargs) {
         case  5:
         values[4] = __Pyx_ArgRef_FASTCALL(__pyx_args, 4);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 531, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 440, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 531, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 440, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 531, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 440, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 531, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 440, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 531, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 440, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  0: break;
         default: goto __pyx_L5_argtuple_error;
       }
       const Py_ssize_t kwd_pos_args = __pyx_nargs;
-      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "heapify", 0) < 0) __PYX_ERR(0, 531, __pyx_L3_error)
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "heapify", 0) < 0) __PYX_ERR(0, 440, __pyx_L3_error)
       if (!values[2]) values[2] = __Pyx_NewRef(((PyObject *)Py_None));
       for (Py_ssize_t i = __pyx_nargs; i < 1; i++) {
-        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("heapify", 0, 1, 5, i); __PYX_ERR(0, 531, __pyx_L3_error) }
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("heapify", 0, 1, 5, i); __PYX_ERR(0, 440, __pyx_L3_error) }
       }
     } else {
       switch (__pyx_nargs) {
         case  5:
         values[4] = __Pyx_ArgRef_FASTCALL(__pyx_args, 4);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 531, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 440, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 531, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 440, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 531, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 440, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 531, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 440, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 531, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 440, __pyx_L3_error)
         break;
         default: goto __pyx_L5_argtuple_error;
       }
@@ -8545,25 +7985,25 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
     }
     __pyx_v_heap = ((PyObject*)values[0]);
     if (values[1]) {
-      __pyx_v_max_heap = __Pyx_PyObject_IsTrue(values[1]); if (unlikely((__pyx_v_max_heap == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 531, __pyx_L3_error)
+      __pyx_v_max_heap = __Pyx_PyObject_IsTrue(values[1]); if (unlikely((__pyx_v_max_heap == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 440, __pyx_L3_error)
     } else {
       __pyx_v_max_heap = ((int)((int)0));
     }
     __pyx_v_cmp = values[2];
     if (values[3]) {
-      __pyx_v_arity = __Pyx_PyIndex_AsSsize_t(values[3]); if (unlikely((__pyx_v_arity == (Py_ssize_t)-1) && PyErr_Occurred())) __PYX_ERR(0, 531, __pyx_L3_error)
+      __pyx_v_arity = __Pyx_PyIndex_AsSsize_t(values[3]); if (unlikely((__pyx_v_arity == (Py_ssize_t)-1) && PyErr_Occurred())) __PYX_ERR(0, 440, __pyx_L3_error)
     } else {
       __pyx_v_arity = ((Py_ssize_t)((Py_ssize_t)2));
     }
     if (values[4]) {
-      __pyx_v_nogil = __Pyx_PyObject_IsTrue(values[4]); if (unlikely((__pyx_v_nogil == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 531, __pyx_L3_error)
+      __pyx_v_nogil = __Pyx_PyObject_IsTrue(values[4]); if (unlikely((__pyx_v_nogil == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 440, __pyx_L3_error)
     } else {
       __pyx_v_nogil = ((int)((int)0));
     }
   }
   goto __pyx_L6_skip;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("heapify", 0, 1, 5, __pyx_nargs); __PYX_ERR(0, 531, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("heapify", 0, 1, 5, __pyx_nargs); __PYX_ERR(0, 440, __pyx_L3_error)
   __pyx_L6_skip:;
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L3_error:;
@@ -8574,7 +8014,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_heap), (&PyList_Type), 1, "heap", 1))) __PYX_ERR(0, 531, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_heap), (&PyList_Type), 1, "heap", 1))) __PYX_ERR(0, 440, __pyx_L1_error)
   __pyx_r = __pyx_pf_13optimized_pop_heapify(__pyx_self, __pyx_v_heap, __pyx_v_max_heap, __pyx_v_cmp, __pyx_v_arity, __pyx_v_nogil);
 
   /* function exit code */
@@ -8597,6 +8037,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
 static PyObject *__pyx_pf_13optimized_pop_heapify(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_heap, int __pyx_v_max_heap, PyObject *__pyx_v_cmp, Py_ssize_t __pyx_v_arity, CYTHON_UNUSED int __pyx_v_nogil) {
   Py_ssize_t __pyx_v_n;
   Py_ssize_t __pyx_v_i;
+  int __pyx_v_dtype;
   PyObject *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
   Py_ssize_t __pyx_t_1;
@@ -8606,331 +8047,335 @@ static PyObject *__pyx_pf_13optimized_pop_heapify(CYTHON_UNUSED PyObject *__pyx_
   PyObject *__pyx_t_5 = NULL;
   size_t __pyx_t_6;
   PyObject *__pyx_t_7 = NULL;
+  int __pyx_t_8;
   int __pyx_lineno = 0;
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("heapify", 0);
 
-  /* "optimized_pop.pyx":533
+  /* "optimized_pop.pyx":442
  * def heapify(list heap, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):
  *     """Transform list into heap in-place."""
  *     cdef Py_ssize_t n = len(heap), i             # <<<<<<<<<<<<<<
- *     if n <= 1:
- *         return
+ *     cdef int dtype
+ * 
 */
   if (unlikely(__pyx_v_heap == Py_None)) {
     PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
-    __PYX_ERR(0, 533, __pyx_L1_error)
+    __PYX_ERR(0, 442, __pyx_L1_error)
   }
-  __pyx_t_1 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_1 == ((Py_ssize_t)-1))) __PYX_ERR(0, 533, __pyx_L1_error)
+  __pyx_t_1 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_1 == ((Py_ssize_t)-1))) __PYX_ERR(0, 442, __pyx_L1_error)
   __pyx_v_n = __pyx_t_1;
 
-  /* "optimized_pop.pyx":534
- *     """Transform list into heap in-place."""
- *     cdef Py_ssize_t n = len(heap), i
+  /* "optimized_pop.pyx":445
+ *     cdef int dtype
+ * 
  *     if n <= 1:             # <<<<<<<<<<<<<<
  *         return
- *     if cmp is not None:
+ * 
 */
   __pyx_t_2 = (__pyx_v_n <= 1);
   if (__pyx_t_2) {
 
-    /* "optimized_pop.pyx":535
- *     cdef Py_ssize_t n = len(heap), i
+    /* "optimized_pop.pyx":446
+ * 
  *     if n <= 1:
  *         return             # <<<<<<<<<<<<<<
- *     if cmp is not None:
- *         if arity == 2:
+ * 
+ *     if arity == 1:
 */
     __Pyx_XDECREF(__pyx_r);
     __pyx_r = Py_None; __Pyx_INCREF(Py_None);
     goto __pyx_L0;
 
-    /* "optimized_pop.pyx":534
- *     """Transform list into heap in-place."""
- *     cdef Py_ssize_t n = len(heap), i
+    /* "optimized_pop.pyx":445
+ *     cdef int dtype
+ * 
  *     if n <= 1:             # <<<<<<<<<<<<<<
  *         return
- *     if cmp is not None:
+ * 
 */
   }
 
-  /* "optimized_pop.pyx":536
- *     if n <= 1:
+  /* "optimized_pop.pyx":448
  *         return
- *     if cmp is not None:             # <<<<<<<<<<<<<<
- *         if arity == 2:
- *             for i in range((n >> 1) - 1, -1, -1):
-*/
-  __pyx_t_2 = (__pyx_v_cmp != Py_None);
-  if (__pyx_t_2) {
-
-    /* "optimized_pop.pyx":537
+ * 
+ *     if arity == 1:             # <<<<<<<<<<<<<<
+ *         heap.sort(key=cmp, reverse=max_heap)
  *         return
- *     if cmp is not None:
- *         if arity == 2:             # <<<<<<<<<<<<<<
- *             for i in range((n >> 1) - 1, -1, -1):
- *                 if max_heap:
-*/
-    __pyx_t_2 = (__pyx_v_arity == 2);
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":538
- *     if cmp is not None:
- *         if arity == 2:
- *             for i in range((n >> 1) - 1, -1, -1):             # <<<<<<<<<<<<<<
- *                 if max_heap:
- *                     sift_down_with_key_max(heap, i, n, cmp)
-*/
-      for (__pyx_t_1 = ((__pyx_v_n >> 1) - 1); __pyx_t_1 > -1L; __pyx_t_1-=1) {
-        __pyx_v_i = __pyx_t_1;
-
-        /* "optimized_pop.pyx":539
- *         if arity == 2:
- *             for i in range((n >> 1) - 1, -1, -1):
- *                 if max_heap:             # <<<<<<<<<<<<<<
- *                     sift_down_with_key_max(heap, i, n, cmp)
- *                 else:
-*/
-        if (__pyx_v_max_heap) {
-
-          /* "optimized_pop.pyx":540
- *             for i in range((n >> 1) - 1, -1, -1):
- *                 if max_heap:
- *                     sift_down_with_key_max(heap, i, n, cmp)             # <<<<<<<<<<<<<<
- *                 else:
- *                     sift_down_with_key_min(heap, i, n, cmp)
-*/
-          __pyx_f_13optimized_pop_sift_down_with_key_max(__pyx_v_heap, __pyx_v_i, __pyx_v_n, __pyx_v_cmp); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 540, __pyx_L1_error)
-
-          /* "optimized_pop.pyx":539
- *         if arity == 2:
- *             for i in range((n >> 1) - 1, -1, -1):
- *                 if max_heap:             # <<<<<<<<<<<<<<
- *                     sift_down_with_key_max(heap, i, n, cmp)
- *                 else:
-*/
-          goto __pyx_L8;
-        }
-
-        /* "optimized_pop.pyx":542
- *                     sift_down_with_key_max(heap, i, n, cmp)
- *                 else:
- *                     sift_down_with_key_min(heap, i, n, cmp)             # <<<<<<<<<<<<<<
- *         else:
- *             for i in range((n - 2) // arity, -1, -1):
-*/
-        /*else*/ {
-          __pyx_f_13optimized_pop_sift_down_with_key_min(__pyx_v_heap, __pyx_v_i, __pyx_v_n, __pyx_v_cmp); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 542, __pyx_L1_error)
-        }
-        __pyx_L8:;
-      }
-
-      /* "optimized_pop.pyx":537
- *         return
- *     if cmp is not None:
- *         if arity == 2:             # <<<<<<<<<<<<<<
- *             for i in range((n >> 1) - 1, -1, -1):
- *                 if max_heap:
-*/
-      goto __pyx_L5;
-    }
-
-    /* "optimized_pop.pyx":544
- *                     sift_down_with_key_min(heap, i, n, cmp)
- *         else:
- *             for i in range((n - 2) // arity, -1, -1):             # <<<<<<<<<<<<<<
- *                 if max_heap:
- *                     sift_down_nary_key_max(heap, i, n, arity, cmp)
-*/
-    /*else*/ {
-      for (__pyx_t_1 = ((__pyx_v_n - 2) / __pyx_v_arity); __pyx_t_1 > -1L; __pyx_t_1-=1) {
-        __pyx_v_i = __pyx_t_1;
-
-        /* "optimized_pop.pyx":545
- *         else:
- *             for i in range((n - 2) // arity, -1, -1):
- *                 if max_heap:             # <<<<<<<<<<<<<<
- *                     sift_down_nary_key_max(heap, i, n, arity, cmp)
- *                 else:
-*/
-        if (__pyx_v_max_heap) {
-
-          /* "optimized_pop.pyx":546
- *             for i in range((n - 2) // arity, -1, -1):
- *                 if max_heap:
- *                     sift_down_nary_key_max(heap, i, n, arity, cmp)             # <<<<<<<<<<<<<<
- *                 else:
- *                     sift_down_nary_key_min(heap, i, n, arity, cmp)
-*/
-          __pyx_f_13optimized_pop_sift_down_nary_key_max(__pyx_v_heap, __pyx_v_i, __pyx_v_n, __pyx_v_arity, __pyx_v_cmp); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 546, __pyx_L1_error)
-
-          /* "optimized_pop.pyx":545
- *         else:
- *             for i in range((n - 2) // arity, -1, -1):
- *                 if max_heap:             # <<<<<<<<<<<<<<
- *                     sift_down_nary_key_max(heap, i, n, arity, cmp)
- *                 else:
-*/
-          goto __pyx_L11;
-        }
-
-        /* "optimized_pop.pyx":548
- *                     sift_down_nary_key_max(heap, i, n, arity, cmp)
- *                 else:
- *                     sift_down_nary_key_min(heap, i, n, arity, cmp)             # <<<<<<<<<<<<<<
- *     elif arity == 1:
- *         heap.sort(reverse=max_heap)
-*/
-        /*else*/ {
-          __pyx_f_13optimized_pop_sift_down_nary_key_min(__pyx_v_heap, __pyx_v_i, __pyx_v_n, __pyx_v_arity, __pyx_v_cmp); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 548, __pyx_L1_error)
-        }
-        __pyx_L11:;
-      }
-    }
-    __pyx_L5:;
-
-    /* "optimized_pop.pyx":536
- *     if n <= 1:
- *         return
- *     if cmp is not None:             # <<<<<<<<<<<<<<
- *         if arity == 2:
- *             for i in range((n >> 1) - 1, -1, -1):
-*/
-    goto __pyx_L4;
-  }
-
-  /* "optimized_pop.pyx":549
- *                 else:
- *                     sift_down_nary_key_min(heap, i, n, arity, cmp)
- *     elif arity == 1:             # <<<<<<<<<<<<<<
- *         heap.sort(reverse=max_heap)
- *     elif arity == 2:
 */
   __pyx_t_2 = (__pyx_v_arity == 1);
   if (__pyx_t_2) {
 
-    /* "optimized_pop.pyx":550
- *                     sift_down_nary_key_min(heap, i, n, arity, cmp)
- *     elif arity == 1:
- *         heap.sort(reverse=max_heap)             # <<<<<<<<<<<<<<
- *     elif arity == 2:
- *         do_heapify(heap, max_heap, detect_type(heap, n))
+    /* "optimized_pop.pyx":449
+ * 
+ *     if arity == 1:
+ *         heap.sort(key=cmp, reverse=max_heap)             # <<<<<<<<<<<<<<
+ *         return
+ * 
 */
     __pyx_t_4 = __pyx_v_heap;
     __Pyx_INCREF(__pyx_t_4);
-    __pyx_t_5 = __Pyx_PyBool_FromLong(__pyx_v_max_heap); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 550, __pyx_L1_error)
+    __pyx_t_5 = __Pyx_PyBool_FromLong(__pyx_v_max_heap); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 449, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_5);
     __pyx_t_6 = 0;
     {
-      PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_4, NULL};
-      __pyx_t_7 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 550, __pyx_L1_error)
+      PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 2 : 0)] = {__pyx_t_4, NULL};
+      __pyx_t_7 = __Pyx_MakeVectorcallBuilderKwds(2); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 449, __pyx_L1_error)
       __Pyx_GOTREF(__pyx_t_7);
-      if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_reverse, __pyx_t_5, __pyx_t_7, __pyx_callargs+1, 0) < 0) __PYX_ERR(0, 550, __pyx_L1_error)
+      if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_key, __pyx_v_cmp, __pyx_t_7, __pyx_callargs+1, 0) < 0) __PYX_ERR(0, 449, __pyx_L1_error)
+      if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_reverse, __pyx_t_5, __pyx_t_7, __pyx_callargs+1, 1) < 0) __PYX_ERR(0, 449, __pyx_L1_error)
       __pyx_t_3 = __Pyx_Object_VectorcallMethod_CallFromBuilder(__pyx_mstate_global->__pyx_n_u_sort, __pyx_callargs+__pyx_t_6, (1-__pyx_t_6) | (1*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_7);
       __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
       __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
       __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 550, __pyx_L1_error)
+      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 449, __pyx_L1_error)
       __Pyx_GOTREF(__pyx_t_3);
     }
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
 
-    /* "optimized_pop.pyx":549
- *                 else:
- *                     sift_down_nary_key_min(heap, i, n, arity, cmp)
- *     elif arity == 1:             # <<<<<<<<<<<<<<
- *         heap.sort(reverse=max_heap)
- *     elif arity == 2:
+    /* "optimized_pop.pyx":450
+ *     if arity == 1:
+ *         heap.sort(key=cmp, reverse=max_heap)
+ *         return             # <<<<<<<<<<<<<<
+ * 
+ *     if cmp is not None or arity != 2:
 */
-    goto __pyx_L4;
+    __Pyx_XDECREF(__pyx_r);
+    __pyx_r = Py_None; __Pyx_INCREF(Py_None);
+    goto __pyx_L0;
+
+    /* "optimized_pop.pyx":448
+ *         return
+ * 
+ *     if arity == 1:             # <<<<<<<<<<<<<<
+ *         heap.sort(key=cmp, reverse=max_heap)
+ *         return
+*/
   }
 
-  /* "optimized_pop.pyx":551
- *     elif arity == 1:
- *         heap.sort(reverse=max_heap)
- *     elif arity == 2:             # <<<<<<<<<<<<<<
- *         do_heapify(heap, max_heap, detect_type(heap, n))
- *     else:
+  /* "optimized_pop.pyx":452
+ *         return
+ * 
+ *     if cmp is not None or arity != 2:             # <<<<<<<<<<<<<<
+ *         for i in range((n - 2) // arity, -1, -1):
+ *             _nary_sift_down(heap, i, n, max_heap, arity, cmp)
 */
-  __pyx_t_2 = (__pyx_v_arity == 2);
+  __pyx_t_8 = (__pyx_v_cmp != Py_None);
+  if (!__pyx_t_8) {
+  } else {
+    __pyx_t_2 = __pyx_t_8;
+    goto __pyx_L6_bool_binop_done;
+  }
+  __pyx_t_8 = (__pyx_v_arity != 2);
+  __pyx_t_2 = __pyx_t_8;
+  __pyx_L6_bool_binop_done:;
   if (__pyx_t_2) {
 
-    /* "optimized_pop.pyx":552
- *         heap.sort(reverse=max_heap)
- *     elif arity == 2:
- *         do_heapify(heap, max_heap, detect_type(heap, n))             # <<<<<<<<<<<<<<
- *     else:
- *         for i in range((n - 2) // arity, -1, -1):
-*/
-    __pyx_f_13optimized_pop_do_heapify(__pyx_v_heap, __pyx_v_max_heap, __pyx_f_13optimized_pop_detect_type(__pyx_v_heap, __pyx_v_n)); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 552, __pyx_L1_error)
-
-    /* "optimized_pop.pyx":551
- *     elif arity == 1:
- *         heap.sort(reverse=max_heap)
- *     elif arity == 2:             # <<<<<<<<<<<<<<
- *         do_heapify(heap, max_heap, detect_type(heap, n))
- *     else:
-*/
-    goto __pyx_L4;
-  }
-
-  /* "optimized_pop.pyx":554
- *         do_heapify(heap, max_heap, detect_type(heap, n))
- *     else:
+    /* "optimized_pop.pyx":453
+ * 
+ *     if cmp is not None or arity != 2:
  *         for i in range((n - 2) // arity, -1, -1):             # <<<<<<<<<<<<<<
- *             if max_heap:
- *                 sift_down_nary_max(heap, i, n, arity)
+ *             _nary_sift_down(heap, i, n, max_heap, arity, cmp)
+ *         return
 */
-  /*else*/ {
     for (__pyx_t_1 = ((__pyx_v_n - 2) / __pyx_v_arity); __pyx_t_1 > -1L; __pyx_t_1-=1) {
       __pyx_v_i = __pyx_t_1;
 
-      /* "optimized_pop.pyx":555
+      /* "optimized_pop.pyx":454
+ *     if cmp is not None or arity != 2:
+ *         for i in range((n - 2) // arity, -1, -1):
+ *             _nary_sift_down(heap, i, n, max_heap, arity, cmp)             # <<<<<<<<<<<<<<
+ *         return
+ * 
+*/
+      __pyx_f_13optimized_pop__nary_sift_down(__pyx_v_heap, __pyx_v_i, __pyx_v_n, __pyx_v_max_heap, __pyx_v_arity, __pyx_v_cmp); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 454, __pyx_L1_error)
+    }
+
+    /* "optimized_pop.pyx":455
+ *         for i in range((n - 2) // arity, -1, -1):
+ *             _nary_sift_down(heap, i, n, max_heap, arity, cmp)
+ *         return             # <<<<<<<<<<<<<<
+ * 
+ *     dtype = _detect_type(heap)
+*/
+    __Pyx_XDECREF(__pyx_r);
+    __pyx_r = Py_None; __Pyx_INCREF(Py_None);
+    goto __pyx_L0;
+
+    /* "optimized_pop.pyx":452
+ *         return
+ * 
+ *     if cmp is not None or arity != 2:             # <<<<<<<<<<<<<<
+ *         for i in range((n - 2) // arity, -1, -1):
+ *             _nary_sift_down(heap, i, n, max_heap, arity, cmp)
+*/
+  }
+
+  /* "optimized_pop.pyx":457
+ *         return
+ * 
+ *     dtype = _detect_type(heap)             # <<<<<<<<<<<<<<
+ * 
+ *     if dtype == TYPE_INT:
+*/
+  __pyx_v_dtype = __pyx_f_13optimized_pop__detect_type(__pyx_v_heap);
+
+  /* "optimized_pop.pyx":459
+ *     dtype = _detect_type(heap)
+ * 
+ *     if dtype == TYPE_INT:             # <<<<<<<<<<<<<<
+ *         _heapify_int(heap, n, max_heap)
+ *     elif dtype == TYPE_FLOAT:
+*/
+  __pyx_t_2 = (__pyx_v_dtype == 1);
+  if (__pyx_t_2) {
+
+    /* "optimized_pop.pyx":460
+ * 
+ *     if dtype == TYPE_INT:
+ *         _heapify_int(heap, n, max_heap)             # <<<<<<<<<<<<<<
+ *     elif dtype == TYPE_FLOAT:
+ *         _heapify_float(heap, n, max_heap)
+*/
+    __pyx_f_13optimized_pop__heapify_int(__pyx_v_heap, __pyx_v_n, __pyx_v_max_heap);
+
+    /* "optimized_pop.pyx":459
+ *     dtype = _detect_type(heap)
+ * 
+ *     if dtype == TYPE_INT:             # <<<<<<<<<<<<<<
+ *         _heapify_int(heap, n, max_heap)
+ *     elif dtype == TYPE_FLOAT:
+*/
+    goto __pyx_L10;
+  }
+
+  /* "optimized_pop.pyx":461
+ *     if dtype == TYPE_INT:
+ *         _heapify_int(heap, n, max_heap)
+ *     elif dtype == TYPE_FLOAT:             # <<<<<<<<<<<<<<
+ *         _heapify_float(heap, n, max_heap)
+ *     elif dtype == TYPE_BOOL:
+*/
+  __pyx_t_2 = (__pyx_v_dtype == 2);
+  if (__pyx_t_2) {
+
+    /* "optimized_pop.pyx":462
+ *         _heapify_int(heap, n, max_heap)
+ *     elif dtype == TYPE_FLOAT:
+ *         _heapify_float(heap, n, max_heap)             # <<<<<<<<<<<<<<
+ *     elif dtype == TYPE_BOOL:
+ *         _heapify_bool(heap, n, max_heap)
+*/
+    __pyx_f_13optimized_pop__heapify_float(__pyx_v_heap, __pyx_v_n, __pyx_v_max_heap);
+
+    /* "optimized_pop.pyx":461
+ *     if dtype == TYPE_INT:
+ *         _heapify_int(heap, n, max_heap)
+ *     elif dtype == TYPE_FLOAT:             # <<<<<<<<<<<<<<
+ *         _heapify_float(heap, n, max_heap)
+ *     elif dtype == TYPE_BOOL:
+*/
+    goto __pyx_L10;
+  }
+
+  /* "optimized_pop.pyx":463
+ *     elif dtype == TYPE_FLOAT:
+ *         _heapify_float(heap, n, max_heap)
+ *     elif dtype == TYPE_BOOL:             # <<<<<<<<<<<<<<
+ *         _heapify_bool(heap, n, max_heap)
+ *     elif max_heap:
+*/
+  __pyx_t_2 = (__pyx_v_dtype == 3);
+  if (__pyx_t_2) {
+
+    /* "optimized_pop.pyx":464
+ *         _heapify_float(heap, n, max_heap)
+ *     elif dtype == TYPE_BOOL:
+ *         _heapify_bool(heap, n, max_heap)             # <<<<<<<<<<<<<<
+ *     elif max_heap:
+ *         _heapify_generic_max(heap, n)
+*/
+    __pyx_f_13optimized_pop__heapify_bool(__pyx_v_heap, __pyx_v_n, __pyx_v_max_heap);
+
+    /* "optimized_pop.pyx":463
+ *     elif dtype == TYPE_FLOAT:
+ *         _heapify_float(heap, n, max_heap)
+ *     elif dtype == TYPE_BOOL:             # <<<<<<<<<<<<<<
+ *         _heapify_bool(heap, n, max_heap)
+ *     elif max_heap:
+*/
+    goto __pyx_L10;
+  }
+
+  /* "optimized_pop.pyx":465
+ *     elif dtype == TYPE_BOOL:
+ *         _heapify_bool(heap, n, max_heap)
+ *     elif max_heap:             # <<<<<<<<<<<<<<
+ *         _heapify_generic_max(heap, n)
  *     else:
- *         for i in range((n - 2) // arity, -1, -1):
- *             if max_heap:             # <<<<<<<<<<<<<<
- *                 sift_down_nary_max(heap, i, n, arity)
- *             else:
 */
-      if (__pyx_v_max_heap) {
+  if (__pyx_v_max_heap) {
 
-        /* "optimized_pop.pyx":556
- *         for i in range((n - 2) // arity, -1, -1):
- *             if max_heap:
- *                 sift_down_nary_max(heap, i, n, arity)             # <<<<<<<<<<<<<<
- *             else:
- *                 sift_down_nary_min(heap, i, n, arity)
-*/
-        __pyx_f_13optimized_pop_sift_down_nary_max(__pyx_v_heap, __pyx_v_i, __pyx_v_n, __pyx_v_arity); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 556, __pyx_L1_error)
-
-        /* "optimized_pop.pyx":555
+    /* "optimized_pop.pyx":466
+ *         _heapify_bool(heap, n, max_heap)
+ *     elif max_heap:
+ *         _heapify_generic_max(heap, n)             # <<<<<<<<<<<<<<
  *     else:
- *         for i in range((n - 2) // arity, -1, -1):
- *             if max_heap:             # <<<<<<<<<<<<<<
- *                 sift_down_nary_max(heap, i, n, arity)
- *             else:
+ *         _heapq.heapify(heap)
 */
-        goto __pyx_L14;
-      }
+    __pyx_f_13optimized_pop__heapify_generic_max(__pyx_v_heap, __pyx_v_n); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 466, __pyx_L1_error)
 
-      /* "optimized_pop.pyx":558
- *                 sift_down_nary_max(heap, i, n, arity)
- *             else:
- *                 sift_down_nary_min(heap, i, n, arity)             # <<<<<<<<<<<<<<
+    /* "optimized_pop.pyx":465
+ *     elif dtype == TYPE_BOOL:
+ *         _heapify_bool(heap, n, max_heap)
+ *     elif max_heap:             # <<<<<<<<<<<<<<
+ *         _heapify_generic_max(heap, n)
+ *     else:
+*/
+    goto __pyx_L10;
+  }
+
+  /* "optimized_pop.pyx":468
+ *         _heapify_generic_max(heap, n)
+ *     else:
+ *         _heapq.heapify(heap)             # <<<<<<<<<<<<<<
  * 
  * # =============================================================================
 */
-      /*else*/ {
-        __pyx_f_13optimized_pop_sift_down_nary_min(__pyx_v_heap, __pyx_v_i, __pyx_v_n, __pyx_v_arity); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 558, __pyx_L1_error)
-      }
-      __pyx_L14:;
+  /*else*/ {
+    __pyx_t_7 = NULL;
+    __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_heapq); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 468, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_5);
+    __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_heapify); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 468, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_4);
+    __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+    __pyx_t_6 = 1;
+    #if CYTHON_UNPACK_METHODS
+    if (unlikely(PyMethod_Check(__pyx_t_4))) {
+      __pyx_t_7 = PyMethod_GET_SELF(__pyx_t_4);
+      assert(__pyx_t_7);
+      PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_4);
+      __Pyx_INCREF(__pyx_t_7);
+      __Pyx_INCREF(__pyx__function);
+      __Pyx_DECREF_SET(__pyx_t_4, __pyx__function);
+      __pyx_t_6 = 0;
     }
+    #endif
+    {
+      PyObject *__pyx_callargs[2] = {__pyx_t_7, __pyx_v_heap};
+      __pyx_t_3 = __Pyx_PyObject_FastCall(__pyx_t_4, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+      __Pyx_XDECREF(__pyx_t_7); __pyx_t_7 = 0;
+      __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 468, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_3);
+    }
+    __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
   }
-  __pyx_L4:;
+  __pyx_L10:;
 
-  /* "optimized_pop.pyx":531
- *         dispatch_sift_down(heap, i, n, is_max, dtype)
+  /* "optimized_pop.pyx":440
+ * # =============================================================================
  * 
  * def heapify(list heap, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):             # <<<<<<<<<<<<<<
  *     """Transform list into heap in-place."""
@@ -8953,12 +8398,12 @@ static PyObject *__pyx_pf_13optimized_pop_heapify(CYTHON_UNUSED PyObject *__pyx_
   return __pyx_r;
 }
 
-/* "optimized_pop.pyx":564
+/* "optimized_pop.pyx":474
  * # =============================================================================
  * 
  * def pop(list heap, Py_ssize_t n=1, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):             # <<<<<<<<<<<<<<
- *     """
- *     Pop and return the smallest (or largest if max_heap=True) item(s) from heap.
+ *     """Pop and return the smallest (or largest) item(s) from heap."""
+ *     cdef:
 */
 
 /* Python wrapper */
@@ -8969,7 +8414,7 @@ PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
-PyDoc_STRVAR(__pyx_doc_13optimized_pop_2pop, "\n    Pop and return the smallest (or largest if max_heap=True) item(s) from heap.\n    \n    Parameters:\n        heap: list - the heap to pop from\n        n: int - number of items to pop (default 1)\n        max_heap: bool - True for max-heap, False for min-heap (default)\n        cmp: callable - optional key function for comparison\n        arity: int - heap arity (default 2 for binary heap)\n        nogil: bool - API compatibility parameter\n    \n    Returns:\n        Single item if n=1, list of items if n>1\n    ");
+PyDoc_STRVAR(__pyx_doc_13optimized_pop_2pop, "Pop and return the smallest (or largest) item(s) from heap.");
 static PyMethodDef __pyx_mdef_13optimized_pop_3pop = {"pop", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_13optimized_pop_3pop, __Pyx_METH_FASTCALL|METH_KEYWORDS, __pyx_doc_13optimized_pop_2pop};
 static PyObject *__pyx_pw_13optimized_pop_3pop(PyObject *__pyx_self, 
 #if CYTHON_METH_FASTCALL
@@ -9006,67 +8451,67 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   {
     PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_heap,&__pyx_mstate_global->__pyx_n_u_n,&__pyx_mstate_global->__pyx_n_u_max_heap,&__pyx_mstate_global->__pyx_n_u_cmp,&__pyx_mstate_global->__pyx_n_u_arity,&__pyx_mstate_global->__pyx_n_u_nogil,0};
     const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
-    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 564, __pyx_L3_error)
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 474, __pyx_L3_error)
     if (__pyx_kwds_len > 0) {
       switch (__pyx_nargs) {
         case  6:
         values[5] = __Pyx_ArgRef_FASTCALL(__pyx_args, 5);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 564, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 474, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  5:
         values[4] = __Pyx_ArgRef_FASTCALL(__pyx_args, 4);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 564, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 474, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 564, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 474, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 564, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 474, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 564, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 474, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 564, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 474, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  0: break;
         default: goto __pyx_L5_argtuple_error;
       }
       const Py_ssize_t kwd_pos_args = __pyx_nargs;
-      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "pop", 0) < 0) __PYX_ERR(0, 564, __pyx_L3_error)
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "pop", 0) < 0) __PYX_ERR(0, 474, __pyx_L3_error)
       if (!values[3]) values[3] = __Pyx_NewRef(((PyObject *)Py_None));
       for (Py_ssize_t i = __pyx_nargs; i < 1; i++) {
-        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("pop", 0, 1, 6, i); __PYX_ERR(0, 564, __pyx_L3_error) }
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("pop", 0, 1, 6, i); __PYX_ERR(0, 474, __pyx_L3_error) }
       }
     } else {
       switch (__pyx_nargs) {
         case  6:
         values[5] = __Pyx_ArgRef_FASTCALL(__pyx_args, 5);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 564, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 474, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  5:
         values[4] = __Pyx_ArgRef_FASTCALL(__pyx_args, 4);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 564, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 474, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 564, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 474, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 564, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 474, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 564, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 474, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 564, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 474, __pyx_L3_error)
         break;
         default: goto __pyx_L5_argtuple_error;
       }
@@ -9074,30 +8519,30 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
     }
     __pyx_v_heap = ((PyObject*)values[0]);
     if (values[1]) {
-      __pyx_v_n = __Pyx_PyIndex_AsSsize_t(values[1]); if (unlikely((__pyx_v_n == (Py_ssize_t)-1) && PyErr_Occurred())) __PYX_ERR(0, 564, __pyx_L3_error)
+      __pyx_v_n = __Pyx_PyIndex_AsSsize_t(values[1]); if (unlikely((__pyx_v_n == (Py_ssize_t)-1) && PyErr_Occurred())) __PYX_ERR(0, 474, __pyx_L3_error)
     } else {
       __pyx_v_n = ((Py_ssize_t)((Py_ssize_t)1));
     }
     if (values[2]) {
-      __pyx_v_max_heap = __Pyx_PyObject_IsTrue(values[2]); if (unlikely((__pyx_v_max_heap == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 564, __pyx_L3_error)
+      __pyx_v_max_heap = __Pyx_PyObject_IsTrue(values[2]); if (unlikely((__pyx_v_max_heap == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 474, __pyx_L3_error)
     } else {
       __pyx_v_max_heap = ((int)((int)0));
     }
     __pyx_v_cmp = values[3];
     if (values[4]) {
-      __pyx_v_arity = __Pyx_PyIndex_AsSsize_t(values[4]); if (unlikely((__pyx_v_arity == (Py_ssize_t)-1) && PyErr_Occurred())) __PYX_ERR(0, 564, __pyx_L3_error)
+      __pyx_v_arity = __Pyx_PyIndex_AsSsize_t(values[4]); if (unlikely((__pyx_v_arity == (Py_ssize_t)-1) && PyErr_Occurred())) __PYX_ERR(0, 474, __pyx_L3_error)
     } else {
       __pyx_v_arity = ((Py_ssize_t)((Py_ssize_t)2));
     }
     if (values[5]) {
-      __pyx_v_nogil = __Pyx_PyObject_IsTrue(values[5]); if (unlikely((__pyx_v_nogil == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 564, __pyx_L3_error)
+      __pyx_v_nogil = __Pyx_PyObject_IsTrue(values[5]); if (unlikely((__pyx_v_nogil == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 474, __pyx_L3_error)
     } else {
       __pyx_v_nogil = ((int)((int)0));
     }
   }
   goto __pyx_L6_skip;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("pop", 0, 1, 6, __pyx_nargs); __PYX_ERR(0, 564, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("pop", 0, 1, 6, __pyx_nargs); __PYX_ERR(0, 474, __pyx_L3_error)
   __pyx_L6_skip:;
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L3_error:;
@@ -9108,7 +8553,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_heap), (&PyList_Type), 1, "heap", 1))) __PYX_ERR(0, 564, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_heap), (&PyList_Type), 1, "heap", 1))) __PYX_ERR(0, 474, __pyx_L1_error)
   __pyx_r = __pyx_pf_13optimized_pop_2pop(__pyx_self, __pyx_v_heap, __pyx_v_n, __pyx_v_max_heap, __pyx_v_cmp, __pyx_v_arity, __pyx_v_nogil);
 
   /* function exit code */
@@ -9130,12 +8575,8 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
 
 static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_n, int __pyx_v_max_heap, PyObject *__pyx_v_cmp, Py_ssize_t __pyx_v_arity, CYTHON_UNUSED int __pyx_v_nogil) {
   Py_ssize_t __pyx_v_heap_size;
-  Py_ssize_t __pyx_v_new_size;
-  CYTHON_UNUSED Py_ssize_t __pyx_v_i;
-  PyObject *__pyx_v_result = 0;
-  PyObject *__pyx_v_last = 0;
-  PyObject *__pyx_v_results = 0;
-  int __pyx_v_dtype;
+  PyTypeObject *__pyx_v_t = 0;
+  CYTHON_UNUSED Py_ssize_t __pyx_7genexpr__pyx_v__;
   PyObject *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
   Py_ssize_t __pyx_t_1;
@@ -9148,32 +8589,29 @@ static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_sel
   PyObject *__pyx_t_8 = NULL;
   int __pyx_t_9;
   int __pyx_t_10;
-  int __pyx_t_11;
+  Py_ssize_t __pyx_t_11;
   Py_ssize_t __pyx_t_12;
-  Py_ssize_t __pyx_t_13;
-  Py_ssize_t __pyx_t_14;
-  int __pyx_t_15;
   int __pyx_lineno = 0;
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("pop", 0);
 
-  /* "optimized_pop.pyx":580
- *     """
+  /* "optimized_pop.pyx":477
+ *     """Pop and return the smallest (or largest) item(s) from heap."""
  *     cdef:
  *         Py_ssize_t heap_size = len(heap)             # <<<<<<<<<<<<<<
- *         Py_ssize_t new_size, i
  *         object result, last
+ *         int dtype
 */
   if (unlikely(__pyx_v_heap == Py_None)) {
     PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
-    __PYX_ERR(0, 580, __pyx_L1_error)
+    __PYX_ERR(0, 477, __pyx_L1_error)
   }
-  __pyx_t_1 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_1 == ((Py_ssize_t)-1))) __PYX_ERR(0, 580, __pyx_L1_error)
+  __pyx_t_1 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_1 == ((Py_ssize_t)-1))) __PYX_ERR(0, 477, __pyx_L1_error)
   __pyx_v_heap_size = __pyx_t_1;
 
-  /* "optimized_pop.pyx":586
- *         int dtype
+  /* "optimized_pop.pyx":482
+ *         type t
  * 
  *     if heap_size == 0:             # <<<<<<<<<<<<<<
  *         raise IndexError("pop from empty heap")
@@ -9182,7 +8620,7 @@ static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_sel
   __pyx_t_2 = (__pyx_v_heap_size == 0);
   if (unlikely(__pyx_t_2)) {
 
-    /* "optimized_pop.pyx":587
+    /* "optimized_pop.pyx":483
  * 
  *     if heap_size == 0:
  *         raise IndexError("pop from empty heap")             # <<<<<<<<<<<<<<
@@ -9198,15 +8636,15 @@ static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_sel
       __pyx_t_3 = __Pyx_PyObject_FastCall(__pyx_t_5, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
       __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
       __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 587, __pyx_L1_error)
+      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 483, __pyx_L1_error)
       __Pyx_GOTREF(__pyx_t_3);
     }
     __Pyx_Raise(__pyx_t_3, 0, 0, 0);
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-    __PYX_ERR(0, 587, __pyx_L1_error)
+    __PYX_ERR(0, 483, __pyx_L1_error)
 
-    /* "optimized_pop.pyx":586
- *         int dtype
+    /* "optimized_pop.pyx":482
+ *         type t
  * 
  *     if heap_size == 0:             # <<<<<<<<<<<<<<
  *         raise IndexError("pop from empty heap")
@@ -9214,7 +8652,7 @@ static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_sel
 */
   }
 
-  /* "optimized_pop.pyx":588
+  /* "optimized_pop.pyx":484
  *     if heap_size == 0:
  *         raise IndexError("pop from empty heap")
  *     if n < 1:             # <<<<<<<<<<<<<<
@@ -9224,7 +8662,7 @@ static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_sel
   __pyx_t_2 = (__pyx_v_n < 1);
   if (unlikely(__pyx_t_2)) {
 
-    /* "optimized_pop.pyx":589
+    /* "optimized_pop.pyx":485
  *         raise IndexError("pop from empty heap")
  *     if n < 1:
  *         raise ValueError(f"n must be >= 1, got {n}")             # <<<<<<<<<<<<<<
@@ -9234,9 +8672,9 @@ static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_sel
     __pyx_t_5 = NULL;
     __Pyx_INCREF(__pyx_builtin_ValueError);
     __pyx_t_4 = __pyx_builtin_ValueError; 
-    __pyx_t_7 = __Pyx_PyUnicode_From_Py_ssize_t(__pyx_v_n, 0, ' ', 'd'); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 589, __pyx_L1_error)
+    __pyx_t_7 = __Pyx_PyUnicode_From_Py_ssize_t(__pyx_v_n, 0, ' ', 'd'); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 485, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_7);
-    __pyx_t_8 = __Pyx_PyUnicode_Concat(__pyx_mstate_global->__pyx_kp_u_n_must_be_1_got, __pyx_t_7); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 589, __pyx_L1_error)
+    __pyx_t_8 = __Pyx_PyUnicode_Concat(__pyx_mstate_global->__pyx_kp_u_n_must_be_1_got, __pyx_t_7); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 485, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_8);
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __pyx_t_6 = 1;
@@ -9246,14 +8684,14 @@ static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_sel
       __Pyx_XDECREF(__pyx_t_5); __pyx_t_5 = 0;
       __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
       __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
-      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 589, __pyx_L1_error)
+      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 485, __pyx_L1_error)
       __Pyx_GOTREF(__pyx_t_3);
     }
     __Pyx_Raise(__pyx_t_3, 0, 0, 0);
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-    __PYX_ERR(0, 589, __pyx_L1_error)
+    __PYX_ERR(0, 485, __pyx_L1_error)
 
-    /* "optimized_pop.pyx":588
+    /* "optimized_pop.pyx":484
  *     if heap_size == 0:
  *         raise IndexError("pop from empty heap")
  *     if n < 1:             # <<<<<<<<<<<<<<
@@ -9262,7 +8700,7 @@ static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_sel
 */
   }
 
-  /* "optimized_pop.pyx":590
+  /* "optimized_pop.pyx":486
  *     if n < 1:
  *         raise ValueError(f"n must be >= 1, got {n}")
  *     if arity < 1:             # <<<<<<<<<<<<<<
@@ -9272,7 +8710,7 @@ static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_sel
   __pyx_t_2 = (__pyx_v_arity < 1);
   if (unlikely(__pyx_t_2)) {
 
-    /* "optimized_pop.pyx":591
+    /* "optimized_pop.pyx":487
  *         raise ValueError(f"n must be >= 1, got {n}")
  *     if arity < 1:
  *         raise ValueError(f"arity must be >= 1, got {arity}")             # <<<<<<<<<<<<<<
@@ -9282,9 +8720,9 @@ static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_sel
     __pyx_t_4 = NULL;
     __Pyx_INCREF(__pyx_builtin_ValueError);
     __pyx_t_8 = __pyx_builtin_ValueError; 
-    __pyx_t_5 = __Pyx_PyUnicode_From_Py_ssize_t(__pyx_v_arity, 0, ' ', 'd'); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 591, __pyx_L1_error)
+    __pyx_t_5 = __Pyx_PyUnicode_From_Py_ssize_t(__pyx_v_arity, 0, ' ', 'd'); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 487, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_5);
-    __pyx_t_7 = __Pyx_PyUnicode_Concat(__pyx_mstate_global->__pyx_kp_u_arity_must_be_1_got, __pyx_t_5); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 591, __pyx_L1_error)
+    __pyx_t_7 = __Pyx_PyUnicode_Concat(__pyx_mstate_global->__pyx_kp_u_arity_must_be_1_got, __pyx_t_5); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 487, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_7);
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
     __pyx_t_6 = 1;
@@ -9294,14 +8732,14 @@ static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_sel
       __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
       __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
       __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
-      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 591, __pyx_L1_error)
+      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 487, __pyx_L1_error)
       __Pyx_GOTREF(__pyx_t_3);
     }
     __Pyx_Raise(__pyx_t_3, 0, 0, 0);
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-    __PYX_ERR(0, 591, __pyx_L1_error)
+    __PYX_ERR(0, 487, __pyx_L1_error)
 
-    /* "optimized_pop.pyx":590
+    /* "optimized_pop.pyx":486
  *     if n < 1:
  *         raise ValueError(f"n must be >= 1, got {n}")
  *     if arity < 1:             # <<<<<<<<<<<<<<
@@ -9310,7 +8748,7 @@ static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_sel
 */
   }
 
-  /* "optimized_pop.pyx":592
+  /* "optimized_pop.pyx":488
  *     if arity < 1:
  *         raise ValueError(f"arity must be >= 1, got {arity}")
  *     if cmp is not None and not callable(cmp):             # <<<<<<<<<<<<<<
@@ -9323,13 +8761,13 @@ static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_sel
     __pyx_t_2 = __pyx_t_9;
     goto __pyx_L7_bool_binop_done;
   }
-  __pyx_t_9 = __Pyx_PyCallable_Check(__pyx_v_cmp); if (unlikely(__pyx_t_9 == ((int)-1))) __PYX_ERR(0, 592, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyCallable_Check(__pyx_v_cmp); if (unlikely(__pyx_t_9 == ((int)-1))) __PYX_ERR(0, 488, __pyx_L1_error)
   __pyx_t_10 = (!__pyx_t_9);
   __pyx_t_2 = __pyx_t_10;
   __pyx_L7_bool_binop_done:;
   if (unlikely(__pyx_t_2)) {
 
-    /* "optimized_pop.pyx":593
+    /* "optimized_pop.pyx":489
  *         raise ValueError(f"arity must be >= 1, got {arity}")
  *     if cmp is not None and not callable(cmp):
  *         raise TypeError("cmp must be callable or None")             # <<<<<<<<<<<<<<
@@ -9345,14 +8783,14 @@ static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_sel
       __pyx_t_3 = __Pyx_PyObject_FastCall(__pyx_t_7, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
       __Pyx_XDECREF(__pyx_t_8); __pyx_t_8 = 0;
       __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 593, __pyx_L1_error)
+      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 489, __pyx_L1_error)
       __Pyx_GOTREF(__pyx_t_3);
     }
     __Pyx_Raise(__pyx_t_3, 0, 0, 0);
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-    __PYX_ERR(0, 593, __pyx_L1_error)
+    __PYX_ERR(0, 489, __pyx_L1_error)
 
-    /* "optimized_pop.pyx":592
+    /* "optimized_pop.pyx":488
  *     if arity < 1:
  *         raise ValueError(f"arity must be >= 1, got {arity}")
  *     if cmp is not None and not callable(cmp):             # <<<<<<<<<<<<<<
@@ -9361,7 +8799,7 @@ static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_sel
 */
   }
 
-  /* "optimized_pop.pyx":595
+  /* "optimized_pop.pyx":491
  *         raise TypeError("cmp must be callable or None")
  * 
  *     if n > heap_size:             # <<<<<<<<<<<<<<
@@ -9371,16 +8809,16 @@ static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_sel
   __pyx_t_2 = (__pyx_v_n > __pyx_v_heap_size);
   if (__pyx_t_2) {
 
-    /* "optimized_pop.pyx":596
+    /* "optimized_pop.pyx":492
  * 
  *     if n > heap_size:
  *         n = heap_size             # <<<<<<<<<<<<<<
  * 
- *     # SINGLE POP
+ *     # FAST PATH: min-heap with binary arity and no key function
 */
     __pyx_v_n = __pyx_v_heap_size;
 
-    /* "optimized_pop.pyx":595
+    /* "optimized_pop.pyx":491
  *         raise TypeError("cmp must be callable or None")
  * 
  *     if n > heap_size:             # <<<<<<<<<<<<<<
@@ -9389,849 +8827,259 @@ static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_sel
 */
   }
 
-  /* "optimized_pop.pyx":599
+  /* "optimized_pop.pyx":495
  * 
- *     # SINGLE POP
+ *     # FAST PATH: min-heap with binary arity and no key function
+ *     if cmp is None and arity == 2 and not max_heap:             # <<<<<<<<<<<<<<
+ *         # Quick type check - if not int/float/bool, delegate to heapq immediately
+ *         t = type(heap[0])
+*/
+  __pyx_t_10 = (__pyx_v_cmp == Py_None);
+  if (__pyx_t_10) {
+  } else {
+    __pyx_t_2 = __pyx_t_10;
+    goto __pyx_L11_bool_binop_done;
+  }
+  __pyx_t_10 = (__pyx_v_arity == 2);
+  if (__pyx_t_10) {
+  } else {
+    __pyx_t_2 = __pyx_t_10;
+    goto __pyx_L11_bool_binop_done;
+  }
+  __pyx_t_10 = (!__pyx_v_max_heap);
+  __pyx_t_2 = __pyx_t_10;
+  __pyx_L11_bool_binop_done:;
+  if (__pyx_t_2) {
+
+    /* "optimized_pop.pyx":497
+ *     if cmp is None and arity == 2 and not max_heap:
+ *         # Quick type check - if not int/float/bool, delegate to heapq immediately
+ *         t = type(heap[0])             # <<<<<<<<<<<<<<
+ *         if t is not int and t is not float and t is not bool:
+ *             if n == 1:
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 497, __pyx_L1_error)
+    }
+    __Pyx_INCREF(((PyObject *)Py_TYPE(__Pyx_PyList_GET_ITEM(__pyx_v_heap, 0))));
+    __pyx_v_t = ((PyTypeObject*)((PyObject *)Py_TYPE(__Pyx_PyList_GET_ITEM(__pyx_v_heap, 0))));
+
+    /* "optimized_pop.pyx":498
+ *         # Quick type check - if not int/float/bool, delegate to heapq immediately
+ *         t = type(heap[0])
+ *         if t is not int and t is not float and t is not bool:             # <<<<<<<<<<<<<<
+ *             if n == 1:
+ *                 return _heapq.heappop(heap)
+*/
+    __pyx_t_10 = (__pyx_v_t != (&PyLong_Type));
+    if (__pyx_t_10) {
+    } else {
+      __pyx_t_2 = __pyx_t_10;
+      goto __pyx_L15_bool_binop_done;
+    }
+    __pyx_t_10 = (__pyx_v_t != (&PyFloat_Type));
+    if (__pyx_t_10) {
+    } else {
+      __pyx_t_2 = __pyx_t_10;
+      goto __pyx_L15_bool_binop_done;
+    }
+    __pyx_t_10 = (__pyx_v_t != ((PyTypeObject*)((PyObject*)&PyBool_Type)));
+    __pyx_t_2 = __pyx_t_10;
+    __pyx_L15_bool_binop_done:;
+    if (__pyx_t_2) {
+
+      /* "optimized_pop.pyx":499
+ *         t = type(heap[0])
+ *         if t is not int and t is not float and t is not bool:
+ *             if n == 1:             # <<<<<<<<<<<<<<
+ *                 return _heapq.heappop(heap)
+ *             else:
+*/
+      __pyx_t_2 = (__pyx_v_n == 1);
+      if (__pyx_t_2) {
+
+        /* "optimized_pop.pyx":500
+ *         if t is not int and t is not float and t is not bool:
+ *             if n == 1:
+ *                 return _heapq.heappop(heap)             # <<<<<<<<<<<<<<
+ *             else:
+ *                 return [_heapq.heappop(heap) for _ in range(min(n, len(heap)))]
+*/
+        __Pyx_XDECREF(__pyx_r);
+        __pyx_t_7 = NULL;
+        __Pyx_GetModuleGlobalName(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_heapq); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 500, __pyx_L1_error)
+        __Pyx_GOTREF(__pyx_t_8);
+        __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_heappop); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 500, __pyx_L1_error)
+        __Pyx_GOTREF(__pyx_t_4);
+        __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
+        __pyx_t_6 = 1;
+        #if CYTHON_UNPACK_METHODS
+        if (unlikely(PyMethod_Check(__pyx_t_4))) {
+          __pyx_t_7 = PyMethod_GET_SELF(__pyx_t_4);
+          assert(__pyx_t_7);
+          PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_4);
+          __Pyx_INCREF(__pyx_t_7);
+          __Pyx_INCREF(__pyx__function);
+          __Pyx_DECREF_SET(__pyx_t_4, __pyx__function);
+          __pyx_t_6 = 0;
+        }
+        #endif
+        {
+          PyObject *__pyx_callargs[2] = {__pyx_t_7, __pyx_v_heap};
+          __pyx_t_3 = __Pyx_PyObject_FastCall(__pyx_t_4, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+          __Pyx_XDECREF(__pyx_t_7); __pyx_t_7 = 0;
+          __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+          if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 500, __pyx_L1_error)
+          __Pyx_GOTREF(__pyx_t_3);
+        }
+        __pyx_r = __pyx_t_3;
+        __pyx_t_3 = 0;
+        goto __pyx_L0;
+
+        /* "optimized_pop.pyx":499
+ *         t = type(heap[0])
+ *         if t is not int and t is not float and t is not bool:
+ *             if n == 1:             # <<<<<<<<<<<<<<
+ *                 return _heapq.heappop(heap)
+ *             else:
+*/
+      }
+
+      /* "optimized_pop.pyx":502
+ *                 return _heapq.heappop(heap)
+ *             else:
+ *                 return [_heapq.heappop(heap) for _ in range(min(n, len(heap)))]             # <<<<<<<<<<<<<<
+ * 
+ *     # Single pop
+*/
+      /*else*/ {
+        __Pyx_XDECREF(__pyx_r);
+        { /* enter inner scope */
+          __pyx_t_3 = PyList_New(0); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 502, __pyx_L1_error)
+          __Pyx_GOTREF(__pyx_t_3);
+          if (unlikely(__pyx_v_heap == Py_None)) {
+            PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
+            __PYX_ERR(0, 502, __pyx_L1_error)
+          }
+          __pyx_t_1 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_1 == ((Py_ssize_t)-1))) __PYX_ERR(0, 502, __pyx_L1_error)
+          __pyx_t_11 = __pyx_v_n;
+          __pyx_t_2 = (__pyx_t_1 < __pyx_t_11);
+          if (__pyx_t_2) {
+            __pyx_t_12 = __pyx_t_1;
+          } else {
+            __pyx_t_12 = __pyx_t_11;
+          }
+          __pyx_t_1 = __pyx_t_12;
+          __pyx_t_12 = __pyx_t_1;
+          for (__pyx_t_11 = 0; __pyx_t_11 < __pyx_t_12; __pyx_t_11+=1) {
+            __pyx_7genexpr__pyx_v__ = __pyx_t_11;
+            __pyx_t_7 = NULL;
+            __Pyx_GetModuleGlobalName(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_heapq); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 502, __pyx_L1_error)
+            __Pyx_GOTREF(__pyx_t_8);
+            __pyx_t_5 = __Pyx_PyObject_GetAttrStr(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_heappop); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 502, __pyx_L1_error)
+            __Pyx_GOTREF(__pyx_t_5);
+            __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
+            __pyx_t_6 = 1;
+            #if CYTHON_UNPACK_METHODS
+            if (unlikely(PyMethod_Check(__pyx_t_5))) {
+              __pyx_t_7 = PyMethod_GET_SELF(__pyx_t_5);
+              assert(__pyx_t_7);
+              PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_5);
+              __Pyx_INCREF(__pyx_t_7);
+              __Pyx_INCREF(__pyx__function);
+              __Pyx_DECREF_SET(__pyx_t_5, __pyx__function);
+              __pyx_t_6 = 0;
+            }
+            #endif
+            {
+              PyObject *__pyx_callargs[2] = {__pyx_t_7, __pyx_v_heap};
+              __pyx_t_4 = __Pyx_PyObject_FastCall(__pyx_t_5, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+              __Pyx_XDECREF(__pyx_t_7); __pyx_t_7 = 0;
+              __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+              if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 502, __pyx_L1_error)
+              __Pyx_GOTREF(__pyx_t_4);
+            }
+            if (unlikely(__Pyx_ListComp_Append(__pyx_t_3, (PyObject*)__pyx_t_4))) __PYX_ERR(0, 502, __pyx_L1_error)
+            __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+          }
+        } /* exit inner scope */
+        __pyx_r = __pyx_t_3;
+        __pyx_t_3 = 0;
+        goto __pyx_L0;
+      }
+
+      /* "optimized_pop.pyx":498
+ *         # Quick type check - if not int/float/bool, delegate to heapq immediately
+ *         t = type(heap[0])
+ *         if t is not int and t is not float and t is not bool:             # <<<<<<<<<<<<<<
+ *             if n == 1:
+ *                 return _heapq.heappop(heap)
+*/
+    }
+
+    /* "optimized_pop.pyx":495
+ * 
+ *     # FAST PATH: min-heap with binary arity and no key function
+ *     if cmp is None and arity == 2 and not max_heap:             # <<<<<<<<<<<<<<
+ *         # Quick type check - if not int/float/bool, delegate to heapq immediately
+ *         t = type(heap[0])
+*/
+  }
+
+  /* "optimized_pop.pyx":505
+ * 
+ *     # Single pop
  *     if n == 1:             # <<<<<<<<<<<<<<
- *         result = heap[0]
- *         if heap_size == 1:
+ *         return _pop_single_opt(heap, max_heap, cmp, arity)
+ * 
 */
   __pyx_t_2 = (__pyx_v_n == 1);
   if (__pyx_t_2) {
 
-    /* "optimized_pop.pyx":600
- *     # SINGLE POP
+    /* "optimized_pop.pyx":506
+ *     # Single pop
  *     if n == 1:
- *         result = heap[0]             # <<<<<<<<<<<<<<
- *         if heap_size == 1:
- *             heap.pop()
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 600, __pyx_L1_error)
-    }
-    __pyx_t_3 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, 0);
-    __Pyx_INCREF(__pyx_t_3);
-    __pyx_v_result = __pyx_t_3;
-    __pyx_t_3 = 0;
-
-    /* "optimized_pop.pyx":601
- *     if n == 1:
- *         result = heap[0]
- *         if heap_size == 1:             # <<<<<<<<<<<<<<
- *             heap.pop()
- *             return result
-*/
-    __pyx_t_2 = (__pyx_v_heap_size == 1);
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":602
- *         result = heap[0]
- *         if heap_size == 1:
- *             heap.pop()             # <<<<<<<<<<<<<<
- *             return result
- *         if arity == 1:
-*/
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "pop");
-        __PYX_ERR(0, 602, __pyx_L1_error)
-      }
-      __pyx_t_3 = __Pyx_PyList_Pop(__pyx_v_heap); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 602, __pyx_L1_error)
-      __Pyx_GOTREF(__pyx_t_3);
-      __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-
-      /* "optimized_pop.pyx":603
- *         if heap_size == 1:
- *             heap.pop()
- *             return result             # <<<<<<<<<<<<<<
- *         if arity == 1:
- *             del heap[0]
-*/
-      __Pyx_XDECREF(__pyx_r);
-      __Pyx_INCREF(__pyx_v_result);
-      __pyx_r = __pyx_v_result;
-      goto __pyx_L0;
-
-      /* "optimized_pop.pyx":601
- *     if n == 1:
- *         result = heap[0]
- *         if heap_size == 1:             # <<<<<<<<<<<<<<
- *             heap.pop()
- *             return result
-*/
-    }
-
-    /* "optimized_pop.pyx":604
- *             heap.pop()
- *             return result
- *         if arity == 1:             # <<<<<<<<<<<<<<
- *             del heap[0]
- *             return result
-*/
-    __pyx_t_2 = (__pyx_v_arity == 1);
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":605
- *             return result
- *         if arity == 1:
- *             del heap[0]             # <<<<<<<<<<<<<<
- *             return result
+ *         return _pop_single_opt(heap, max_heap, cmp, arity)             # <<<<<<<<<<<<<<
  * 
-*/
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-        __PYX_ERR(0, 605, __pyx_L1_error)
-      }
-      if (unlikely((__Pyx_DelItemInt(__pyx_v_heap, 0, long, 1, __Pyx_PyLong_From_long, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 605, __pyx_L1_error)
-
-      /* "optimized_pop.pyx":606
- *         if arity == 1:
- *             del heap[0]
- *             return result             # <<<<<<<<<<<<<<
- * 
- *         last = heap.pop()
-*/
-      __Pyx_XDECREF(__pyx_r);
-      __Pyx_INCREF(__pyx_v_result);
-      __pyx_r = __pyx_v_result;
-      goto __pyx_L0;
-
-      /* "optimized_pop.pyx":604
- *             heap.pop()
- *             return result
- *         if arity == 1:             # <<<<<<<<<<<<<<
- *             del heap[0]
- *             return result
-*/
-    }
-
-    /* "optimized_pop.pyx":608
- *             return result
- * 
- *         last = heap.pop()             # <<<<<<<<<<<<<<
- *         heap[0] = last
- *         new_size = heap_size - 1
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "pop");
-      __PYX_ERR(0, 608, __pyx_L1_error)
-    }
-    __pyx_t_3 = __Pyx_PyList_Pop(__pyx_v_heap); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 608, __pyx_L1_error)
-    __Pyx_GOTREF(__pyx_t_3);
-    __pyx_v_last = __pyx_t_3;
-    __pyx_t_3 = 0;
-
-    /* "optimized_pop.pyx":609
- * 
- *         last = heap.pop()
- *         heap[0] = last             # <<<<<<<<<<<<<<
- *         new_size = heap_size - 1
- * 
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 609, __pyx_L1_error)
-    }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, 0, __pyx_v_last, long, 1, __Pyx_PyLong_From_long, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 609, __pyx_L1_error)
-
-    /* "optimized_pop.pyx":610
- *         last = heap.pop()
- *         heap[0] = last
- *         new_size = heap_size - 1             # <<<<<<<<<<<<<<
- * 
- *         if cmp is not None:
-*/
-    __pyx_v_new_size = (__pyx_v_heap_size - 1);
-
-    /* "optimized_pop.pyx":612
- *         new_size = heap_size - 1
- * 
- *         if cmp is not None:             # <<<<<<<<<<<<<<
- *             if arity == 2:
- *                 if max_heap:
-*/
-    __pyx_t_2 = (__pyx_v_cmp != Py_None);
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":613
- * 
- *         if cmp is not None:
- *             if arity == 2:             # <<<<<<<<<<<<<<
- *                 if max_heap:
- *                     sift_down_with_key_max(heap, 0, new_size, cmp)
-*/
-      __pyx_t_2 = (__pyx_v_arity == 2);
-      if (__pyx_t_2) {
-
-        /* "optimized_pop.pyx":614
- *         if cmp is not None:
- *             if arity == 2:
- *                 if max_heap:             # <<<<<<<<<<<<<<
- *                     sift_down_with_key_max(heap, 0, new_size, cmp)
- *                 else:
-*/
-        if (__pyx_v_max_heap) {
-
-          /* "optimized_pop.pyx":615
- *             if arity == 2:
- *                 if max_heap:
- *                     sift_down_with_key_max(heap, 0, new_size, cmp)             # <<<<<<<<<<<<<<
- *                 else:
- *                     sift_down_with_key_min(heap, 0, new_size, cmp)
-*/
-          __pyx_f_13optimized_pop_sift_down_with_key_max(__pyx_v_heap, 0, __pyx_v_new_size, __pyx_v_cmp); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 615, __pyx_L1_error)
-
-          /* "optimized_pop.pyx":614
- *         if cmp is not None:
- *             if arity == 2:
- *                 if max_heap:             # <<<<<<<<<<<<<<
- *                     sift_down_with_key_max(heap, 0, new_size, cmp)
- *                 else:
-*/
-          goto __pyx_L15;
-        }
-
-        /* "optimized_pop.pyx":617
- *                     sift_down_with_key_max(heap, 0, new_size, cmp)
- *                 else:
- *                     sift_down_with_key_min(heap, 0, new_size, cmp)             # <<<<<<<<<<<<<<
- *             else:
- *                 if max_heap:
-*/
-        /*else*/ {
-          __pyx_f_13optimized_pop_sift_down_with_key_min(__pyx_v_heap, 0, __pyx_v_new_size, __pyx_v_cmp); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 617, __pyx_L1_error)
-        }
-        __pyx_L15:;
-
-        /* "optimized_pop.pyx":613
- * 
- *         if cmp is not None:
- *             if arity == 2:             # <<<<<<<<<<<<<<
- *                 if max_heap:
- *                     sift_down_with_key_max(heap, 0, new_size, cmp)
-*/
-        goto __pyx_L14;
-      }
-
-      /* "optimized_pop.pyx":619
- *                     sift_down_with_key_min(heap, 0, new_size, cmp)
- *             else:
- *                 if max_heap:             # <<<<<<<<<<<<<<
- *                     sift_down_nary_key_max(heap, 0, new_size, arity, cmp)
- *                 else:
-*/
-      /*else*/ {
-        if (__pyx_v_max_heap) {
-
-          /* "optimized_pop.pyx":620
- *             else:
- *                 if max_heap:
- *                     sift_down_nary_key_max(heap, 0, new_size, arity, cmp)             # <<<<<<<<<<<<<<
- *                 else:
- *                     sift_down_nary_key_min(heap, 0, new_size, arity, cmp)
-*/
-          __pyx_f_13optimized_pop_sift_down_nary_key_max(__pyx_v_heap, 0, __pyx_v_new_size, __pyx_v_arity, __pyx_v_cmp); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 620, __pyx_L1_error)
-
-          /* "optimized_pop.pyx":619
- *                     sift_down_with_key_min(heap, 0, new_size, cmp)
- *             else:
- *                 if max_heap:             # <<<<<<<<<<<<<<
- *                     sift_down_nary_key_max(heap, 0, new_size, arity, cmp)
- *                 else:
-*/
-          goto __pyx_L16;
-        }
-
-        /* "optimized_pop.pyx":622
- *                     sift_down_nary_key_max(heap, 0, new_size, arity, cmp)
- *                 else:
- *                     sift_down_nary_key_min(heap, 0, new_size, arity, cmp)             # <<<<<<<<<<<<<<
- *         elif arity == 2:
- *             dtype = detect_type(heap, new_size)
-*/
-        /*else*/ {
-          __pyx_f_13optimized_pop_sift_down_nary_key_min(__pyx_v_heap, 0, __pyx_v_new_size, __pyx_v_arity, __pyx_v_cmp); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 622, __pyx_L1_error)
-        }
-        __pyx_L16:;
-      }
-      __pyx_L14:;
-
-      /* "optimized_pop.pyx":612
- *         new_size = heap_size - 1
- * 
- *         if cmp is not None:             # <<<<<<<<<<<<<<
- *             if arity == 2:
- *                 if max_heap:
-*/
-      goto __pyx_L13;
-    }
-
-    /* "optimized_pop.pyx":623
- *                 else:
- *                     sift_down_nary_key_min(heap, 0, new_size, arity, cmp)
- *         elif arity == 2:             # <<<<<<<<<<<<<<
- *             dtype = detect_type(heap, new_size)
- *             dispatch_sift_down(heap, 0, new_size, max_heap, dtype)
-*/
-    __pyx_t_2 = (__pyx_v_arity == 2);
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":624
- *                     sift_down_nary_key_min(heap, 0, new_size, arity, cmp)
- *         elif arity == 2:
- *             dtype = detect_type(heap, new_size)             # <<<<<<<<<<<<<<
- *             dispatch_sift_down(heap, 0, new_size, max_heap, dtype)
- *         else:
-*/
-      __pyx_v_dtype = __pyx_f_13optimized_pop_detect_type(__pyx_v_heap, __pyx_v_new_size);
-
-      /* "optimized_pop.pyx":625
- *         elif arity == 2:
- *             dtype = detect_type(heap, new_size)
- *             dispatch_sift_down(heap, 0, new_size, max_heap, dtype)             # <<<<<<<<<<<<<<
- *         else:
- *             if max_heap:
-*/
-      __pyx_f_13optimized_pop_dispatch_sift_down(__pyx_v_heap, 0, __pyx_v_new_size, __pyx_v_max_heap, __pyx_v_dtype); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 625, __pyx_L1_error)
-
-      /* "optimized_pop.pyx":623
- *                 else:
- *                     sift_down_nary_key_min(heap, 0, new_size, arity, cmp)
- *         elif arity == 2:             # <<<<<<<<<<<<<<
- *             dtype = detect_type(heap, new_size)
- *             dispatch_sift_down(heap, 0, new_size, max_heap, dtype)
-*/
-      goto __pyx_L13;
-    }
-
-    /* "optimized_pop.pyx":627
- *             dispatch_sift_down(heap, 0, new_size, max_heap, dtype)
- *         else:
- *             if max_heap:             # <<<<<<<<<<<<<<
- *                 sift_down_nary_max(heap, 0, new_size, arity)
- *             else:
-*/
-    /*else*/ {
-      if (__pyx_v_max_heap) {
-
-        /* "optimized_pop.pyx":628
- *         else:
- *             if max_heap:
- *                 sift_down_nary_max(heap, 0, new_size, arity)             # <<<<<<<<<<<<<<
- *             else:
- *                 sift_down_nary_min(heap, 0, new_size, arity)
-*/
-        __pyx_f_13optimized_pop_sift_down_nary_max(__pyx_v_heap, 0, __pyx_v_new_size, __pyx_v_arity); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 628, __pyx_L1_error)
-
-        /* "optimized_pop.pyx":627
- *             dispatch_sift_down(heap, 0, new_size, max_heap, dtype)
- *         else:
- *             if max_heap:             # <<<<<<<<<<<<<<
- *                 sift_down_nary_max(heap, 0, new_size, arity)
- *             else:
-*/
-        goto __pyx_L17;
-      }
-
-      /* "optimized_pop.pyx":630
- *                 sift_down_nary_max(heap, 0, new_size, arity)
- *             else:
- *                 sift_down_nary_min(heap, 0, new_size, arity)             # <<<<<<<<<<<<<<
- *         return result
- * 
-*/
-      /*else*/ {
-        __pyx_f_13optimized_pop_sift_down_nary_min(__pyx_v_heap, 0, __pyx_v_new_size, __pyx_v_arity); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 630, __pyx_L1_error)
-      }
-      __pyx_L17:;
-    }
-    __pyx_L13:;
-
-    /* "optimized_pop.pyx":631
- *             else:
- *                 sift_down_nary_min(heap, 0, new_size, arity)
- *         return result             # <<<<<<<<<<<<<<
- * 
- *     # BULK POP
+ *     # Bulk pop
 */
     __Pyx_XDECREF(__pyx_r);
-    __Pyx_INCREF(__pyx_v_result);
-    __pyx_r = __pyx_v_result;
+    __pyx_t_3 = __pyx_f_13optimized_pop__pop_single_opt(__pyx_v_heap, __pyx_v_max_heap, __pyx_v_cmp, __pyx_v_arity); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 506, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_3);
+    __pyx_r = __pyx_t_3;
+    __pyx_t_3 = 0;
     goto __pyx_L0;
 
-    /* "optimized_pop.pyx":599
+    /* "optimized_pop.pyx":505
  * 
- *     # SINGLE POP
+ *     # Single pop
  *     if n == 1:             # <<<<<<<<<<<<<<
- *         result = heap[0]
- *         if heap_size == 1:
+ *         return _pop_single_opt(heap, max_heap, cmp, arity)
+ * 
 */
   }
 
-  /* "optimized_pop.pyx":634
+  /* "optimized_pop.pyx":509
  * 
- *     # BULK POP
- *     if arity == 1:             # <<<<<<<<<<<<<<
- *         results = heap[:n]
- *         del heap[:n]
-*/
-  __pyx_t_2 = (__pyx_v_arity == 1);
-  if (__pyx_t_2) {
-
-    /* "optimized_pop.pyx":635
- *     # BULK POP
- *     if arity == 1:
- *         results = heap[:n]             # <<<<<<<<<<<<<<
- *         del heap[:n]
- *         return results
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 635, __pyx_L1_error)
-    }
-    __pyx_t_3 = __Pyx_PyList_GetSlice(__pyx_v_heap, 0, __pyx_v_n); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 635, __pyx_L1_error)
-    __Pyx_GOTREF(__pyx_t_3);
-    __pyx_v_results = ((PyObject*)__pyx_t_3);
-    __pyx_t_3 = 0;
-
-    /* "optimized_pop.pyx":636
- *     if arity == 1:
- *         results = heap[:n]
- *         del heap[:n]             # <<<<<<<<<<<<<<
- *         return results
+ *     # Bulk pop
+ *     return _pop_bulk_opt(heap, n, max_heap, cmp, arity)             # <<<<<<<<<<<<<<
  * 
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 636, __pyx_L1_error)
-    }
-    if (__Pyx_PyObject_DelSlice(__pyx_v_heap, 0, __pyx_v_n, NULL, NULL, NULL, 0, 1, 0) < 0) __PYX_ERR(0, 636, __pyx_L1_error)
-
-    /* "optimized_pop.pyx":637
- *         results = heap[:n]
- *         del heap[:n]
- *         return results             # <<<<<<<<<<<<<<
- * 
- *     results = []
-*/
-    __Pyx_XDECREF(__pyx_r);
-    __Pyx_INCREF(__pyx_v_results);
-    __pyx_r = __pyx_v_results;
-    goto __pyx_L0;
-
-    /* "optimized_pop.pyx":634
- * 
- *     # BULK POP
- *     if arity == 1:             # <<<<<<<<<<<<<<
- *         results = heap[:n]
- *         del heap[:n]
-*/
-  }
-
-  /* "optimized_pop.pyx":639
- *         return results
- * 
- *     results = []             # <<<<<<<<<<<<<<
- *     dtype = detect_type(heap, heap_size) if cmp is None else TYPE_OTHER
- * 
-*/
-  __pyx_t_3 = PyList_New(0); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 639, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_3);
-  __pyx_v_results = ((PyObject*)__pyx_t_3);
-  __pyx_t_3 = 0;
-
-  /* "optimized_pop.pyx":640
- * 
- *     results = []
- *     dtype = detect_type(heap, heap_size) if cmp is None else TYPE_OTHER             # <<<<<<<<<<<<<<
- * 
- *     for i in range(n):
-*/
-  __pyx_t_2 = (__pyx_v_cmp == Py_None);
-  if (__pyx_t_2) {
-    __pyx_t_11 = __pyx_f_13optimized_pop_detect_type(__pyx_v_heap, __pyx_v_heap_size);
-  } else {
-    __pyx_t_11 = 5;
-  }
-  __pyx_v_dtype = __pyx_t_11;
-
-  /* "optimized_pop.pyx":642
- *     dtype = detect_type(heap, heap_size) if cmp is None else TYPE_OTHER
- * 
- *     for i in range(n):             # <<<<<<<<<<<<<<
- *         if len(heap) == 0:
- *             break
-*/
-  __pyx_t_1 = __pyx_v_n;
-  __pyx_t_12 = __pyx_t_1;
-  for (__pyx_t_13 = 0; __pyx_t_13 < __pyx_t_12; __pyx_t_13+=1) {
-    __pyx_v_i = __pyx_t_13;
-
-    /* "optimized_pop.pyx":643
- * 
- *     for i in range(n):
- *         if len(heap) == 0:             # <<<<<<<<<<<<<<
- *             break
- *         result = heap[0]
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
-      __PYX_ERR(0, 643, __pyx_L1_error)
-    }
-    __pyx_t_14 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_14 == ((Py_ssize_t)-1))) __PYX_ERR(0, 643, __pyx_L1_error)
-    __pyx_t_2 = (__pyx_t_14 == 0);
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":644
- *     for i in range(n):
- *         if len(heap) == 0:
- *             break             # <<<<<<<<<<<<<<
- *         result = heap[0]
- *         results.append(result)
-*/
-      goto __pyx_L20_break;
-
-      /* "optimized_pop.pyx":643
- * 
- *     for i in range(n):
- *         if len(heap) == 0:             # <<<<<<<<<<<<<<
- *             break
- *         result = heap[0]
-*/
-    }
-
-    /* "optimized_pop.pyx":645
- *         if len(heap) == 0:
- *             break
- *         result = heap[0]             # <<<<<<<<<<<<<<
- *         results.append(result)
- *         if len(heap) == 1:
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 645, __pyx_L1_error)
-    }
-    __pyx_t_3 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, 0);
-    __Pyx_INCREF(__pyx_t_3);
-    __Pyx_XDECREF_SET(__pyx_v_result, __pyx_t_3);
-    __pyx_t_3 = 0;
-
-    /* "optimized_pop.pyx":646
- *             break
- *         result = heap[0]
- *         results.append(result)             # <<<<<<<<<<<<<<
- *         if len(heap) == 1:
- *             heap.pop()
-*/
-    __pyx_t_15 = __Pyx_PyList_Append(__pyx_v_results, __pyx_v_result); if (unlikely(__pyx_t_15 == ((int)-1))) __PYX_ERR(0, 646, __pyx_L1_error)
-
-    /* "optimized_pop.pyx":647
- *         result = heap[0]
- *         results.append(result)
- *         if len(heap) == 1:             # <<<<<<<<<<<<<<
- *             heap.pop()
- *             continue
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
-      __PYX_ERR(0, 647, __pyx_L1_error)
-    }
-    __pyx_t_14 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_14 == ((Py_ssize_t)-1))) __PYX_ERR(0, 647, __pyx_L1_error)
-    __pyx_t_2 = (__pyx_t_14 == 1);
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":648
- *         results.append(result)
- *         if len(heap) == 1:
- *             heap.pop()             # <<<<<<<<<<<<<<
- *             continue
- *         last = heap.pop()
-*/
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "pop");
-        __PYX_ERR(0, 648, __pyx_L1_error)
-      }
-      __pyx_t_3 = __Pyx_PyList_Pop(__pyx_v_heap); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 648, __pyx_L1_error)
-      __Pyx_GOTREF(__pyx_t_3);
-      __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-
-      /* "optimized_pop.pyx":649
- *         if len(heap) == 1:
- *             heap.pop()
- *             continue             # <<<<<<<<<<<<<<
- *         last = heap.pop()
- *         heap[0] = last
-*/
-      goto __pyx_L19_continue;
-
-      /* "optimized_pop.pyx":647
- *         result = heap[0]
- *         results.append(result)
- *         if len(heap) == 1:             # <<<<<<<<<<<<<<
- *             heap.pop()
- *             continue
-*/
-    }
-
-    /* "optimized_pop.pyx":650
- *             heap.pop()
- *             continue
- *         last = heap.pop()             # <<<<<<<<<<<<<<
- *         heap[0] = last
- *         new_size = len(heap)
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "pop");
-      __PYX_ERR(0, 650, __pyx_L1_error)
-    }
-    __pyx_t_3 = __Pyx_PyList_Pop(__pyx_v_heap); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 650, __pyx_L1_error)
-    __Pyx_GOTREF(__pyx_t_3);
-    __Pyx_XDECREF_SET(__pyx_v_last, __pyx_t_3);
-    __pyx_t_3 = 0;
-
-    /* "optimized_pop.pyx":651
- *             continue
- *         last = heap.pop()
- *         heap[0] = last             # <<<<<<<<<<<<<<
- *         new_size = len(heap)
- * 
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-      __PYX_ERR(0, 651, __pyx_L1_error)
-    }
-    if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, 0, __pyx_v_last, long, 1, __Pyx_PyLong_From_long, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 651, __pyx_L1_error)
-
-    /* "optimized_pop.pyx":652
- *         last = heap.pop()
- *         heap[0] = last
- *         new_size = len(heap)             # <<<<<<<<<<<<<<
- * 
- *         if cmp is not None:
-*/
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
-      __PYX_ERR(0, 652, __pyx_L1_error)
-    }
-    __pyx_t_14 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_14 == ((Py_ssize_t)-1))) __PYX_ERR(0, 652, __pyx_L1_error)
-    __pyx_v_new_size = __pyx_t_14;
-
-    /* "optimized_pop.pyx":654
- *         new_size = len(heap)
- * 
- *         if cmp is not None:             # <<<<<<<<<<<<<<
- *             if arity == 2:
- *                 if max_heap:
-*/
-    __pyx_t_2 = (__pyx_v_cmp != Py_None);
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":655
- * 
- *         if cmp is not None:
- *             if arity == 2:             # <<<<<<<<<<<<<<
- *                 if max_heap:
- *                     sift_down_with_key_max(heap, 0, new_size, cmp)
-*/
-      __pyx_t_2 = (__pyx_v_arity == 2);
-      if (__pyx_t_2) {
-
-        /* "optimized_pop.pyx":656
- *         if cmp is not None:
- *             if arity == 2:
- *                 if max_heap:             # <<<<<<<<<<<<<<
- *                     sift_down_with_key_max(heap, 0, new_size, cmp)
- *                 else:
-*/
-        if (__pyx_v_max_heap) {
-
-          /* "optimized_pop.pyx":657
- *             if arity == 2:
- *                 if max_heap:
- *                     sift_down_with_key_max(heap, 0, new_size, cmp)             # <<<<<<<<<<<<<<
- *                 else:
- *                     sift_down_with_key_min(heap, 0, new_size, cmp)
-*/
-          __pyx_f_13optimized_pop_sift_down_with_key_max(__pyx_v_heap, 0, __pyx_v_new_size, __pyx_v_cmp); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 657, __pyx_L1_error)
-
-          /* "optimized_pop.pyx":656
- *         if cmp is not None:
- *             if arity == 2:
- *                 if max_heap:             # <<<<<<<<<<<<<<
- *                     sift_down_with_key_max(heap, 0, new_size, cmp)
- *                 else:
-*/
-          goto __pyx_L25;
-        }
-
-        /* "optimized_pop.pyx":659
- *                     sift_down_with_key_max(heap, 0, new_size, cmp)
- *                 else:
- *                     sift_down_with_key_min(heap, 0, new_size, cmp)             # <<<<<<<<<<<<<<
- *             else:
- *                 if max_heap:
-*/
-        /*else*/ {
-          __pyx_f_13optimized_pop_sift_down_with_key_min(__pyx_v_heap, 0, __pyx_v_new_size, __pyx_v_cmp); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 659, __pyx_L1_error)
-        }
-        __pyx_L25:;
-
-        /* "optimized_pop.pyx":655
- * 
- *         if cmp is not None:
- *             if arity == 2:             # <<<<<<<<<<<<<<
- *                 if max_heap:
- *                     sift_down_with_key_max(heap, 0, new_size, cmp)
-*/
-        goto __pyx_L24;
-      }
-
-      /* "optimized_pop.pyx":661
- *                     sift_down_with_key_min(heap, 0, new_size, cmp)
- *             else:
- *                 if max_heap:             # <<<<<<<<<<<<<<
- *                     sift_down_nary_key_max(heap, 0, new_size, arity, cmp)
- *                 else:
-*/
-      /*else*/ {
-        if (__pyx_v_max_heap) {
-
-          /* "optimized_pop.pyx":662
- *             else:
- *                 if max_heap:
- *                     sift_down_nary_key_max(heap, 0, new_size, arity, cmp)             # <<<<<<<<<<<<<<
- *                 else:
- *                     sift_down_nary_key_min(heap, 0, new_size, arity, cmp)
-*/
-          __pyx_f_13optimized_pop_sift_down_nary_key_max(__pyx_v_heap, 0, __pyx_v_new_size, __pyx_v_arity, __pyx_v_cmp); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 662, __pyx_L1_error)
-
-          /* "optimized_pop.pyx":661
- *                     sift_down_with_key_min(heap, 0, new_size, cmp)
- *             else:
- *                 if max_heap:             # <<<<<<<<<<<<<<
- *                     sift_down_nary_key_max(heap, 0, new_size, arity, cmp)
- *                 else:
-*/
-          goto __pyx_L26;
-        }
-
-        /* "optimized_pop.pyx":664
- *                     sift_down_nary_key_max(heap, 0, new_size, arity, cmp)
- *                 else:
- *                     sift_down_nary_key_min(heap, 0, new_size, arity, cmp)             # <<<<<<<<<<<<<<
- *         elif arity == 2:
- *             dispatch_sift_down(heap, 0, new_size, max_heap, dtype)
-*/
-        /*else*/ {
-          __pyx_f_13optimized_pop_sift_down_nary_key_min(__pyx_v_heap, 0, __pyx_v_new_size, __pyx_v_arity, __pyx_v_cmp); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 664, __pyx_L1_error)
-        }
-        __pyx_L26:;
-      }
-      __pyx_L24:;
-
-      /* "optimized_pop.pyx":654
- *         new_size = len(heap)
- * 
- *         if cmp is not None:             # <<<<<<<<<<<<<<
- *             if arity == 2:
- *                 if max_heap:
-*/
-      goto __pyx_L23;
-    }
-
-    /* "optimized_pop.pyx":665
- *                 else:
- *                     sift_down_nary_key_min(heap, 0, new_size, arity, cmp)
- *         elif arity == 2:             # <<<<<<<<<<<<<<
- *             dispatch_sift_down(heap, 0, new_size, max_heap, dtype)
- *         else:
-*/
-    __pyx_t_2 = (__pyx_v_arity == 2);
-    if (__pyx_t_2) {
-
-      /* "optimized_pop.pyx":666
- *                     sift_down_nary_key_min(heap, 0, new_size, arity, cmp)
- *         elif arity == 2:
- *             dispatch_sift_down(heap, 0, new_size, max_heap, dtype)             # <<<<<<<<<<<<<<
- *         else:
- *             if max_heap:
-*/
-      __pyx_f_13optimized_pop_dispatch_sift_down(__pyx_v_heap, 0, __pyx_v_new_size, __pyx_v_max_heap, __pyx_v_dtype); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 666, __pyx_L1_error)
-
-      /* "optimized_pop.pyx":665
- *                 else:
- *                     sift_down_nary_key_min(heap, 0, new_size, arity, cmp)
- *         elif arity == 2:             # <<<<<<<<<<<<<<
- *             dispatch_sift_down(heap, 0, new_size, max_heap, dtype)
- *         else:
-*/
-      goto __pyx_L23;
-    }
-
-    /* "optimized_pop.pyx":668
- *             dispatch_sift_down(heap, 0, new_size, max_heap, dtype)
- *         else:
- *             if max_heap:             # <<<<<<<<<<<<<<
- *                 sift_down_nary_max(heap, 0, new_size, arity)
- *             else:
-*/
-    /*else*/ {
-      if (__pyx_v_max_heap) {
-
-        /* "optimized_pop.pyx":669
- *         else:
- *             if max_heap:
- *                 sift_down_nary_max(heap, 0, new_size, arity)             # <<<<<<<<<<<<<<
- *             else:
- *                 sift_down_nary_min(heap, 0, new_size, arity)
-*/
-        __pyx_f_13optimized_pop_sift_down_nary_max(__pyx_v_heap, 0, __pyx_v_new_size, __pyx_v_arity); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 669, __pyx_L1_error)
-
-        /* "optimized_pop.pyx":668
- *             dispatch_sift_down(heap, 0, new_size, max_heap, dtype)
- *         else:
- *             if max_heap:             # <<<<<<<<<<<<<<
- *                 sift_down_nary_max(heap, 0, new_size, arity)
- *             else:
-*/
-        goto __pyx_L27;
-      }
-
-      /* "optimized_pop.pyx":671
- *                 sift_down_nary_max(heap, 0, new_size, arity)
- *             else:
- *                 sift_down_nary_min(heap, 0, new_size, arity)             # <<<<<<<<<<<<<<
- *     return results
- * 
-*/
-      /*else*/ {
-        __pyx_f_13optimized_pop_sift_down_nary_min(__pyx_v_heap, 0, __pyx_v_new_size, __pyx_v_arity); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 671, __pyx_L1_error)
-      }
-      __pyx_L27:;
-    }
-    __pyx_L23:;
-    __pyx_L19_continue:;
-  }
-  __pyx_L20_break:;
-
-  /* "optimized_pop.pyx":672
- *             else:
- *                 sift_down_nary_min(heap, 0, new_size, arity)
- *     return results             # <<<<<<<<<<<<<<
- * 
- * # =============================================================================
+ * cdef inline object _pop_single_opt(list heap, bint max_heap, object cmp, Py_ssize_t arity):
 */
   __Pyx_XDECREF(__pyx_r);
-  __Pyx_INCREF(__pyx_v_results);
-  __pyx_r = __pyx_v_results;
+  __pyx_t_3 = __pyx_f_13optimized_pop__pop_bulk_opt(__pyx_v_heap, __pyx_v_n, __pyx_v_max_heap, __pyx_v_cmp, __pyx_v_arity); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 509, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
+  __pyx_r = __pyx_t_3;
+  __pyx_t_3 = 0;
   goto __pyx_L0;
 
-  /* "optimized_pop.pyx":564
+  /* "optimized_pop.pyx":474
  * # =============================================================================
  * 
  * def pop(list heap, Py_ssize_t n=1, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):             # <<<<<<<<<<<<<<
- *     """
- *     Pop and return the smallest (or largest if max_heap=True) item(s) from heap.
+ *     """Pop and return the smallest (or largest) item(s) from heap."""
+ *     cdef:
 */
 
   /* function exit code */
@@ -10244,20 +9092,649 @@ static PyObject *__pyx_pf_13optimized_pop_2pop(CYTHON_UNUSED PyObject *__pyx_sel
   __Pyx_AddTraceback("optimized_pop.pop", __pyx_clineno, __pyx_lineno, __pyx_filename);
   __pyx_r = NULL;
   __pyx_L0:;
+  __Pyx_XDECREF((PyObject *)__pyx_v_t);
+  __Pyx_XGIVEREF(__pyx_r);
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+/* "optimized_pop.pyx":511
+ *     return _pop_bulk_opt(heap, n, max_heap, cmp, arity)
+ * 
+ * cdef inline object _pop_single_opt(list heap, bint max_heap, object cmp, Py_ssize_t arity):             # <<<<<<<<<<<<<<
+ *     cdef:
+ *         Py_ssize_t heap_size = len(heap)
+*/
+
+static CYTHON_INLINE PyObject *__pyx_f_13optimized_pop__pop_single_opt(PyObject *__pyx_v_heap, int __pyx_v_max_heap, PyObject *__pyx_v_cmp, Py_ssize_t __pyx_v_arity) {
+  Py_ssize_t __pyx_v_heap_size;
+  PyObject *__pyx_v_result = 0;
+  PyObject *__pyx_v_last = 0;
+  int __pyx_v_dtype;
+  PyObject *__pyx_r = NULL;
+  __Pyx_RefNannyDeclarations
+  Py_ssize_t __pyx_t_1;
+  PyObject *__pyx_t_2 = NULL;
+  int __pyx_t_3;
+  int __pyx_t_4;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("_pop_single_opt", 0);
+
+  /* "optimized_pop.pyx":513
+ * cdef inline object _pop_single_opt(list heap, bint max_heap, object cmp, Py_ssize_t arity):
+ *     cdef:
+ *         Py_ssize_t heap_size = len(heap)             # <<<<<<<<<<<<<<
+ *         object result = heap[0]
+ *         object last
+*/
+  if (unlikely(__pyx_v_heap == Py_None)) {
+    PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
+    __PYX_ERR(0, 513, __pyx_L1_error)
+  }
+  __pyx_t_1 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_1 == ((Py_ssize_t)-1))) __PYX_ERR(0, 513, __pyx_L1_error)
+  __pyx_v_heap_size = __pyx_t_1;
+
+  /* "optimized_pop.pyx":514
+ *     cdef:
+ *         Py_ssize_t heap_size = len(heap)
+ *         object result = heap[0]             # <<<<<<<<<<<<<<
+ *         object last
+ *         int dtype
+*/
+  if (unlikely(__pyx_v_heap == Py_None)) {
+    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+    __PYX_ERR(0, 514, __pyx_L1_error)
+  }
+  __pyx_t_2 = __Pyx_PyList_GET_ITEM(__pyx_v_heap, 0);
+  __Pyx_INCREF(__pyx_t_2);
+  __pyx_v_result = __pyx_t_2;
+  __pyx_t_2 = 0;
+
+  /* "optimized_pop.pyx":518
+ *         int dtype
+ * 
+ *     if heap_size == 1:             # <<<<<<<<<<<<<<
+ *         heap.pop()
+ *         return result
+*/
+  __pyx_t_3 = (__pyx_v_heap_size == 1);
+  if (__pyx_t_3) {
+
+    /* "optimized_pop.pyx":519
+ * 
+ *     if heap_size == 1:
+ *         heap.pop()             # <<<<<<<<<<<<<<
+ *         return result
+ * 
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "pop");
+      __PYX_ERR(0, 519, __pyx_L1_error)
+    }
+    __pyx_t_2 = __Pyx_PyList_Pop(__pyx_v_heap); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 519, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_2);
+    __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+
+    /* "optimized_pop.pyx":520
+ *     if heap_size == 1:
+ *         heap.pop()
+ *         return result             # <<<<<<<<<<<<<<
+ * 
+ *     if arity == 1:
+*/
+    __Pyx_XDECREF(__pyx_r);
+    __Pyx_INCREF(__pyx_v_result);
+    __pyx_r = __pyx_v_result;
+    goto __pyx_L0;
+
+    /* "optimized_pop.pyx":518
+ *         int dtype
+ * 
+ *     if heap_size == 1:             # <<<<<<<<<<<<<<
+ *         heap.pop()
+ *         return result
+*/
+  }
+
+  /* "optimized_pop.pyx":522
+ *         return result
+ * 
+ *     if arity == 1:             # <<<<<<<<<<<<<<
+ *         del heap[0]
+ *         return result
+*/
+  __pyx_t_3 = (__pyx_v_arity == 1);
+  if (__pyx_t_3) {
+
+    /* "optimized_pop.pyx":523
+ * 
+ *     if arity == 1:
+ *         del heap[0]             # <<<<<<<<<<<<<<
+ *         return result
+ * 
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 523, __pyx_L1_error)
+    }
+    if (unlikely((__Pyx_DelItemInt(__pyx_v_heap, 0, long, 1, __Pyx_PyLong_From_long, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 523, __pyx_L1_error)
+
+    /* "optimized_pop.pyx":524
+ *     if arity == 1:
+ *         del heap[0]
+ *         return result             # <<<<<<<<<<<<<<
+ * 
+ *     last = heap.pop()
+*/
+    __Pyx_XDECREF(__pyx_r);
+    __Pyx_INCREF(__pyx_v_result);
+    __pyx_r = __pyx_v_result;
+    goto __pyx_L0;
+
+    /* "optimized_pop.pyx":522
+ *         return result
+ * 
+ *     if arity == 1:             # <<<<<<<<<<<<<<
+ *         del heap[0]
+ *         return result
+*/
+  }
+
+  /* "optimized_pop.pyx":526
+ *         return result
+ * 
+ *     last = heap.pop()             # <<<<<<<<<<<<<<
+ *     heap[0] = last
+ *     heap_size -= 1
+*/
+  if (unlikely(__pyx_v_heap == Py_None)) {
+    PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "pop");
+    __PYX_ERR(0, 526, __pyx_L1_error)
+  }
+  __pyx_t_2 = __Pyx_PyList_Pop(__pyx_v_heap); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 526, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_2);
+  __pyx_v_last = __pyx_t_2;
+  __pyx_t_2 = 0;
+
+  /* "optimized_pop.pyx":527
+ * 
+ *     last = heap.pop()
+ *     heap[0] = last             # <<<<<<<<<<<<<<
+ *     heap_size -= 1
+ * 
+*/
+  if (unlikely(__pyx_v_heap == Py_None)) {
+    PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+    __PYX_ERR(0, 527, __pyx_L1_error)
+  }
+  if (unlikely((__Pyx_SetItemInt(__pyx_v_heap, 0, __pyx_v_last, long, 1, __Pyx_PyLong_From_long, 1, 0, 0, 1) < 0))) __PYX_ERR(0, 527, __pyx_L1_error)
+
+  /* "optimized_pop.pyx":528
+ *     last = heap.pop()
+ *     heap[0] = last
+ *     heap_size -= 1             # <<<<<<<<<<<<<<
+ * 
+ *     if cmp is not None or arity != 2:
+*/
+  __pyx_v_heap_size = (__pyx_v_heap_size - 1);
+
+  /* "optimized_pop.pyx":530
+ *     heap_size -= 1
+ * 
+ *     if cmp is not None or arity != 2:             # <<<<<<<<<<<<<<
+ *         _nary_sift_down(heap, 0, heap_size, max_heap, arity, cmp)
+ *         return result
+*/
+  __pyx_t_4 = (__pyx_v_cmp != Py_None);
+  if (!__pyx_t_4) {
+  } else {
+    __pyx_t_3 = __pyx_t_4;
+    goto __pyx_L6_bool_binop_done;
+  }
+  __pyx_t_4 = (__pyx_v_arity != 2);
+  __pyx_t_3 = __pyx_t_4;
+  __pyx_L6_bool_binop_done:;
+  if (__pyx_t_3) {
+
+    /* "optimized_pop.pyx":531
+ * 
+ *     if cmp is not None or arity != 2:
+ *         _nary_sift_down(heap, 0, heap_size, max_heap, arity, cmp)             # <<<<<<<<<<<<<<
+ *         return result
+ * 
+*/
+    __pyx_f_13optimized_pop__nary_sift_down(__pyx_v_heap, 0, __pyx_v_heap_size, __pyx_v_max_heap, __pyx_v_arity, __pyx_v_cmp); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 531, __pyx_L1_error)
+
+    /* "optimized_pop.pyx":532
+ *     if cmp is not None or arity != 2:
+ *         _nary_sift_down(heap, 0, heap_size, max_heap, arity, cmp)
+ *         return result             # <<<<<<<<<<<<<<
+ * 
+ *     dtype = _detect_type(heap)
+*/
+    __Pyx_XDECREF(__pyx_r);
+    __Pyx_INCREF(__pyx_v_result);
+    __pyx_r = __pyx_v_result;
+    goto __pyx_L0;
+
+    /* "optimized_pop.pyx":530
+ *     heap_size -= 1
+ * 
+ *     if cmp is not None or arity != 2:             # <<<<<<<<<<<<<<
+ *         _nary_sift_down(heap, 0, heap_size, max_heap, arity, cmp)
+ *         return result
+*/
+  }
+
+  /* "optimized_pop.pyx":534
+ *         return result
+ * 
+ *     dtype = _detect_type(heap)             # <<<<<<<<<<<<<<
+ * 
+ *     if dtype == TYPE_INT:
+*/
+  __pyx_v_dtype = __pyx_f_13optimized_pop__detect_type(__pyx_v_heap);
+
+  /* "optimized_pop.pyx":536
+ *     dtype = _detect_type(heap)
+ * 
+ *     if dtype == TYPE_INT:             # <<<<<<<<<<<<<<
+ *         if max_heap:
+ *             _sift_int_max(heap, heap_size)
+*/
+  switch (__pyx_v_dtype) {
+    case 1:
+
+    /* "optimized_pop.pyx":537
+ * 
+ *     if dtype == TYPE_INT:
+ *         if max_heap:             # <<<<<<<<<<<<<<
+ *             _sift_int_max(heap, heap_size)
+ *         else:
+*/
+    if (__pyx_v_max_heap) {
+
+      /* "optimized_pop.pyx":538
+ *     if dtype == TYPE_INT:
+ *         if max_heap:
+ *             _sift_int_max(heap, heap_size)             # <<<<<<<<<<<<<<
+ *         else:
+ *             _sift_int_min(heap, heap_size)
+*/
+      __pyx_f_13optimized_pop__sift_int_max(__pyx_v_heap, __pyx_v_heap_size);
+
+      /* "optimized_pop.pyx":537
+ * 
+ *     if dtype == TYPE_INT:
+ *         if max_heap:             # <<<<<<<<<<<<<<
+ *             _sift_int_max(heap, heap_size)
+ *         else:
+*/
+      goto __pyx_L8;
+    }
+
+    /* "optimized_pop.pyx":540
+ *             _sift_int_max(heap, heap_size)
+ *         else:
+ *             _sift_int_min(heap, heap_size)             # <<<<<<<<<<<<<<
+ *     elif dtype == TYPE_FLOAT:
+ *         if max_heap:
+*/
+    /*else*/ {
+      __pyx_f_13optimized_pop__sift_int_min(__pyx_v_heap, __pyx_v_heap_size);
+    }
+    __pyx_L8:;
+
+    /* "optimized_pop.pyx":536
+ *     dtype = _detect_type(heap)
+ * 
+ *     if dtype == TYPE_INT:             # <<<<<<<<<<<<<<
+ *         if max_heap:
+ *             _sift_int_max(heap, heap_size)
+*/
+    break;
+    case 2:
+
+    /* "optimized_pop.pyx":542
+ *             _sift_int_min(heap, heap_size)
+ *     elif dtype == TYPE_FLOAT:
+ *         if max_heap:             # <<<<<<<<<<<<<<
+ *             _sift_float_max(heap, heap_size)
+ *         else:
+*/
+    if (__pyx_v_max_heap) {
+
+      /* "optimized_pop.pyx":543
+ *     elif dtype == TYPE_FLOAT:
+ *         if max_heap:
+ *             _sift_float_max(heap, heap_size)             # <<<<<<<<<<<<<<
+ *         else:
+ *             _sift_float_min(heap, heap_size)
+*/
+      __pyx_f_13optimized_pop__sift_float_max(__pyx_v_heap, __pyx_v_heap_size);
+
+      /* "optimized_pop.pyx":542
+ *             _sift_int_min(heap, heap_size)
+ *     elif dtype == TYPE_FLOAT:
+ *         if max_heap:             # <<<<<<<<<<<<<<
+ *             _sift_float_max(heap, heap_size)
+ *         else:
+*/
+      goto __pyx_L9;
+    }
+
+    /* "optimized_pop.pyx":545
+ *             _sift_float_max(heap, heap_size)
+ *         else:
+ *             _sift_float_min(heap, heap_size)             # <<<<<<<<<<<<<<
+ *     elif dtype == TYPE_BOOL:
+ *         if max_heap:
+*/
+    /*else*/ {
+      __pyx_f_13optimized_pop__sift_float_min(__pyx_v_heap, __pyx_v_heap_size);
+    }
+    __pyx_L9:;
+
+    /* "optimized_pop.pyx":541
+ *         else:
+ *             _sift_int_min(heap, heap_size)
+ *     elif dtype == TYPE_FLOAT:             # <<<<<<<<<<<<<<
+ *         if max_heap:
+ *             _sift_float_max(heap, heap_size)
+*/
+    break;
+    case 3:
+
+    /* "optimized_pop.pyx":547
+ *             _sift_float_min(heap, heap_size)
+ *     elif dtype == TYPE_BOOL:
+ *         if max_heap:             # <<<<<<<<<<<<<<
+ *             _sift_bool_max(heap, heap_size)
+ *         else:
+*/
+    if (__pyx_v_max_heap) {
+
+      /* "optimized_pop.pyx":548
+ *     elif dtype == TYPE_BOOL:
+ *         if max_heap:
+ *             _sift_bool_max(heap, heap_size)             # <<<<<<<<<<<<<<
+ *         else:
+ *             _sift_bool_min(heap, heap_size)
+*/
+      __pyx_f_13optimized_pop__sift_bool_max(__pyx_v_heap, __pyx_v_heap_size);
+
+      /* "optimized_pop.pyx":547
+ *             _sift_float_min(heap, heap_size)
+ *     elif dtype == TYPE_BOOL:
+ *         if max_heap:             # <<<<<<<<<<<<<<
+ *             _sift_bool_max(heap, heap_size)
+ *         else:
+*/
+      goto __pyx_L10;
+    }
+
+    /* "optimized_pop.pyx":550
+ *             _sift_bool_max(heap, heap_size)
+ *         else:
+ *             _sift_bool_min(heap, heap_size)             # <<<<<<<<<<<<<<
+ *     else:
+ *         # max_heap with generic type
+*/
+    /*else*/ {
+      __pyx_f_13optimized_pop__sift_bool_min(__pyx_v_heap, __pyx_v_heap_size);
+    }
+    __pyx_L10:;
+
+    /* "optimized_pop.pyx":546
+ *         else:
+ *             _sift_float_min(heap, heap_size)
+ *     elif dtype == TYPE_BOOL:             # <<<<<<<<<<<<<<
+ *         if max_heap:
+ *             _sift_bool_max(heap, heap_size)
+*/
+    break;
+    default:
+
+    /* "optimized_pop.pyx":553
+ *     else:
+ *         # max_heap with generic type
+ *         _sift_generic_max(heap, heap_size)             # <<<<<<<<<<<<<<
+ * 
+ *     return result
+*/
+    __pyx_f_13optimized_pop__sift_generic_max(__pyx_v_heap, __pyx_v_heap_size); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 553, __pyx_L1_error)
+    break;
+  }
+
+  /* "optimized_pop.pyx":555
+ *         _sift_generic_max(heap, heap_size)
+ * 
+ *     return result             # <<<<<<<<<<<<<<
+ * 
+ * cdef list _pop_bulk_opt(list heap, Py_ssize_t n, bint max_heap, object cmp, Py_ssize_t arity):
+*/
+  __Pyx_XDECREF(__pyx_r);
+  __Pyx_INCREF(__pyx_v_result);
+  __pyx_r = __pyx_v_result;
+  goto __pyx_L0;
+
+  /* "optimized_pop.pyx":511
+ *     return _pop_bulk_opt(heap, n, max_heap, cmp, arity)
+ * 
+ * cdef inline object _pop_single_opt(list heap, bint max_heap, object cmp, Py_ssize_t arity):             # <<<<<<<<<<<<<<
+ *     cdef:
+ *         Py_ssize_t heap_size = len(heap)
+*/
+
+  /* function exit code */
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_2);
+  __Pyx_AddTraceback("optimized_pop._pop_single_opt", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_r = 0;
+  __pyx_L0:;
   __Pyx_XDECREF(__pyx_v_result);
   __Pyx_XDECREF(__pyx_v_last);
+  __Pyx_XGIVEREF(__pyx_r);
+  __Pyx_RefNannyFinishContext();
+  return __pyx_r;
+}
+
+/* "optimized_pop.pyx":557
+ *     return result
+ * 
+ * cdef list _pop_bulk_opt(list heap, Py_ssize_t n, bint max_heap, object cmp, Py_ssize_t arity):             # <<<<<<<<<<<<<<
+ *     cdef list results = []
+ *     cdef Py_ssize_t i
+*/
+
+static PyObject *__pyx_f_13optimized_pop__pop_bulk_opt(PyObject *__pyx_v_heap, Py_ssize_t __pyx_v_n, int __pyx_v_max_heap, PyObject *__pyx_v_cmp, Py_ssize_t __pyx_v_arity) {
+  PyObject *__pyx_v_results = 0;
+  CYTHON_UNUSED Py_ssize_t __pyx_v_i;
+  PyObject *__pyx_r = NULL;
+  __Pyx_RefNannyDeclarations
+  PyObject *__pyx_t_1 = NULL;
+  int __pyx_t_2;
+  Py_ssize_t __pyx_t_3;
+  Py_ssize_t __pyx_t_4;
+  Py_ssize_t __pyx_t_5;
+  Py_ssize_t __pyx_t_6;
+  int __pyx_t_7;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("_pop_bulk_opt", 0);
+
+  /* "optimized_pop.pyx":558
+ * 
+ * cdef list _pop_bulk_opt(list heap, Py_ssize_t n, bint max_heap, object cmp, Py_ssize_t arity):
+ *     cdef list results = []             # <<<<<<<<<<<<<<
+ *     cdef Py_ssize_t i
+ * 
+*/
+  __pyx_t_1 = PyList_New(0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 558, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_1);
+  __pyx_v_results = ((PyObject*)__pyx_t_1);
+  __pyx_t_1 = 0;
+
+  /* "optimized_pop.pyx":561
+ *     cdef Py_ssize_t i
+ * 
+ *     if arity == 1:             # <<<<<<<<<<<<<<
+ *         results = heap[:n]
+ *         del heap[:n]
+*/
+  __pyx_t_2 = (__pyx_v_arity == 1);
+  if (__pyx_t_2) {
+
+    /* "optimized_pop.pyx":562
+ * 
+ *     if arity == 1:
+ *         results = heap[:n]             # <<<<<<<<<<<<<<
+ *         del heap[:n]
+ *         return results
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 562, __pyx_L1_error)
+    }
+    __pyx_t_1 = __Pyx_PyList_GetSlice(__pyx_v_heap, 0, __pyx_v_n); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 562, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_1);
+    __Pyx_DECREF_SET(__pyx_v_results, ((PyObject*)__pyx_t_1));
+    __pyx_t_1 = 0;
+
+    /* "optimized_pop.pyx":563
+ *     if arity == 1:
+ *         results = heap[:n]
+ *         del heap[:n]             # <<<<<<<<<<<<<<
+ *         return results
+ * 
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
+      __PYX_ERR(0, 563, __pyx_L1_error)
+    }
+    if (__Pyx_PyObject_DelSlice(__pyx_v_heap, 0, __pyx_v_n, NULL, NULL, NULL, 0, 1, 0) < 0) __PYX_ERR(0, 563, __pyx_L1_error)
+
+    /* "optimized_pop.pyx":564
+ *         results = heap[:n]
+ *         del heap[:n]
+ *         return results             # <<<<<<<<<<<<<<
+ * 
+ *     for i in range(n):
+*/
+    __Pyx_XDECREF(__pyx_r);
+    __Pyx_INCREF(__pyx_v_results);
+    __pyx_r = __pyx_v_results;
+    goto __pyx_L0;
+
+    /* "optimized_pop.pyx":561
+ *     cdef Py_ssize_t i
+ * 
+ *     if arity == 1:             # <<<<<<<<<<<<<<
+ *         results = heap[:n]
+ *         del heap[:n]
+*/
+  }
+
+  /* "optimized_pop.pyx":566
+ *         return results
+ * 
+ *     for i in range(n):             # <<<<<<<<<<<<<<
+ *         if len(heap) == 0:
+ *             break
+*/
+  __pyx_t_3 = __pyx_v_n;
+  __pyx_t_4 = __pyx_t_3;
+  for (__pyx_t_5 = 0; __pyx_t_5 < __pyx_t_4; __pyx_t_5+=1) {
+    __pyx_v_i = __pyx_t_5;
+
+    /* "optimized_pop.pyx":567
+ * 
+ *     for i in range(n):
+ *         if len(heap) == 0:             # <<<<<<<<<<<<<<
+ *             break
+ *         results.append(_pop_single_opt(heap, max_heap, cmp, arity))
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
+      __PYX_ERR(0, 567, __pyx_L1_error)
+    }
+    __pyx_t_6 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_6 == ((Py_ssize_t)-1))) __PYX_ERR(0, 567, __pyx_L1_error)
+    __pyx_t_2 = (__pyx_t_6 == 0);
+    if (__pyx_t_2) {
+
+      /* "optimized_pop.pyx":568
+ *     for i in range(n):
+ *         if len(heap) == 0:
+ *             break             # <<<<<<<<<<<<<<
+ *         results.append(_pop_single_opt(heap, max_heap, cmp, arity))
+ * 
+*/
+      goto __pyx_L5_break;
+
+      /* "optimized_pop.pyx":567
+ * 
+ *     for i in range(n):
+ *         if len(heap) == 0:             # <<<<<<<<<<<<<<
+ *             break
+ *         results.append(_pop_single_opt(heap, max_heap, cmp, arity))
+*/
+    }
+
+    /* "optimized_pop.pyx":569
+ *         if len(heap) == 0:
+ *             break
+ *         results.append(_pop_single_opt(heap, max_heap, cmp, arity))             # <<<<<<<<<<<<<<
+ * 
+ *     return results
+*/
+    __pyx_t_1 = __pyx_f_13optimized_pop__pop_single_opt(__pyx_v_heap, __pyx_v_max_heap, __pyx_v_cmp, __pyx_v_arity); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 569, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_1);
+    __pyx_t_7 = __Pyx_PyList_Append(__pyx_v_results, __pyx_t_1); if (unlikely(__pyx_t_7 == ((int)-1))) __PYX_ERR(0, 569, __pyx_L1_error)
+    __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
+  }
+  __pyx_L5_break:;
+
+  /* "optimized_pop.pyx":571
+ *         results.append(_pop_single_opt(heap, max_heap, cmp, arity))
+ * 
+ *     return results             # <<<<<<<<<<<<<<
+ * 
+ * # =============================================================================
+*/
+  __Pyx_XDECREF(__pyx_r);
+  __Pyx_INCREF(__pyx_v_results);
+  __pyx_r = __pyx_v_results;
+  goto __pyx_L0;
+
+  /* "optimized_pop.pyx":557
+ *     return result
+ * 
+ * cdef list _pop_bulk_opt(list heap, Py_ssize_t n, bint max_heap, object cmp, Py_ssize_t arity):             # <<<<<<<<<<<<<<
+ *     cdef list results = []
+ *     cdef Py_ssize_t i
+*/
+
+  /* function exit code */
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_1);
+  __Pyx_AddTraceback("optimized_pop._pop_bulk_opt", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_r = 0;
+  __pyx_L0:;
   __Pyx_XDECREF(__pyx_v_results);
   __Pyx_XGIVEREF(__pyx_r);
   __Pyx_RefNannyFinishContext();
   return __pyx_r;
 }
 
-/* "optimized_pop.pyx":678
+/* "optimized_pop.pyx":577
  * # =============================================================================
  * 
  * def push(list heap, object items, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):             # <<<<<<<<<<<<<<
  *     """Push item(s) onto heap."""
- *     cdef object item
+ *     cdef int dtype
 */
 
 /* Python wrapper */
@@ -10280,8 +9757,8 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   PyObject *__pyx_v_heap = 0;
   PyObject *__pyx_v_items = 0;
   int __pyx_v_max_heap;
-  CYTHON_UNUSED PyObject *__pyx_v_cmp = 0;
-  CYTHON_UNUSED Py_ssize_t __pyx_v_arity;
+  PyObject *__pyx_v_cmp = 0;
+  Py_ssize_t __pyx_v_arity;
   CYTHON_UNUSED int __pyx_v_nogil;
   #if !CYTHON_METH_FASTCALL
   CYTHON_UNUSED Py_ssize_t __pyx_nargs;
@@ -10305,65 +9782,65 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   {
     PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_heap,&__pyx_mstate_global->__pyx_n_u_items,&__pyx_mstate_global->__pyx_n_u_max_heap,&__pyx_mstate_global->__pyx_n_u_cmp,&__pyx_mstate_global->__pyx_n_u_arity,&__pyx_mstate_global->__pyx_n_u_nogil,0};
     const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
-    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 678, __pyx_L3_error)
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 577, __pyx_L3_error)
     if (__pyx_kwds_len > 0) {
       switch (__pyx_nargs) {
         case  6:
         values[5] = __Pyx_ArgRef_FASTCALL(__pyx_args, 5);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 678, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 577, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  5:
         values[4] = __Pyx_ArgRef_FASTCALL(__pyx_args, 4);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 678, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 577, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 678, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 577, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 678, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 577, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 678, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 577, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 678, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 577, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  0: break;
         default: goto __pyx_L5_argtuple_error;
       }
       const Py_ssize_t kwd_pos_args = __pyx_nargs;
-      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "push", 0) < 0) __PYX_ERR(0, 678, __pyx_L3_error)
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "push", 0) < 0) __PYX_ERR(0, 577, __pyx_L3_error)
       if (!values[3]) values[3] = __Pyx_NewRef(((PyObject *)Py_None));
       for (Py_ssize_t i = __pyx_nargs; i < 2; i++) {
-        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("push", 0, 2, 6, i); __PYX_ERR(0, 678, __pyx_L3_error) }
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("push", 0, 2, 6, i); __PYX_ERR(0, 577, __pyx_L3_error) }
       }
     } else {
       switch (__pyx_nargs) {
         case  6:
         values[5] = __Pyx_ArgRef_FASTCALL(__pyx_args, 5);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 678, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 577, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  5:
         values[4] = __Pyx_ArgRef_FASTCALL(__pyx_args, 4);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 678, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 577, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 678, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 577, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 678, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 577, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 678, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 577, __pyx_L3_error)
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 678, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 577, __pyx_L3_error)
         break;
         default: goto __pyx_L5_argtuple_error;
       }
@@ -10372,25 +9849,25 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
     __pyx_v_heap = ((PyObject*)values[0]);
     __pyx_v_items = values[1];
     if (values[2]) {
-      __pyx_v_max_heap = __Pyx_PyObject_IsTrue(values[2]); if (unlikely((__pyx_v_max_heap == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 678, __pyx_L3_error)
+      __pyx_v_max_heap = __Pyx_PyObject_IsTrue(values[2]); if (unlikely((__pyx_v_max_heap == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 577, __pyx_L3_error)
     } else {
       __pyx_v_max_heap = ((int)((int)0));
     }
     __pyx_v_cmp = values[3];
     if (values[4]) {
-      __pyx_v_arity = __Pyx_PyIndex_AsSsize_t(values[4]); if (unlikely((__pyx_v_arity == (Py_ssize_t)-1) && PyErr_Occurred())) __PYX_ERR(0, 678, __pyx_L3_error)
+      __pyx_v_arity = __Pyx_PyIndex_AsSsize_t(values[4]); if (unlikely((__pyx_v_arity == (Py_ssize_t)-1) && PyErr_Occurred())) __PYX_ERR(0, 577, __pyx_L3_error)
     } else {
       __pyx_v_arity = ((Py_ssize_t)((Py_ssize_t)2));
     }
     if (values[5]) {
-      __pyx_v_nogil = __Pyx_PyObject_IsTrue(values[5]); if (unlikely((__pyx_v_nogil == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 678, __pyx_L3_error)
+      __pyx_v_nogil = __Pyx_PyObject_IsTrue(values[5]); if (unlikely((__pyx_v_nogil == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 577, __pyx_L3_error)
     } else {
       __pyx_v_nogil = ((int)((int)0));
     }
   }
   goto __pyx_L6_skip;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("push", 0, 2, 6, __pyx_nargs); __PYX_ERR(0, 678, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("push", 0, 2, 6, __pyx_nargs); __PYX_ERR(0, 577, __pyx_L3_error)
   __pyx_L6_skip:;
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L3_error:;
@@ -10401,7 +9878,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_heap), (&PyList_Type), 1, "heap", 1))) __PYX_ERR(0, 678, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_heap), (&PyList_Type), 1, "heap", 1))) __PYX_ERR(0, 577, __pyx_L1_error)
   __pyx_r = __pyx_pf_13optimized_pop_4push(__pyx_self, __pyx_v_heap, __pyx_v_items, __pyx_v_max_heap, __pyx_v_cmp, __pyx_v_arity, __pyx_v_nogil);
 
   /* function exit code */
@@ -10421,269 +9898,427 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   return __pyx_r;
 }
 
-static PyObject *__pyx_pf_13optimized_pop_4push(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_heap, PyObject *__pyx_v_items, int __pyx_v_max_heap, CYTHON_UNUSED PyObject *__pyx_v_cmp, CYTHON_UNUSED Py_ssize_t __pyx_v_arity, CYTHON_UNUSED int __pyx_v_nogil) {
-  PyObject *__pyx_v_item = 0;
+static PyObject *__pyx_pf_13optimized_pop_4push(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_heap, PyObject *__pyx_v_items, int __pyx_v_max_heap, PyObject *__pyx_v_cmp, Py_ssize_t __pyx_v_arity, CYTHON_UNUSED int __pyx_v_nogil) {
+  int __pyx_v_dtype;
+  PyObject *__pyx_v_item = NULL;
   PyObject *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
   int __pyx_t_1;
   int __pyx_t_2;
-  PyObject *__pyx_t_3 = NULL;
+  int __pyx_t_3;
   Py_ssize_t __pyx_t_4;
-  PyObject *(*__pyx_t_5)(PyObject *);
-  PyObject *__pyx_t_6 = NULL;
-  int __pyx_t_7;
-  Py_ssize_t __pyx_t_8;
+  PyObject *__pyx_t_5 = NULL;
+  PyObject *(*__pyx_t_6)(PyObject *);
+  PyObject *__pyx_t_7 = NULL;
+  PyObject *__pyx_t_8 = NULL;
+  PyObject *__pyx_t_9 = NULL;
+  PyObject *__pyx_t_10 = NULL;
+  size_t __pyx_t_11;
   int __pyx_lineno = 0;
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("push", 0);
 
-  /* "optimized_pop.pyx":681
- *     """Push item(s) onto heap."""
- *     cdef object item
+  /* "optimized_pop.pyx":582
+ * 
+ *     # Fast path for str/custom min-heap
+ *     if cmp is None and arity == 2 and not max_heap:             # <<<<<<<<<<<<<<
+ *         dtype = _detect_type(heap) if len(heap) > 0 else TYPE_OTHER
+ *         if dtype == TYPE_OTHER:
+*/
+  __pyx_t_2 = (__pyx_v_cmp == Py_None);
+  if (__pyx_t_2) {
+  } else {
+    __pyx_t_1 = __pyx_t_2;
+    goto __pyx_L4_bool_binop_done;
+  }
+  __pyx_t_2 = (__pyx_v_arity == 2);
+  if (__pyx_t_2) {
+  } else {
+    __pyx_t_1 = __pyx_t_2;
+    goto __pyx_L4_bool_binop_done;
+  }
+  __pyx_t_2 = (!__pyx_v_max_heap);
+  __pyx_t_1 = __pyx_t_2;
+  __pyx_L4_bool_binop_done:;
+  if (__pyx_t_1) {
+
+    /* "optimized_pop.pyx":583
+ *     # Fast path for str/custom min-heap
+ *     if cmp is None and arity == 2 and not max_heap:
+ *         dtype = _detect_type(heap) if len(heap) > 0 else TYPE_OTHER             # <<<<<<<<<<<<<<
+ *         if dtype == TYPE_OTHER:
+ *             if isinstance(items, (list, set, frozenset)):
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
+      __PYX_ERR(0, 583, __pyx_L1_error)
+    }
+    __pyx_t_4 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_4 == ((Py_ssize_t)-1))) __PYX_ERR(0, 583, __pyx_L1_error)
+    __pyx_t_1 = (__pyx_t_4 > 0);
+    if (__pyx_t_1) {
+      __pyx_t_3 = __pyx_f_13optimized_pop__detect_type(__pyx_v_heap);
+    } else {
+      __pyx_t_3 = 4;
+    }
+    __pyx_v_dtype = __pyx_t_3;
+
+    /* "optimized_pop.pyx":584
+ *     if cmp is None and arity == 2 and not max_heap:
+ *         dtype = _detect_type(heap) if len(heap) > 0 else TYPE_OTHER
+ *         if dtype == TYPE_OTHER:             # <<<<<<<<<<<<<<
+ *             if isinstance(items, (list, set, frozenset)):
+ *                 for item in items:
+*/
+    __pyx_t_1 = (__pyx_v_dtype == 4);
+    if (__pyx_t_1) {
+
+      /* "optimized_pop.pyx":585
+ *         dtype = _detect_type(heap) if len(heap) > 0 else TYPE_OTHER
+ *         if dtype == TYPE_OTHER:
+ *             if isinstance(items, (list, set, frozenset)):             # <<<<<<<<<<<<<<
+ *                 for item in items:
+ *                     _heapq.heappush(heap, item)
+*/
+      __pyx_t_2 = PyList_Check(__pyx_v_items); 
+      if (!__pyx_t_2) {
+      } else {
+        __pyx_t_1 = __pyx_t_2;
+        goto __pyx_L9_bool_binop_done;
+      }
+      __pyx_t_2 = PySet_Check(__pyx_v_items); 
+      if (!__pyx_t_2) {
+      } else {
+        __pyx_t_1 = __pyx_t_2;
+        goto __pyx_L9_bool_binop_done;
+      }
+      __pyx_t_2 = PyFrozenSet_Check(__pyx_v_items); 
+      __pyx_t_1 = __pyx_t_2;
+      __pyx_L9_bool_binop_done:;
+      if (__pyx_t_1) {
+
+        /* "optimized_pop.pyx":586
+ *         if dtype == TYPE_OTHER:
+ *             if isinstance(items, (list, set, frozenset)):
+ *                 for item in items:             # <<<<<<<<<<<<<<
+ *                     _heapq.heappush(heap, item)
+ *             else:
+*/
+        if (likely(PyList_CheckExact(__pyx_v_items)) || PyTuple_CheckExact(__pyx_v_items)) {
+          __pyx_t_5 = __pyx_v_items; __Pyx_INCREF(__pyx_t_5);
+          __pyx_t_4 = 0;
+          __pyx_t_6 = NULL;
+        } else {
+          __pyx_t_4 = -1; __pyx_t_5 = PyObject_GetIter(__pyx_v_items); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 586, __pyx_L1_error)
+          __Pyx_GOTREF(__pyx_t_5);
+          __pyx_t_6 = (CYTHON_COMPILING_IN_LIMITED_API) ? PyIter_Next : __Pyx_PyObject_GetIterNextFunc(__pyx_t_5); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 586, __pyx_L1_error)
+        }
+        for (;;) {
+          if (likely(!__pyx_t_6)) {
+            if (likely(PyList_CheckExact(__pyx_t_5))) {
+              {
+                Py_ssize_t __pyx_temp = __Pyx_PyList_GET_SIZE(__pyx_t_5);
+                #if !CYTHON_ASSUME_SAFE_SIZE
+                if (unlikely((__pyx_temp < 0))) __PYX_ERR(0, 586, __pyx_L1_error)
+                #endif
+                if (__pyx_t_4 >= __pyx_temp) break;
+              }
+              __pyx_t_7 = __Pyx_PyList_GetItemRef(__pyx_t_5, __pyx_t_4);
+              ++__pyx_t_4;
+            } else {
+              {
+                Py_ssize_t __pyx_temp = __Pyx_PyTuple_GET_SIZE(__pyx_t_5);
+                #if !CYTHON_ASSUME_SAFE_SIZE
+                if (unlikely((__pyx_temp < 0))) __PYX_ERR(0, 586, __pyx_L1_error)
+                #endif
+                if (__pyx_t_4 >= __pyx_temp) break;
+              }
+              #if CYTHON_ASSUME_SAFE_MACROS && !CYTHON_AVOID_BORROWED_REFS
+              __pyx_t_7 = __Pyx_NewRef(PyTuple_GET_ITEM(__pyx_t_5, __pyx_t_4));
+              #else
+              __pyx_t_7 = __Pyx_PySequence_ITEM(__pyx_t_5, __pyx_t_4);
+              #endif
+              ++__pyx_t_4;
+            }
+            if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 586, __pyx_L1_error)
+          } else {
+            __pyx_t_7 = __pyx_t_6(__pyx_t_5);
+            if (unlikely(!__pyx_t_7)) {
+              PyObject* exc_type = PyErr_Occurred();
+              if (exc_type) {
+                if (unlikely(!__Pyx_PyErr_GivenExceptionMatches(exc_type, PyExc_StopIteration))) __PYX_ERR(0, 586, __pyx_L1_error)
+                PyErr_Clear();
+              }
+              break;
+            }
+          }
+          __Pyx_GOTREF(__pyx_t_7);
+          __Pyx_XDECREF_SET(__pyx_v_item, __pyx_t_7);
+          __pyx_t_7 = 0;
+
+          /* "optimized_pop.pyx":587
+ *             if isinstance(items, (list, set, frozenset)):
+ *                 for item in items:
+ *                     _heapq.heappush(heap, item)             # <<<<<<<<<<<<<<
+ *             else:
+ *                 _heapq.heappush(heap, items)
+*/
+          __pyx_t_8 = NULL;
+          __Pyx_GetModuleGlobalName(__pyx_t_9, __pyx_mstate_global->__pyx_n_u_heapq); if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 587, __pyx_L1_error)
+          __Pyx_GOTREF(__pyx_t_9);
+          __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_9, __pyx_mstate_global->__pyx_n_u_heappush); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 587, __pyx_L1_error)
+          __Pyx_GOTREF(__pyx_t_10);
+          __Pyx_DECREF(__pyx_t_9); __pyx_t_9 = 0;
+          __pyx_t_11 = 1;
+          #if CYTHON_UNPACK_METHODS
+          if (unlikely(PyMethod_Check(__pyx_t_10))) {
+            __pyx_t_8 = PyMethod_GET_SELF(__pyx_t_10);
+            assert(__pyx_t_8);
+            PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_10);
+            __Pyx_INCREF(__pyx_t_8);
+            __Pyx_INCREF(__pyx__function);
+            __Pyx_DECREF_SET(__pyx_t_10, __pyx__function);
+            __pyx_t_11 = 0;
+          }
+          #endif
+          {
+            PyObject *__pyx_callargs[3] = {__pyx_t_8, __pyx_v_heap, __pyx_v_item};
+            __pyx_t_7 = __Pyx_PyObject_FastCall(__pyx_t_10, __pyx_callargs+__pyx_t_11, (3-__pyx_t_11) | (__pyx_t_11*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+            __Pyx_XDECREF(__pyx_t_8); __pyx_t_8 = 0;
+            __Pyx_DECREF(__pyx_t_10); __pyx_t_10 = 0;
+            if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 587, __pyx_L1_error)
+            __Pyx_GOTREF(__pyx_t_7);
+          }
+          __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
+
+          /* "optimized_pop.pyx":586
+ *         if dtype == TYPE_OTHER:
+ *             if isinstance(items, (list, set, frozenset)):
+ *                 for item in items:             # <<<<<<<<<<<<<<
+ *                     _heapq.heappush(heap, item)
+ *             else:
+*/
+        }
+        __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+
+        /* "optimized_pop.pyx":585
+ *         dtype = _detect_type(heap) if len(heap) > 0 else TYPE_OTHER
+ *         if dtype == TYPE_OTHER:
+ *             if isinstance(items, (list, set, frozenset)):             # <<<<<<<<<<<<<<
+ *                 for item in items:
+ *                     _heapq.heappush(heap, item)
+*/
+        goto __pyx_L8;
+      }
+
+      /* "optimized_pop.pyx":589
+ *                     _heapq.heappush(heap, item)
+ *             else:
+ *                 _heapq.heappush(heap, items)             # <<<<<<<<<<<<<<
+ *             return
+ * 
+*/
+      /*else*/ {
+        __pyx_t_7 = NULL;
+        __Pyx_GetModuleGlobalName(__pyx_t_10, __pyx_mstate_global->__pyx_n_u_heapq); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 589, __pyx_L1_error)
+        __Pyx_GOTREF(__pyx_t_10);
+        __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_10, __pyx_mstate_global->__pyx_n_u_heappush); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 589, __pyx_L1_error)
+        __Pyx_GOTREF(__pyx_t_8);
+        __Pyx_DECREF(__pyx_t_10); __pyx_t_10 = 0;
+        __pyx_t_11 = 1;
+        #if CYTHON_UNPACK_METHODS
+        if (unlikely(PyMethod_Check(__pyx_t_8))) {
+          __pyx_t_7 = PyMethod_GET_SELF(__pyx_t_8);
+          assert(__pyx_t_7);
+          PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_8);
+          __Pyx_INCREF(__pyx_t_7);
+          __Pyx_INCREF(__pyx__function);
+          __Pyx_DECREF_SET(__pyx_t_8, __pyx__function);
+          __pyx_t_11 = 0;
+        }
+        #endif
+        {
+          PyObject *__pyx_callargs[3] = {__pyx_t_7, __pyx_v_heap, __pyx_v_items};
+          __pyx_t_5 = __Pyx_PyObject_FastCall(__pyx_t_8, __pyx_callargs+__pyx_t_11, (3-__pyx_t_11) | (__pyx_t_11*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+          __Pyx_XDECREF(__pyx_t_7); __pyx_t_7 = 0;
+          __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
+          if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 589, __pyx_L1_error)
+          __Pyx_GOTREF(__pyx_t_5);
+        }
+        __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+      }
+      __pyx_L8:;
+
+      /* "optimized_pop.pyx":590
+ *             else:
+ *                 _heapq.heappush(heap, items)
+ *             return             # <<<<<<<<<<<<<<
+ * 
+ *     if isinstance(items, (list, set, frozenset)):
+*/
+      __Pyx_XDECREF(__pyx_r);
+      __pyx_r = Py_None; __Pyx_INCREF(Py_None);
+      goto __pyx_L0;
+
+      /* "optimized_pop.pyx":584
+ *     if cmp is None and arity == 2 and not max_heap:
+ *         dtype = _detect_type(heap) if len(heap) > 0 else TYPE_OTHER
+ *         if dtype == TYPE_OTHER:             # <<<<<<<<<<<<<<
+ *             if isinstance(items, (list, set, frozenset)):
+ *                 for item in items:
+*/
+    }
+
+    /* "optimized_pop.pyx":582
+ * 
+ *     # Fast path for str/custom min-heap
+ *     if cmp is None and arity == 2 and not max_heap:             # <<<<<<<<<<<<<<
+ *         dtype = _detect_type(heap) if len(heap) > 0 else TYPE_OTHER
+ *         if dtype == TYPE_OTHER:
+*/
+  }
+
+  /* "optimized_pop.pyx":592
+ *             return
+ * 
  *     if isinstance(items, (list, set, frozenset)):             # <<<<<<<<<<<<<<
  *         for item in items:
- *             heap.append(item)
+ *             _push_single_opt(heap, item, max_heap, cmp, arity)
 */
   __pyx_t_2 = PyList_Check(__pyx_v_items); 
   if (!__pyx_t_2) {
   } else {
     __pyx_t_1 = __pyx_t_2;
-    goto __pyx_L4_bool_binop_done;
+    goto __pyx_L16_bool_binop_done;
   }
   __pyx_t_2 = PySet_Check(__pyx_v_items); 
   if (!__pyx_t_2) {
   } else {
     __pyx_t_1 = __pyx_t_2;
-    goto __pyx_L4_bool_binop_done;
+    goto __pyx_L16_bool_binop_done;
   }
   __pyx_t_2 = PyFrozenSet_Check(__pyx_v_items); 
   __pyx_t_1 = __pyx_t_2;
-  __pyx_L4_bool_binop_done:;
+  __pyx_L16_bool_binop_done:;
   if (__pyx_t_1) {
 
-    /* "optimized_pop.pyx":682
- *     cdef object item
+    /* "optimized_pop.pyx":593
+ * 
  *     if isinstance(items, (list, set, frozenset)):
  *         for item in items:             # <<<<<<<<<<<<<<
- *             heap.append(item)
- *             if max_heap:
+ *             _push_single_opt(heap, item, max_heap, cmp, arity)
+ *     else:
 */
     if (likely(PyList_CheckExact(__pyx_v_items)) || PyTuple_CheckExact(__pyx_v_items)) {
-      __pyx_t_3 = __pyx_v_items; __Pyx_INCREF(__pyx_t_3);
+      __pyx_t_5 = __pyx_v_items; __Pyx_INCREF(__pyx_t_5);
       __pyx_t_4 = 0;
-      __pyx_t_5 = NULL;
+      __pyx_t_6 = NULL;
     } else {
-      __pyx_t_4 = -1; __pyx_t_3 = PyObject_GetIter(__pyx_v_items); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 682, __pyx_L1_error)
-      __Pyx_GOTREF(__pyx_t_3);
-      __pyx_t_5 = (CYTHON_COMPILING_IN_LIMITED_API) ? PyIter_Next : __Pyx_PyObject_GetIterNextFunc(__pyx_t_3); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 682, __pyx_L1_error)
+      __pyx_t_4 = -1; __pyx_t_5 = PyObject_GetIter(__pyx_v_items); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 593, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_5);
+      __pyx_t_6 = (CYTHON_COMPILING_IN_LIMITED_API) ? PyIter_Next : __Pyx_PyObject_GetIterNextFunc(__pyx_t_5); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 593, __pyx_L1_error)
     }
     for (;;) {
-      if (likely(!__pyx_t_5)) {
-        if (likely(PyList_CheckExact(__pyx_t_3))) {
+      if (likely(!__pyx_t_6)) {
+        if (likely(PyList_CheckExact(__pyx_t_5))) {
           {
-            Py_ssize_t __pyx_temp = __Pyx_PyList_GET_SIZE(__pyx_t_3);
+            Py_ssize_t __pyx_temp = __Pyx_PyList_GET_SIZE(__pyx_t_5);
             #if !CYTHON_ASSUME_SAFE_SIZE
-            if (unlikely((__pyx_temp < 0))) __PYX_ERR(0, 682, __pyx_L1_error)
+            if (unlikely((__pyx_temp < 0))) __PYX_ERR(0, 593, __pyx_L1_error)
             #endif
             if (__pyx_t_4 >= __pyx_temp) break;
           }
-          __pyx_t_6 = __Pyx_PyList_GetItemRef(__pyx_t_3, __pyx_t_4);
+          __pyx_t_8 = __Pyx_PyList_GetItemRef(__pyx_t_5, __pyx_t_4);
           ++__pyx_t_4;
         } else {
           {
-            Py_ssize_t __pyx_temp = __Pyx_PyTuple_GET_SIZE(__pyx_t_3);
+            Py_ssize_t __pyx_temp = __Pyx_PyTuple_GET_SIZE(__pyx_t_5);
             #if !CYTHON_ASSUME_SAFE_SIZE
-            if (unlikely((__pyx_temp < 0))) __PYX_ERR(0, 682, __pyx_L1_error)
+            if (unlikely((__pyx_temp < 0))) __PYX_ERR(0, 593, __pyx_L1_error)
             #endif
             if (__pyx_t_4 >= __pyx_temp) break;
           }
           #if CYTHON_ASSUME_SAFE_MACROS && !CYTHON_AVOID_BORROWED_REFS
-          __pyx_t_6 = __Pyx_NewRef(PyTuple_GET_ITEM(__pyx_t_3, __pyx_t_4));
+          __pyx_t_8 = __Pyx_NewRef(PyTuple_GET_ITEM(__pyx_t_5, __pyx_t_4));
           #else
-          __pyx_t_6 = __Pyx_PySequence_ITEM(__pyx_t_3, __pyx_t_4);
+          __pyx_t_8 = __Pyx_PySequence_ITEM(__pyx_t_5, __pyx_t_4);
           #endif
           ++__pyx_t_4;
         }
-        if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 682, __pyx_L1_error)
+        if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 593, __pyx_L1_error)
       } else {
-        __pyx_t_6 = __pyx_t_5(__pyx_t_3);
-        if (unlikely(!__pyx_t_6)) {
+        __pyx_t_8 = __pyx_t_6(__pyx_t_5);
+        if (unlikely(!__pyx_t_8)) {
           PyObject* exc_type = PyErr_Occurred();
           if (exc_type) {
-            if (unlikely(!__Pyx_PyErr_GivenExceptionMatches(exc_type, PyExc_StopIteration))) __PYX_ERR(0, 682, __pyx_L1_error)
+            if (unlikely(!__Pyx_PyErr_GivenExceptionMatches(exc_type, PyExc_StopIteration))) __PYX_ERR(0, 593, __pyx_L1_error)
             PyErr_Clear();
           }
           break;
         }
       }
-      __Pyx_GOTREF(__pyx_t_6);
-      __Pyx_XDECREF_SET(__pyx_v_item, __pyx_t_6);
-      __pyx_t_6 = 0;
+      __Pyx_GOTREF(__pyx_t_8);
+      __Pyx_XDECREF_SET(__pyx_v_item, __pyx_t_8);
+      __pyx_t_8 = 0;
 
-      /* "optimized_pop.pyx":683
+      /* "optimized_pop.pyx":594
  *     if isinstance(items, (list, set, frozenset)):
  *         for item in items:
- *             heap.append(item)             # <<<<<<<<<<<<<<
- *             if max_heap:
- *                 sift_up_max(heap, len(heap) - 1)
-*/
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "append");
-        __PYX_ERR(0, 683, __pyx_L1_error)
-      }
-      __pyx_t_7 = __Pyx_PyList_Append(__pyx_v_heap, __pyx_v_item); if (unlikely(__pyx_t_7 == ((int)-1))) __PYX_ERR(0, 683, __pyx_L1_error)
-
-      /* "optimized_pop.pyx":684
- *         for item in items:
- *             heap.append(item)
- *             if max_heap:             # <<<<<<<<<<<<<<
- *                 sift_up_max(heap, len(heap) - 1)
- *             else:
-*/
-      if (__pyx_v_max_heap) {
-
-        /* "optimized_pop.pyx":685
- *             heap.append(item)
- *             if max_heap:
- *                 sift_up_max(heap, len(heap) - 1)             # <<<<<<<<<<<<<<
- *             else:
- *                 sift_up_min(heap, len(heap) - 1)
-*/
-        if (unlikely(__pyx_v_heap == Py_None)) {
-          PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
-          __PYX_ERR(0, 685, __pyx_L1_error)
-        }
-        __pyx_t_8 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_8 == ((Py_ssize_t)-1))) __PYX_ERR(0, 685, __pyx_L1_error)
-        __pyx_f_13optimized_pop_sift_up_max(__pyx_v_heap, (__pyx_t_8 - 1)); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 685, __pyx_L1_error)
-
-        /* "optimized_pop.pyx":684
- *         for item in items:
- *             heap.append(item)
- *             if max_heap:             # <<<<<<<<<<<<<<
- *                 sift_up_max(heap, len(heap) - 1)
- *             else:
-*/
-        goto __pyx_L9;
-      }
-
-      /* "optimized_pop.pyx":687
- *                 sift_up_max(heap, len(heap) - 1)
- *             else:
- *                 sift_up_min(heap, len(heap) - 1)             # <<<<<<<<<<<<<<
+ *             _push_single_opt(heap, item, max_heap, cmp, arity)             # <<<<<<<<<<<<<<
  *     else:
- *         heap.append(items)
+ *         _push_single_opt(heap, items, max_heap, cmp, arity)
 */
-      /*else*/ {
-        if (unlikely(__pyx_v_heap == Py_None)) {
-          PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
-          __PYX_ERR(0, 687, __pyx_L1_error)
-        }
-        __pyx_t_8 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_8 == ((Py_ssize_t)-1))) __PYX_ERR(0, 687, __pyx_L1_error)
-        __pyx_f_13optimized_pop_sift_up_min(__pyx_v_heap, (__pyx_t_8 - 1)); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 687, __pyx_L1_error)
-      }
-      __pyx_L9:;
+      __pyx_f_13optimized_pop__push_single_opt(__pyx_v_heap, __pyx_v_item, __pyx_v_max_heap, __pyx_v_cmp, __pyx_v_arity); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 594, __pyx_L1_error)
 
-      /* "optimized_pop.pyx":682
- *     cdef object item
+      /* "optimized_pop.pyx":593
+ * 
  *     if isinstance(items, (list, set, frozenset)):
  *         for item in items:             # <<<<<<<<<<<<<<
- *             heap.append(item)
- *             if max_heap:
+ *             _push_single_opt(heap, item, max_heap, cmp, arity)
+ *     else:
 */
     }
-    __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+    __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
 
-    /* "optimized_pop.pyx":681
- *     """Push item(s) onto heap."""
- *     cdef object item
+    /* "optimized_pop.pyx":592
+ *             return
+ * 
  *     if isinstance(items, (list, set, frozenset)):             # <<<<<<<<<<<<<<
  *         for item in items:
- *             heap.append(item)
+ *             _push_single_opt(heap, item, max_heap, cmp, arity)
 */
-    goto __pyx_L3;
+    goto __pyx_L15;
   }
 
-  /* "optimized_pop.pyx":689
- *                 sift_up_min(heap, len(heap) - 1)
+  /* "optimized_pop.pyx":596
+ *             _push_single_opt(heap, item, max_heap, cmp, arity)
  *     else:
- *         heap.append(items)             # <<<<<<<<<<<<<<
- *         if max_heap:
- *             sift_up_max(heap, len(heap) - 1)
+ *         _push_single_opt(heap, items, max_heap, cmp, arity)             # <<<<<<<<<<<<<<
+ * 
+ * cdef inline void _push_single_opt(list heap, object item, bint max_heap, object cmp, Py_ssize_t arity):
 */
   /*else*/ {
-    if (unlikely(__pyx_v_heap == Py_None)) {
-      PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "append");
-      __PYX_ERR(0, 689, __pyx_L1_error)
-    }
-    __pyx_t_7 = __Pyx_PyList_Append(__pyx_v_heap, __pyx_v_items); if (unlikely(__pyx_t_7 == ((int)-1))) __PYX_ERR(0, 689, __pyx_L1_error)
-
-    /* "optimized_pop.pyx":690
- *     else:
- *         heap.append(items)
- *         if max_heap:             # <<<<<<<<<<<<<<
- *             sift_up_max(heap, len(heap) - 1)
- *         else:
-*/
-    if (__pyx_v_max_heap) {
-
-      /* "optimized_pop.pyx":691
- *         heap.append(items)
- *         if max_heap:
- *             sift_up_max(heap, len(heap) - 1)             # <<<<<<<<<<<<<<
- *         else:
- *             sift_up_min(heap, len(heap) - 1)
-*/
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
-        __PYX_ERR(0, 691, __pyx_L1_error)
-      }
-      __pyx_t_4 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_4 == ((Py_ssize_t)-1))) __PYX_ERR(0, 691, __pyx_L1_error)
-      __pyx_f_13optimized_pop_sift_up_max(__pyx_v_heap, (__pyx_t_4 - 1)); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 691, __pyx_L1_error)
-
-      /* "optimized_pop.pyx":690
- *     else:
- *         heap.append(items)
- *         if max_heap:             # <<<<<<<<<<<<<<
- *             sift_up_max(heap, len(heap) - 1)
- *         else:
-*/
-      goto __pyx_L11;
-    }
-
-    /* "optimized_pop.pyx":693
- *             sift_up_max(heap, len(heap) - 1)
- *         else:
- *             sift_up_min(heap, len(heap) - 1)             # <<<<<<<<<<<<<<
- * 
- * # =============================================================================
-*/
-    /*else*/ {
-      if (unlikely(__pyx_v_heap == Py_None)) {
-        PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
-        __PYX_ERR(0, 693, __pyx_L1_error)
-      }
-      __pyx_t_4 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_4 == ((Py_ssize_t)-1))) __PYX_ERR(0, 693, __pyx_L1_error)
-      __pyx_f_13optimized_pop_sift_up_min(__pyx_v_heap, (__pyx_t_4 - 1)); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 693, __pyx_L1_error)
-    }
-    __pyx_L11:;
+    __pyx_f_13optimized_pop__push_single_opt(__pyx_v_heap, __pyx_v_items, __pyx_v_max_heap, __pyx_v_cmp, __pyx_v_arity); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 596, __pyx_L1_error)
   }
-  __pyx_L3:;
+  __pyx_L15:;
 
-  /* "optimized_pop.pyx":678
+  /* "optimized_pop.pyx":577
  * # =============================================================================
  * 
  * def push(list heap, object items, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):             # <<<<<<<<<<<<<<
  *     """Push item(s) onto heap."""
- *     cdef object item
+ *     cdef int dtype
 */
 
   /* function exit code */
   __pyx_r = Py_None; __Pyx_INCREF(Py_None);
   goto __pyx_L0;
   __pyx_L1_error:;
-  __Pyx_XDECREF(__pyx_t_3);
-  __Pyx_XDECREF(__pyx_t_6);
+  __Pyx_XDECREF(__pyx_t_5);
+  __Pyx_XDECREF(__pyx_t_7);
+  __Pyx_XDECREF(__pyx_t_8);
+  __Pyx_XDECREF(__pyx_t_9);
+  __Pyx_XDECREF(__pyx_t_10);
   __Pyx_AddTraceback("optimized_pop.push", __pyx_clineno, __pyx_lineno, __pyx_filename);
   __pyx_r = NULL;
   __pyx_L0:;
@@ -10693,7 +10328,157 @@ static PyObject *__pyx_pf_13optimized_pop_4push(CYTHON_UNUSED PyObject *__pyx_se
   return __pyx_r;
 }
 
-/* "optimized_pop.pyx":699
+/* "optimized_pop.pyx":598
+ *         _push_single_opt(heap, items, max_heap, cmp, arity)
+ * 
+ * cdef inline void _push_single_opt(list heap, object item, bint max_heap, object cmp, Py_ssize_t arity):             # <<<<<<<<<<<<<<
+ *     heap.append(item)
+ *     if max_heap or cmp is not None or arity != 2:
+*/
+
+static CYTHON_INLINE void __pyx_f_13optimized_pop__push_single_opt(PyObject *__pyx_v_heap, PyObject *__pyx_v_item, int __pyx_v_max_heap, PyObject *__pyx_v_cmp, Py_ssize_t __pyx_v_arity) {
+  __Pyx_RefNannyDeclarations
+  int __pyx_t_1;
+  int __pyx_t_2;
+  int __pyx_t_3;
+  Py_ssize_t __pyx_t_4;
+  PyObject *__pyx_t_5 = NULL;
+  PyObject *__pyx_t_6 = NULL;
+  PyObject *__pyx_t_7 = NULL;
+  PyObject *__pyx_t_8 = NULL;
+  size_t __pyx_t_9;
+  int __pyx_lineno = 0;
+  const char *__pyx_filename = NULL;
+  int __pyx_clineno = 0;
+  __Pyx_RefNannySetupContext("_push_single_opt", 0);
+
+  /* "optimized_pop.pyx":599
+ * 
+ * cdef inline void _push_single_opt(list heap, object item, bint max_heap, object cmp, Py_ssize_t arity):
+ *     heap.append(item)             # <<<<<<<<<<<<<<
+ *     if max_heap or cmp is not None or arity != 2:
+ *         _nary_sift_up(heap, len(heap) - 1, max_heap, arity, cmp)
+*/
+  if (unlikely(__pyx_v_heap == Py_None)) {
+    PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "append");
+    __PYX_ERR(0, 599, __pyx_L1_error)
+  }
+  __pyx_t_1 = __Pyx_PyList_Append(__pyx_v_heap, __pyx_v_item); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(0, 599, __pyx_L1_error)
+
+  /* "optimized_pop.pyx":600
+ * cdef inline void _push_single_opt(list heap, object item, bint max_heap, object cmp, Py_ssize_t arity):
+ *     heap.append(item)
+ *     if max_heap or cmp is not None or arity != 2:             # <<<<<<<<<<<<<<
+ *         _nary_sift_up(heap, len(heap) - 1, max_heap, arity, cmp)
+ *     else:
+*/
+  if (!__pyx_v_max_heap) {
+  } else {
+    __pyx_t_2 = __pyx_v_max_heap;
+    goto __pyx_L4_bool_binop_done;
+  }
+  __pyx_t_3 = (__pyx_v_cmp != Py_None);
+  if (!__pyx_t_3) {
+  } else {
+    __pyx_t_2 = __pyx_t_3;
+    goto __pyx_L4_bool_binop_done;
+  }
+  __pyx_t_3 = (__pyx_v_arity != 2);
+  __pyx_t_2 = __pyx_t_3;
+  __pyx_L4_bool_binop_done:;
+  if (__pyx_t_2) {
+
+    /* "optimized_pop.pyx":601
+ *     heap.append(item)
+ *     if max_heap or cmp is not None or arity != 2:
+ *         _nary_sift_up(heap, len(heap) - 1, max_heap, arity, cmp)             # <<<<<<<<<<<<<<
+ *     else:
+ *         _heapq._siftdown(heap, 0, len(heap) - 1)
+*/
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
+      __PYX_ERR(0, 601, __pyx_L1_error)
+    }
+    __pyx_t_4 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_4 == ((Py_ssize_t)-1))) __PYX_ERR(0, 601, __pyx_L1_error)
+    __pyx_f_13optimized_pop__nary_sift_up(__pyx_v_heap, (__pyx_t_4 - 1), __pyx_v_max_heap, __pyx_v_arity, __pyx_v_cmp); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 601, __pyx_L1_error)
+
+    /* "optimized_pop.pyx":600
+ * cdef inline void _push_single_opt(list heap, object item, bint max_heap, object cmp, Py_ssize_t arity):
+ *     heap.append(item)
+ *     if max_heap or cmp is not None or arity != 2:             # <<<<<<<<<<<<<<
+ *         _nary_sift_up(heap, len(heap) - 1, max_heap, arity, cmp)
+ *     else:
+*/
+    goto __pyx_L3;
+  }
+
+  /* "optimized_pop.pyx":603
+ *         _nary_sift_up(heap, len(heap) - 1, max_heap, arity, cmp)
+ *     else:
+ *         _heapq._siftdown(heap, 0, len(heap) - 1)             # <<<<<<<<<<<<<<
+ * 
+ * # =============================================================================
+*/
+  /*else*/ {
+    __pyx_t_6 = NULL;
+    __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_heapq); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 603, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_7);
+    __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_siftdown); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 603, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_8);
+    __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
+    if (unlikely(__pyx_v_heap == Py_None)) {
+      PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
+      __PYX_ERR(0, 603, __pyx_L1_error)
+    }
+    __pyx_t_4 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_4 == ((Py_ssize_t)-1))) __PYX_ERR(0, 603, __pyx_L1_error)
+    __pyx_t_7 = PyLong_FromSsize_t((__pyx_t_4 - 1)); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 603, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_7);
+    __pyx_t_9 = 1;
+    #if CYTHON_UNPACK_METHODS
+    if (unlikely(PyMethod_Check(__pyx_t_8))) {
+      __pyx_t_6 = PyMethod_GET_SELF(__pyx_t_8);
+      assert(__pyx_t_6);
+      PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_8);
+      __Pyx_INCREF(__pyx_t_6);
+      __Pyx_INCREF(__pyx__function);
+      __Pyx_DECREF_SET(__pyx_t_8, __pyx__function);
+      __pyx_t_9 = 0;
+    }
+    #endif
+    {
+      PyObject *__pyx_callargs[4] = {__pyx_t_6, __pyx_v_heap, __pyx_mstate_global->__pyx_int_0, __pyx_t_7};
+      __pyx_t_5 = __Pyx_PyObject_FastCall(__pyx_t_8, __pyx_callargs+__pyx_t_9, (4-__pyx_t_9) | (__pyx_t_9*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+      __Pyx_XDECREF(__pyx_t_6); __pyx_t_6 = 0;
+      __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
+      __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
+      if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 603, __pyx_L1_error)
+      __Pyx_GOTREF(__pyx_t_5);
+    }
+    __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+  }
+  __pyx_L3:;
+
+  /* "optimized_pop.pyx":598
+ *         _push_single_opt(heap, items, max_heap, cmp, arity)
+ * 
+ * cdef inline void _push_single_opt(list heap, object item, bint max_heap, object cmp, Py_ssize_t arity):             # <<<<<<<<<<<<<<
+ *     heap.append(item)
+ *     if max_heap or cmp is not None or arity != 2:
+*/
+
+  /* function exit code */
+  goto __pyx_L0;
+  __pyx_L1_error:;
+  __Pyx_XDECREF(__pyx_t_5);
+  __Pyx_XDECREF(__pyx_t_6);
+  __Pyx_XDECREF(__pyx_t_7);
+  __Pyx_XDECREF(__pyx_t_8);
+  __Pyx_AddTraceback("optimized_pop._push_single_opt", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_L0:;
+  __Pyx_RefNannyFinishContext();
+}
+
+/* "optimized_pop.pyx":609
  * # =============================================================================
  * 
  * def verify_heap(list heap, bint max_heap=False, Py_ssize_t arity=2):             # <<<<<<<<<<<<<<
@@ -10743,61 +10528,61 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   {
     PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_heap,&__pyx_mstate_global->__pyx_n_u_max_heap,&__pyx_mstate_global->__pyx_n_u_arity,0};
     const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
-    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 699, __pyx_L3_error)
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 609, __pyx_L3_error)
     if (__pyx_kwds_len > 0) {
       switch (__pyx_nargs) {
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 699, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 609, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 699, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 609, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 699, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 609, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  0: break;
         default: goto __pyx_L5_argtuple_error;
       }
       const Py_ssize_t kwd_pos_args = __pyx_nargs;
-      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "verify_heap", 0) < 0) __PYX_ERR(0, 699, __pyx_L3_error)
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "verify_heap", 0) < 0) __PYX_ERR(0, 609, __pyx_L3_error)
       for (Py_ssize_t i = __pyx_nargs; i < 1; i++) {
-        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("verify_heap", 0, 1, 3, i); __PYX_ERR(0, 699, __pyx_L3_error) }
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("verify_heap", 0, 1, 3, i); __PYX_ERR(0, 609, __pyx_L3_error) }
       }
     } else {
       switch (__pyx_nargs) {
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 699, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 609, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 699, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 609, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 699, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 609, __pyx_L3_error)
         break;
         default: goto __pyx_L5_argtuple_error;
       }
     }
     __pyx_v_heap = ((PyObject*)values[0]);
     if (values[1]) {
-      __pyx_v_max_heap = __Pyx_PyObject_IsTrue(values[1]); if (unlikely((__pyx_v_max_heap == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 699, __pyx_L3_error)
+      __pyx_v_max_heap = __Pyx_PyObject_IsTrue(values[1]); if (unlikely((__pyx_v_max_heap == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 609, __pyx_L3_error)
     } else {
       __pyx_v_max_heap = ((int)((int)0));
     }
     if (values[2]) {
-      __pyx_v_arity = __Pyx_PyIndex_AsSsize_t(values[2]); if (unlikely((__pyx_v_arity == (Py_ssize_t)-1) && PyErr_Occurred())) __PYX_ERR(0, 699, __pyx_L3_error)
+      __pyx_v_arity = __Pyx_PyIndex_AsSsize_t(values[2]); if (unlikely((__pyx_v_arity == (Py_ssize_t)-1) && PyErr_Occurred())) __PYX_ERR(0, 609, __pyx_L3_error)
     } else {
       __pyx_v_arity = ((Py_ssize_t)((Py_ssize_t)2));
     }
   }
   goto __pyx_L6_skip;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("verify_heap", 0, 1, 3, __pyx_nargs); __PYX_ERR(0, 699, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("verify_heap", 0, 1, 3, __pyx_nargs); __PYX_ERR(0, 609, __pyx_L3_error)
   __pyx_L6_skip:;
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L3_error:;
@@ -10808,7 +10593,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_heap), (&PyList_Type), 1, "heap", 1))) __PYX_ERR(0, 699, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_heap), (&PyList_Type), 1, "heap", 1))) __PYX_ERR(0, 609, __pyx_L1_error)
   __pyx_r = __pyx_pf_13optimized_pop_6verify_heap(__pyx_self, __pyx_v_heap, __pyx_v_max_heap, __pyx_v_arity);
 
   /* function exit code */
@@ -10848,7 +10633,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("verify_heap", 0);
 
-  /* "optimized_pop.pyx":701
+  /* "optimized_pop.pyx":611
  * def verify_heap(list heap, bint max_heap=False, Py_ssize_t arity=2):
  *     """Verify heap property."""
  *     cdef Py_ssize_t n = len(heap), i, j, child             # <<<<<<<<<<<<<<
@@ -10857,12 +10642,12 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
 */
   if (unlikely(__pyx_v_heap == Py_None)) {
     PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
-    __PYX_ERR(0, 701, __pyx_L1_error)
+    __PYX_ERR(0, 611, __pyx_L1_error)
   }
-  __pyx_t_1 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_1 == ((Py_ssize_t)-1))) __PYX_ERR(0, 701, __pyx_L1_error)
+  __pyx_t_1 = __Pyx_PyList_GET_SIZE(__pyx_v_heap); if (unlikely(__pyx_t_1 == ((Py_ssize_t)-1))) __PYX_ERR(0, 611, __pyx_L1_error)
   __pyx_v_n = __pyx_t_1;
 
-  /* "optimized_pop.pyx":702
+  /* "optimized_pop.pyx":612
  *     """Verify heap property."""
  *     cdef Py_ssize_t n = len(heap), i, j, child
  *     if arity == 1:             # <<<<<<<<<<<<<<
@@ -10872,7 +10657,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
   __pyx_t_2 = (__pyx_v_arity == 1);
   if (__pyx_t_2) {
 
-    /* "optimized_pop.pyx":703
+    /* "optimized_pop.pyx":613
  *     cdef Py_ssize_t n = len(heap), i, j, child
  *     if arity == 1:
  *         for i in range(n - 1):             # <<<<<<<<<<<<<<
@@ -10884,7 +10669,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
     for (__pyx_t_4 = 0; __pyx_t_4 < __pyx_t_3; __pyx_t_4+=1) {
       __pyx_v_i = __pyx_t_4;
 
-      /* "optimized_pop.pyx":704
+      /* "optimized_pop.pyx":614
  *     if arity == 1:
  *         for i in range(n - 1):
  *             if max_heap:             # <<<<<<<<<<<<<<
@@ -10893,7 +10678,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
 */
       if (__pyx_v_max_heap) {
 
-        /* "optimized_pop.pyx":705
+        /* "optimized_pop.pyx":615
  *         for i in range(n - 1):
  *             if max_heap:
  *                 if heap[i] < heap[i + 1]:             # <<<<<<<<<<<<<<
@@ -10902,19 +10687,19 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
 */
         if (unlikely(__pyx_v_heap == Py_None)) {
           PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-          __PYX_ERR(0, 705, __pyx_L1_error)
+          __PYX_ERR(0, 615, __pyx_L1_error)
         }
         if (unlikely(__pyx_v_heap == Py_None)) {
           PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-          __PYX_ERR(0, 705, __pyx_L1_error)
+          __PYX_ERR(0, 615, __pyx_L1_error)
         }
         __pyx_t_5 = (__pyx_v_i + 1);
-        __pyx_t_6 = PyObject_RichCompare(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_i), __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_t_5), Py_LT); __Pyx_XGOTREF(__pyx_t_6); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 705, __pyx_L1_error)
-        __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_6); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 705, __pyx_L1_error)
+        __pyx_t_6 = PyObject_RichCompare(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_i), __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_t_5), Py_LT); __Pyx_XGOTREF(__pyx_t_6); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 615, __pyx_L1_error)
+        __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_6); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 615, __pyx_L1_error)
         __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
         if (__pyx_t_2) {
 
-          /* "optimized_pop.pyx":706
+          /* "optimized_pop.pyx":616
  *             if max_heap:
  *                 if heap[i] < heap[i + 1]:
  *                     return False             # <<<<<<<<<<<<<<
@@ -10926,7 +10711,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
           __pyx_r = Py_False;
           goto __pyx_L0;
 
-          /* "optimized_pop.pyx":705
+          /* "optimized_pop.pyx":615
  *         for i in range(n - 1):
  *             if max_heap:
  *                 if heap[i] < heap[i + 1]:             # <<<<<<<<<<<<<<
@@ -10935,7 +10720,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
 */
         }
 
-        /* "optimized_pop.pyx":704
+        /* "optimized_pop.pyx":614
  *     if arity == 1:
  *         for i in range(n - 1):
  *             if max_heap:             # <<<<<<<<<<<<<<
@@ -10945,7 +10730,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
         goto __pyx_L6;
       }
 
-      /* "optimized_pop.pyx":708
+      /* "optimized_pop.pyx":618
  *                     return False
  *             else:
  *                 if heap[i] > heap[i + 1]:             # <<<<<<<<<<<<<<
@@ -10955,19 +10740,19 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
       /*else*/ {
         if (unlikely(__pyx_v_heap == Py_None)) {
           PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-          __PYX_ERR(0, 708, __pyx_L1_error)
+          __PYX_ERR(0, 618, __pyx_L1_error)
         }
         if (unlikely(__pyx_v_heap == Py_None)) {
           PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-          __PYX_ERR(0, 708, __pyx_L1_error)
+          __PYX_ERR(0, 618, __pyx_L1_error)
         }
         __pyx_t_5 = (__pyx_v_i + 1);
-        __pyx_t_6 = PyObject_RichCompare(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_i), __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_t_5), Py_GT); __Pyx_XGOTREF(__pyx_t_6); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 708, __pyx_L1_error)
-        __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_6); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 708, __pyx_L1_error)
+        __pyx_t_6 = PyObject_RichCompare(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_i), __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_t_5), Py_GT); __Pyx_XGOTREF(__pyx_t_6); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 618, __pyx_L1_error)
+        __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_6); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 618, __pyx_L1_error)
         __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
         if (__pyx_t_2) {
 
-          /* "optimized_pop.pyx":709
+          /* "optimized_pop.pyx":619
  *             else:
  *                 if heap[i] > heap[i + 1]:
  *                     return False             # <<<<<<<<<<<<<<
@@ -10979,7 +10764,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
           __pyx_r = Py_False;
           goto __pyx_L0;
 
-          /* "optimized_pop.pyx":708
+          /* "optimized_pop.pyx":618
  *                     return False
  *             else:
  *                 if heap[i] > heap[i + 1]:             # <<<<<<<<<<<<<<
@@ -10991,7 +10776,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
       __pyx_L6:;
     }
 
-    /* "optimized_pop.pyx":710
+    /* "optimized_pop.pyx":620
  *                 if heap[i] > heap[i + 1]:
  *                     return False
  *         return True             # <<<<<<<<<<<<<<
@@ -11003,7 +10788,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
     __pyx_r = Py_True;
     goto __pyx_L0;
 
-    /* "optimized_pop.pyx":702
+    /* "optimized_pop.pyx":612
  *     """Verify heap property."""
  *     cdef Py_ssize_t n = len(heap), i, j, child
  *     if arity == 1:             # <<<<<<<<<<<<<<
@@ -11012,7 +10797,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
 */
   }
 
-  /* "optimized_pop.pyx":711
+  /* "optimized_pop.pyx":621
  *                     return False
  *         return True
  *     for i in range(n):             # <<<<<<<<<<<<<<
@@ -11024,7 +10809,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
   for (__pyx_t_4 = 0; __pyx_t_4 < __pyx_t_3; __pyx_t_4+=1) {
     __pyx_v_i = __pyx_t_4;
 
-    /* "optimized_pop.pyx":712
+    /* "optimized_pop.pyx":622
  *         return True
  *     for i in range(n):
  *         for j in range(1, arity + 1):             # <<<<<<<<<<<<<<
@@ -11036,7 +10821,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
     for (__pyx_t_8 = 1; __pyx_t_8 < __pyx_t_7; __pyx_t_8+=1) {
       __pyx_v_j = __pyx_t_8;
 
-      /* "optimized_pop.pyx":713
+      /* "optimized_pop.pyx":623
  *     for i in range(n):
  *         for j in range(1, arity + 1):
  *             child = arity * i + j             # <<<<<<<<<<<<<<
@@ -11045,7 +10830,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
 */
       __pyx_v_child = ((__pyx_v_arity * __pyx_v_i) + __pyx_v_j);
 
-      /* "optimized_pop.pyx":714
+      /* "optimized_pop.pyx":624
  *         for j in range(1, arity + 1):
  *             child = arity * i + j
  *             if child >= n:             # <<<<<<<<<<<<<<
@@ -11055,7 +10840,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
       __pyx_t_2 = (__pyx_v_child >= __pyx_v_n);
       if (__pyx_t_2) {
 
-        /* "optimized_pop.pyx":715
+        /* "optimized_pop.pyx":625
  *             child = arity * i + j
  *             if child >= n:
  *                 break             # <<<<<<<<<<<<<<
@@ -11064,7 +10849,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
 */
         goto __pyx_L12_break;
 
-        /* "optimized_pop.pyx":714
+        /* "optimized_pop.pyx":624
  *         for j in range(1, arity + 1):
  *             child = arity * i + j
  *             if child >= n:             # <<<<<<<<<<<<<<
@@ -11073,7 +10858,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
 */
       }
 
-      /* "optimized_pop.pyx":716
+      /* "optimized_pop.pyx":626
  *             if child >= n:
  *                 break
  *             if max_heap:             # <<<<<<<<<<<<<<
@@ -11082,7 +10867,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
 */
       if (__pyx_v_max_heap) {
 
-        /* "optimized_pop.pyx":717
+        /* "optimized_pop.pyx":627
  *                 break
  *             if max_heap:
  *                 if heap[i] < heap[child]:             # <<<<<<<<<<<<<<
@@ -11091,18 +10876,18 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
 */
         if (unlikely(__pyx_v_heap == Py_None)) {
           PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-          __PYX_ERR(0, 717, __pyx_L1_error)
+          __PYX_ERR(0, 627, __pyx_L1_error)
         }
         if (unlikely(__pyx_v_heap == Py_None)) {
           PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-          __PYX_ERR(0, 717, __pyx_L1_error)
+          __PYX_ERR(0, 627, __pyx_L1_error)
         }
-        __pyx_t_6 = PyObject_RichCompare(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_i), __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child), Py_LT); __Pyx_XGOTREF(__pyx_t_6); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 717, __pyx_L1_error)
-        __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_6); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 717, __pyx_L1_error)
+        __pyx_t_6 = PyObject_RichCompare(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_i), __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child), Py_LT); __Pyx_XGOTREF(__pyx_t_6); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 627, __pyx_L1_error)
+        __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_6); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 627, __pyx_L1_error)
         __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
         if (__pyx_t_2) {
 
-          /* "optimized_pop.pyx":718
+          /* "optimized_pop.pyx":628
  *             if max_heap:
  *                 if heap[i] < heap[child]:
  *                     return False             # <<<<<<<<<<<<<<
@@ -11114,7 +10899,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
           __pyx_r = Py_False;
           goto __pyx_L0;
 
-          /* "optimized_pop.pyx":717
+          /* "optimized_pop.pyx":627
  *                 break
  *             if max_heap:
  *                 if heap[i] < heap[child]:             # <<<<<<<<<<<<<<
@@ -11123,7 +10908,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
 */
         }
 
-        /* "optimized_pop.pyx":716
+        /* "optimized_pop.pyx":626
  *             if child >= n:
  *                 break
  *             if max_heap:             # <<<<<<<<<<<<<<
@@ -11133,7 +10918,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
         goto __pyx_L14;
       }
 
-      /* "optimized_pop.pyx":720
+      /* "optimized_pop.pyx":630
  *                     return False
  *             else:
  *                 if heap[i] > heap[child]:             # <<<<<<<<<<<<<<
@@ -11143,18 +10928,18 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
       /*else*/ {
         if (unlikely(__pyx_v_heap == Py_None)) {
           PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-          __PYX_ERR(0, 720, __pyx_L1_error)
+          __PYX_ERR(0, 630, __pyx_L1_error)
         }
         if (unlikely(__pyx_v_heap == Py_None)) {
           PyErr_SetString(PyExc_TypeError, "'NoneType' object is not subscriptable");
-          __PYX_ERR(0, 720, __pyx_L1_error)
+          __PYX_ERR(0, 630, __pyx_L1_error)
         }
-        __pyx_t_6 = PyObject_RichCompare(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_i), __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child), Py_GT); __Pyx_XGOTREF(__pyx_t_6); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 720, __pyx_L1_error)
-        __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_6); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 720, __pyx_L1_error)
+        __pyx_t_6 = PyObject_RichCompare(__Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_i), __Pyx_PyList_GET_ITEM(__pyx_v_heap, __pyx_v_child), Py_GT); __Pyx_XGOTREF(__pyx_t_6); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 630, __pyx_L1_error)
+        __pyx_t_2 = __Pyx_PyObject_IsTrue(__pyx_t_6); if (unlikely((__pyx_t_2 < 0))) __PYX_ERR(0, 630, __pyx_L1_error)
         __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
         if (__pyx_t_2) {
 
-          /* "optimized_pop.pyx":721
+          /* "optimized_pop.pyx":631
  *             else:
  *                 if heap[i] > heap[child]:
  *                     return False             # <<<<<<<<<<<<<<
@@ -11165,7 +10950,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
           __pyx_r = Py_False;
           goto __pyx_L0;
 
-          /* "optimized_pop.pyx":720
+          /* "optimized_pop.pyx":630
  *                     return False
  *             else:
  *                 if heap[i] > heap[child]:             # <<<<<<<<<<<<<<
@@ -11179,7 +10964,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
     __pyx_L12_break:;
   }
 
-  /* "optimized_pop.pyx":722
+  /* "optimized_pop.pyx":632
  *                 if heap[i] > heap[child]:
  *                     return False
  *     return True             # <<<<<<<<<<<<<<
@@ -11189,7 +10974,7 @@ static PyObject *__pyx_pf_13optimized_pop_6verify_heap(CYTHON_UNUSED PyObject *_
   __pyx_r = Py_True;
   goto __pyx_L0;
 
-  /* "optimized_pop.pyx":699
+  /* "optimized_pop.pyx":609
  * # =============================================================================
  * 
  * def verify_heap(list heap, bint max_heap=False, Py_ssize_t arity=2):             # <<<<<<<<<<<<<<
@@ -11266,30 +11051,10 @@ static int __Pyx_modinit_type_init_code(__pyx_mstatetype *__pyx_mstate) {
 static int __Pyx_modinit_type_import_code(__pyx_mstatetype *__pyx_mstate) {
   __Pyx_RefNannyDeclarations
   CYTHON_UNUSED_VAR(__pyx_mstate);
-  PyObject *__pyx_t_1 = NULL;
-  int __pyx_lineno = 0;
-  const char *__pyx_filename = NULL;
-  int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("__Pyx_modinit_type_import_code", 0);
   /*--- Type import code ---*/
-  __pyx_t_1 = PyImport_ImportModule(__Pyx_BUILTIN_MODULE_NAME); if (unlikely(!__pyx_t_1)) __PYX_ERR(1, 9, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_1);
-  __pyx_mstate->__pyx_ptype_7cpython_4type_type = __Pyx_ImportType_3_1_3(__pyx_t_1, __Pyx_BUILTIN_MODULE_NAME, "type",
-  #if defined(PYPY_VERSION_NUM) && PYPY_VERSION_NUM < 0x050B0000
-  sizeof(PyTypeObject), __PYX_GET_STRUCT_ALIGNMENT_3_1_3(PyTypeObject),
-  #elif CYTHON_COMPILING_IN_LIMITED_API
-  0, 0,
-  #else
-  sizeof(PyHeapTypeObject), __PYX_GET_STRUCT_ALIGNMENT_3_1_3(PyHeapTypeObject),
-  #endif
-  __Pyx_ImportType_CheckSize_Warn_3_1_3); if (!__pyx_mstate->__pyx_ptype_7cpython_4type_type) __PYX_ERR(1, 9, __pyx_L1_error)
-  __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
   __Pyx_RefNannyFinishContext();
   return 0;
-  __pyx_L1_error:;
-  __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_RefNannyFinishContext();
-  return -1;
 }
 
 static int __Pyx_modinit_variable_import_code(__pyx_mstatetype *__pyx_mstate) {
@@ -11335,7 +11100,7 @@ namespace {
   {
       PyModuleDef_HEAD_INIT,
       "optimized_pop",
-      __pyx_k_Ultra_Optimized_Heap_Operations, /* m_doc */
+      __pyx_k_Ultra_Optimized_Heap_Pop_for_he, /* m_doc */
     #if CYTHON_USE_MODULE_STATE
       sizeof(__pyx_mstatetype), /* m_size */
     #else
@@ -11591,109 +11356,121 @@ __Pyx_RefNannySetupContext("PyInit_optimized_pop", 0);
   (void)__Pyx_modinit_variable_export_code(__pyx_mstate);
   (void)__Pyx_modinit_function_export_code(__pyx_mstate);
   (void)__Pyx_modinit_type_init_code(__pyx_mstate);
-  if (unlikely((__Pyx_modinit_type_import_code(__pyx_mstate) < 0))) __PYX_ERR(0, 1, __pyx_L1_error)
+  (void)__Pyx_modinit_type_import_code(__pyx_mstate);
   (void)__Pyx_modinit_variable_import_code(__pyx_mstate);
   (void)__Pyx_modinit_function_import_code(__pyx_mstate);
   /*--- Execution code ---*/
 
-  /* "optimized_pop.pyx":531
- *         dispatch_sift_down(heap, i, n, is_max, dtype)
+  /* "optimized_pop.pyx":18
+ * """
+ * 
+ * import heapq as _heapq             # <<<<<<<<<<<<<<
+ * 
+ * cdef extern from "Python.h":
+*/
+  __pyx_t_2 = __Pyx_ImportDottedModule(__pyx_mstate_global->__pyx_n_u_heapq_2, NULL); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 18, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_2);
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_heapq, __pyx_t_2) < 0) __PYX_ERR(0, 18, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+
+  /* "optimized_pop.pyx":440
+ * # =============================================================================
  * 
  * def heapify(list heap, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):             # <<<<<<<<<<<<<<
  *     """Transform list into heap in-place."""
  *     cdef Py_ssize_t n = len(heap), i
 */
-  __pyx_t_2 = __Pyx_PyBool_FromLong(((int)0)); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 531, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_PyBool_FromLong(((int)0)); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 440, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
-  __pyx_t_3 = PyLong_FromSsize_t(((Py_ssize_t)2)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 531, __pyx_L1_error)
+  __pyx_t_3 = PyLong_FromSsize_t(((Py_ssize_t)2)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 440, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_4 = __Pyx_PyBool_FromLong(((int)0)); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 531, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyBool_FromLong(((int)0)); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 440, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
-  __pyx_t_5 = PyTuple_Pack(4, __pyx_t_2, Py_None, __pyx_t_3, __pyx_t_4); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 531, __pyx_L1_error)
+  __pyx_t_5 = PyTuple_Pack(4, __pyx_t_2, Py_None, __pyx_t_3, __pyx_t_4); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 440, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
   __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
-  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_13optimized_pop_1heapify, 0, __pyx_mstate_global->__pyx_n_u_heapify, NULL, __pyx_mstate_global->__pyx_n_u_optimized_pop, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[0])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 531, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_13optimized_pop_1heapify, 0, __pyx_mstate_global->__pyx_n_u_heapify, NULL, __pyx_mstate_global->__pyx_n_u_optimized_pop, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[0])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 440, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_4, __pyx_t_5);
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_heapify, __pyx_t_4) < 0) __PYX_ERR(0, 531, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_heapify, __pyx_t_4) < 0) __PYX_ERR(0, 440, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
 
-  /* "optimized_pop.pyx":564
+  /* "optimized_pop.pyx":474
  * # =============================================================================
  * 
  * def pop(list heap, Py_ssize_t n=1, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):             # <<<<<<<<<<<<<<
- *     """
- *     Pop and return the smallest (or largest if max_heap=True) item(s) from heap.
+ *     """Pop and return the smallest (or largest) item(s) from heap."""
+ *     cdef:
 */
-  __pyx_t_4 = PyLong_FromSsize_t(((Py_ssize_t)1)); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 564, __pyx_L1_error)
+  __pyx_t_4 = PyLong_FromSsize_t(((Py_ssize_t)1)); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 474, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
-  __pyx_t_5 = __Pyx_PyBool_FromLong(((int)0)); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 564, __pyx_L1_error)
+  __pyx_t_5 = __Pyx_PyBool_FromLong(((int)0)); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 474, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
-  __pyx_t_3 = PyLong_FromSsize_t(((Py_ssize_t)2)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 564, __pyx_L1_error)
+  __pyx_t_3 = PyLong_FromSsize_t(((Py_ssize_t)2)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 474, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_2 = __Pyx_PyBool_FromLong(((int)0)); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 564, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_PyBool_FromLong(((int)0)); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 474, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
-  __pyx_t_6 = PyTuple_Pack(5, __pyx_t_4, __pyx_t_5, Py_None, __pyx_t_3, __pyx_t_2); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 564, __pyx_L1_error)
+  __pyx_t_6 = PyTuple_Pack(5, __pyx_t_4, __pyx_t_5, Py_None, __pyx_t_3, __pyx_t_2); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 474, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
   __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-  __pyx_t_2 = __Pyx_CyFunction_New(&__pyx_mdef_13optimized_pop_3pop, 0, __pyx_mstate_global->__pyx_n_u_pop, NULL, __pyx_mstate_global->__pyx_n_u_optimized_pop, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[1])); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 564, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_CyFunction_New(&__pyx_mdef_13optimized_pop_3pop, 0, __pyx_mstate_global->__pyx_n_u_pop, NULL, __pyx_mstate_global->__pyx_n_u_optimized_pop, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[1])); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 474, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
   __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_2, __pyx_t_6);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_pop, __pyx_t_2) < 0) __PYX_ERR(0, 564, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_pop, __pyx_t_2) < 0) __PYX_ERR(0, 474, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
 
-  /* "optimized_pop.pyx":678
+  /* "optimized_pop.pyx":577
  * # =============================================================================
  * 
  * def push(list heap, object items, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):             # <<<<<<<<<<<<<<
  *     """Push item(s) onto heap."""
- *     cdef object item
+ *     cdef int dtype
 */
-  __pyx_t_2 = __Pyx_PyBool_FromLong(((int)0)); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 678, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_PyBool_FromLong(((int)0)); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 577, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
-  __pyx_t_6 = PyLong_FromSsize_t(((Py_ssize_t)2)); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 678, __pyx_L1_error)
+  __pyx_t_6 = PyLong_FromSsize_t(((Py_ssize_t)2)); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 577, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_3 = __Pyx_PyBool_FromLong(((int)0)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 678, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_PyBool_FromLong(((int)0)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 577, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_5 = PyTuple_Pack(4, __pyx_t_2, Py_None, __pyx_t_6, __pyx_t_3); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 678, __pyx_L1_error)
+  __pyx_t_5 = PyTuple_Pack(4, __pyx_t_2, Py_None, __pyx_t_6, __pyx_t_3); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 577, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-  __pyx_t_3 = __Pyx_CyFunction_New(&__pyx_mdef_13optimized_pop_5push, 0, __pyx_mstate_global->__pyx_n_u_push, NULL, __pyx_mstate_global->__pyx_n_u_optimized_pop, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[2])); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 678, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_CyFunction_New(&__pyx_mdef_13optimized_pop_5push, 0, __pyx_mstate_global->__pyx_n_u_push, NULL, __pyx_mstate_global->__pyx_n_u_optimized_pop, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[2])); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 577, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
   __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_3, __pyx_t_5);
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_push, __pyx_t_3) < 0) __PYX_ERR(0, 678, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_push, __pyx_t_3) < 0) __PYX_ERR(0, 577, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
 
-  /* "optimized_pop.pyx":699
+  /* "optimized_pop.pyx":609
  * # =============================================================================
  * 
  * def verify_heap(list heap, bint max_heap=False, Py_ssize_t arity=2):             # <<<<<<<<<<<<<<
  *     """Verify heap property."""
  *     cdef Py_ssize_t n = len(heap), i, j, child
 */
-  __pyx_t_3 = __Pyx_PyBool_FromLong(((int)0)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 699, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_PyBool_FromLong(((int)0)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 609, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_5 = PyLong_FromSsize_t(((Py_ssize_t)2)); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 699, __pyx_L1_error)
+  __pyx_t_5 = PyLong_FromSsize_t(((Py_ssize_t)2)); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 609, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
-  __pyx_t_6 = PyTuple_Pack(2, __pyx_t_3, __pyx_t_5); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 699, __pyx_L1_error)
+  __pyx_t_6 = PyTuple_Pack(2, __pyx_t_3, __pyx_t_5); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 609, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-  __pyx_t_5 = __Pyx_CyFunction_New(&__pyx_mdef_13optimized_pop_7verify_heap, 0, __pyx_mstate_global->__pyx_n_u_verify_heap, NULL, __pyx_mstate_global->__pyx_n_u_optimized_pop, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[3])); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 699, __pyx_L1_error)
+  __pyx_t_5 = __Pyx_CyFunction_New(&__pyx_mdef_13optimized_pop_7verify_heap, 0, __pyx_mstate_global->__pyx_n_u_verify_heap, NULL, __pyx_mstate_global->__pyx_n_u_optimized_pop, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[3])); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 609, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
   __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_5, __pyx_t_6);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_verify_heap, __pyx_t_5) < 0) __PYX_ERR(0, 699, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_verify_heap, __pyx_t_5) < 0) __PYX_ERR(0, 609, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
 
   /* "optimized_pop.pyx":1
@@ -11773,6 +11550,7 @@ static const __Pyx_StringTabEntry __pyx_string_tab[] = {
   {__pyx_k_Note_that_Cython_is_deliberately, sizeof(__pyx_k_Note_that_Cython_is_deliberately), 0, 1, 0}, /* PyObject cname: __pyx_kp_u_Note_that_Cython_is_deliberately */
   {__pyx_k_TypeError, sizeof(__pyx_k_TypeError), 0, 1, 1}, /* PyObject cname: __pyx_n_u_TypeError */
   {__pyx_k_ValueError, sizeof(__pyx_k_ValueError), 0, 1, 1}, /* PyObject cname: __pyx_n_u_ValueError */
+  {__pyx_k__2, sizeof(__pyx_k__2), 0, 1, 1}, /* PyObject cname: __pyx_n_u__2 */
   {__pyx_k_add_note, sizeof(__pyx_k_add_note), 0, 1, 0}, /* PyObject cname: __pyx_kp_u_add_note */
   {__pyx_k_arity, sizeof(__pyx_k_arity), 0, 1, 1}, /* PyObject cname: __pyx_n_u_arity */
   {__pyx_k_arity_must_be_1_got, sizeof(__pyx_k_arity_must_be_1_got), 0, 1, 0}, /* PyObject cname: __pyx_kp_u_arity_must_be_1_got */
@@ -11786,11 +11564,17 @@ static const __Pyx_StringTabEntry __pyx_string_tab[] = {
   {__pyx_k_heap, sizeof(__pyx_k_heap), 0, 1, 1}, /* PyObject cname: __pyx_n_u_heap */
   {__pyx_k_heap_size, sizeof(__pyx_k_heap_size), 0, 1, 1}, /* PyObject cname: __pyx_n_u_heap_size */
   {__pyx_k_heapify, sizeof(__pyx_k_heapify), 0, 1, 1}, /* PyObject cname: __pyx_n_u_heapify */
+  {__pyx_k_heappop, sizeof(__pyx_k_heappop), 0, 1, 1}, /* PyObject cname: __pyx_n_u_heappop */
+  {__pyx_k_heappush, sizeof(__pyx_k_heappush), 0, 1, 1}, /* PyObject cname: __pyx_n_u_heappush */
+  {__pyx_k_heapq, sizeof(__pyx_k_heapq), 0, 1, 1}, /* PyObject cname: __pyx_n_u_heapq */
+  {__pyx_k_heapq_2, sizeof(__pyx_k_heapq_2), 0, 1, 1}, /* PyObject cname: __pyx_n_u_heapq_2 */
   {__pyx_k_i, sizeof(__pyx_k_i), 0, 1, 1}, /* PyObject cname: __pyx_n_u_i */
+  {__pyx_k_initializing, sizeof(__pyx_k_initializing), 0, 1, 1}, /* PyObject cname: __pyx_n_u_initializing */
   {__pyx_k_is_coroutine, sizeof(__pyx_k_is_coroutine), 0, 1, 1}, /* PyObject cname: __pyx_n_u_is_coroutine */
   {__pyx_k_item, sizeof(__pyx_k_item), 0, 1, 1}, /* PyObject cname: __pyx_n_u_item */
   {__pyx_k_items, sizeof(__pyx_k_items), 0, 1, 1}, /* PyObject cname: __pyx_n_u_items */
   {__pyx_k_j, sizeof(__pyx_k_j), 0, 1, 1}, /* PyObject cname: __pyx_n_u_j */
+  {__pyx_k_key, sizeof(__pyx_k_key), 0, 1, 1}, /* PyObject cname: __pyx_n_u_key */
   {__pyx_k_last, sizeof(__pyx_k_last), 0, 1, 1}, /* PyObject cname: __pyx_n_u_last */
   {__pyx_k_main, sizeof(__pyx_k_main), 0, 1, 1}, /* PyObject cname: __pyx_n_u_main */
   {__pyx_k_max_heap, sizeof(__pyx_k_max_heap), 0, 1, 1}, /* PyObject cname: __pyx_n_u_max_heap */
@@ -11798,7 +11582,6 @@ static const __Pyx_StringTabEntry __pyx_string_tab[] = {
   {__pyx_k_n, sizeof(__pyx_k_n), 0, 1, 1}, /* PyObject cname: __pyx_n_u_n */
   {__pyx_k_n_must_be_1_got, sizeof(__pyx_k_n_must_be_1_got), 0, 1, 0}, /* PyObject cname: __pyx_kp_u_n_must_be_1_got */
   {__pyx_k_name, sizeof(__pyx_k_name), 0, 1, 1}, /* PyObject cname: __pyx_n_u_name */
-  {__pyx_k_new_size, sizeof(__pyx_k_new_size), 0, 1, 1}, /* PyObject cname: __pyx_n_u_new_size */
   {__pyx_k_nogil, sizeof(__pyx_k_nogil), 0, 1, 1}, /* PyObject cname: __pyx_n_u_nogil */
   {__pyx_k_optimized_pop, sizeof(__pyx_k_optimized_pop), 0, 1, 1}, /* PyObject cname: __pyx_n_u_optimized_pop */
   {__pyx_k_optimized_pop_pyx, sizeof(__pyx_k_optimized_pop_pyx), 0, 1, 0}, /* PyObject cname: __pyx_kp_u_optimized_pop_pyx */
@@ -11808,10 +11591,12 @@ static const __Pyx_StringTabEntry __pyx_string_tab[] = {
   {__pyx_k_qualname, sizeof(__pyx_k_qualname), 0, 1, 1}, /* PyObject cname: __pyx_n_u_qualname */
   {__pyx_k_range, sizeof(__pyx_k_range), 0, 1, 1}, /* PyObject cname: __pyx_n_u_range */
   {__pyx_k_result, sizeof(__pyx_k_result), 0, 1, 1}, /* PyObject cname: __pyx_n_u_result */
-  {__pyx_k_results, sizeof(__pyx_k_results), 0, 1, 1}, /* PyObject cname: __pyx_n_u_results */
   {__pyx_k_reverse, sizeof(__pyx_k_reverse), 0, 1, 1}, /* PyObject cname: __pyx_n_u_reverse */
   {__pyx_k_set_name, sizeof(__pyx_k_set_name), 0, 1, 1}, /* PyObject cname: __pyx_n_u_set_name */
+  {__pyx_k_siftdown, sizeof(__pyx_k_siftdown), 0, 1, 1}, /* PyObject cname: __pyx_n_u_siftdown */
   {__pyx_k_sort, sizeof(__pyx_k_sort), 0, 1, 1}, /* PyObject cname: __pyx_n_u_sort */
+  {__pyx_k_spec, sizeof(__pyx_k_spec), 0, 1, 1}, /* PyObject cname: __pyx_n_u_spec */
+  {__pyx_k_t, sizeof(__pyx_k_t), 0, 1, 1}, /* PyObject cname: __pyx_n_u_t */
   {__pyx_k_test, sizeof(__pyx_k_test), 0, 1, 1}, /* PyObject cname: __pyx_n_u_test */
   {__pyx_k_verify_heap, sizeof(__pyx_k_verify_heap), 0, 1, 1}, /* PyObject cname: __pyx_n_u_verify_heap */
   {0, 0, 0, 0, 0}
@@ -11823,10 +11608,10 @@ static int __Pyx_InitStrings(__Pyx_StringTabEntry const *t, PyObject **target, c
 
 static int __Pyx_InitCachedBuiltins(__pyx_mstatetype *__pyx_mstate) {
   CYTHON_UNUSED_VAR(__pyx_mstate);
-  __pyx_builtin_range = __Pyx_GetBuiltinName(__pyx_mstate->__pyx_n_u_range); if (!__pyx_builtin_range) __PYX_ERR(0, 386, __pyx_L1_error)
-  __pyx_builtin_IndexError = __Pyx_GetBuiltinName(__pyx_mstate->__pyx_n_u_IndexError); if (!__pyx_builtin_IndexError) __PYX_ERR(0, 587, __pyx_L1_error)
-  __pyx_builtin_ValueError = __Pyx_GetBuiltinName(__pyx_mstate->__pyx_n_u_ValueError); if (!__pyx_builtin_ValueError) __PYX_ERR(0, 589, __pyx_L1_error)
-  __pyx_builtin_TypeError = __Pyx_GetBuiltinName(__pyx_mstate->__pyx_n_u_TypeError); if (!__pyx_builtin_TypeError) __PYX_ERR(0, 593, __pyx_L1_error)
+  __pyx_builtin_range = __Pyx_GetBuiltinName(__pyx_mstate->__pyx_n_u_range); if (!__pyx_builtin_range) __PYX_ERR(0, 225, __pyx_L1_error)
+  __pyx_builtin_IndexError = __Pyx_GetBuiltinName(__pyx_mstate->__pyx_n_u_IndexError); if (!__pyx_builtin_IndexError) __PYX_ERR(0, 483, __pyx_L1_error)
+  __pyx_builtin_ValueError = __Pyx_GetBuiltinName(__pyx_mstate->__pyx_n_u_ValueError); if (!__pyx_builtin_ValueError) __PYX_ERR(0, 485, __pyx_L1_error)
+  __pyx_builtin_TypeError = __Pyx_GetBuiltinName(__pyx_mstate->__pyx_n_u_TypeError); if (!__pyx_builtin_TypeError) __PYX_ERR(0, 489, __pyx_L1_error)
   return 0;
   __pyx_L1_error:;
   return -1;
@@ -11849,6 +11634,7 @@ static int __Pyx_InitConstants(__pyx_mstatetype *__pyx_mstate) {
   __pyx_mstate->__pyx_umethod_PyList_Type_pop.type = (PyObject*)&PyList_Type;
   __pyx_mstate->__pyx_umethod_PyList_Type_pop.method_name = &__pyx_mstate->__pyx_n_u_pop;
   if (__Pyx_InitStrings(__pyx_string_tab, __pyx_mstate->__pyx_string_tab, __pyx_string_tab_encodings) < 0) __PYX_ERR(0, 1, __pyx_L1_error);
+  __pyx_mstate->__pyx_int_0 = PyLong_FromLong(0); if (unlikely(!__pyx_mstate->__pyx_int_0)) __PYX_ERR(0, 1, __pyx_L1_error)
   return 0;
   __pyx_L1_error:;
   return -1;
@@ -11862,7 +11648,7 @@ static int __Pyx_InitConstants(__pyx_mstatetype *__pyx_mstate) {
             unsigned int nlocals : 4;
             unsigned int flags : 10;
             unsigned int first_line : 10;
-            unsigned int line_table_length : 14;
+            unsigned int line_table_length : 13;
         } __Pyx_PyCode_New_function_description;
 /* NewCodeObj.proto */
 static PyObject* __Pyx_PyCode_New(
@@ -11879,22 +11665,22 @@ static int __Pyx_CreateCodeObjects(__pyx_mstatetype *__pyx_mstate) {
   PyObject* tuple_dedup_map = PyDict_New();
   if (unlikely(!tuple_dedup_map)) return -1;
   {
-    const __Pyx_PyCode_New_function_description descr = {5, 0, 0, 7, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 531, 262};
-    PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_heap, __pyx_mstate->__pyx_n_u_max_heap, __pyx_mstate->__pyx_n_u_cmp, __pyx_mstate->__pyx_n_u_arity, __pyx_mstate->__pyx_n_u_nogil, __pyx_mstate->__pyx_n_u_n, __pyx_mstate->__pyx_n_u_i};
-    __pyx_mstate_global->__pyx_codeobj_tab[0] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_optimized_pop_pyx, __pyx_mstate->__pyx_n_u_heapify, __pyx_k_QQR_1A_r_A_t7_6_A_U_Bc_Bd_a_1_6, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[0])) goto bad;
+    const __Pyx_PyCode_New_function_description descr = {5, 0, 0, 8, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 440, 211};
+    PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_heap, __pyx_mstate->__pyx_n_u_max_heap, __pyx_mstate->__pyx_n_u_cmp, __pyx_mstate->__pyx_n_u_arity, __pyx_mstate->__pyx_n_u_nogil, __pyx_mstate->__pyx_n_u_n, __pyx_mstate->__pyx_n_u_i, __pyx_mstate->__pyx_n_u_dtype};
+    __pyx_mstate_global->__pyx_codeobj_tab[0] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_optimized_pop_pyx, __pyx_mstate->__pyx_n_u_heapify, __pyx_k_QQR_1A_r_A_vS_E_e81_t7_s_1_E_b, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[0])) goto bad;
   }
   {
-    const __Pyx_PyCode_New_function_description descr = {6, 0, 0, 13, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 564, 676};
-    PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_heap, __pyx_mstate->__pyx_n_u_n, __pyx_mstate->__pyx_n_u_max_heap, __pyx_mstate->__pyx_n_u_cmp, __pyx_mstate->__pyx_n_u_arity, __pyx_mstate->__pyx_n_u_nogil, __pyx_mstate->__pyx_n_u_heap_size, __pyx_mstate->__pyx_n_u_new_size, __pyx_mstate->__pyx_n_u_i, __pyx_mstate->__pyx_n_u_result, __pyx_mstate->__pyx_n_u_last, __pyx_mstate->__pyx_n_u_results, __pyx_mstate->__pyx_n_u_dtype};
+    const __Pyx_PyCode_New_function_description descr = {6, 0, 0, 12, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 474, 294};
+    PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_heap, __pyx_mstate->__pyx_n_u_n, __pyx_mstate->__pyx_n_u_max_heap, __pyx_mstate->__pyx_n_u_cmp, __pyx_mstate->__pyx_n_u_arity, __pyx_mstate->__pyx_n_u_nogil, __pyx_mstate->__pyx_n_u_heap_size, __pyx_mstate->__pyx_n_u_result, __pyx_mstate->__pyx_n_u_last, __pyx_mstate->__pyx_n_u_dtype, __pyx_mstate->__pyx_n_u_t, __pyx_mstate->__pyx_n_u__2};
     __pyx_mstate_global->__pyx_codeobj_tab[1] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_optimized_pop_pyx, __pyx_mstate->__pyx_n_u_pop, __pyx_k_88II_s_1_z_A_j_r_1_j_31_vRq_j_7, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[1])) goto bad;
   }
   {
-    const __Pyx_PyCode_New_function_description descr = {6, 0, 0, 7, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 678, 135};
-    PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_heap, __pyx_mstate->__pyx_n_u_items, __pyx_mstate->__pyx_n_u_max_heap, __pyx_mstate->__pyx_n_u_cmp, __pyx_mstate->__pyx_n_u_arity, __pyx_mstate->__pyx_n_u_nogil, __pyx_mstate->__pyx_n_u_item};
-    __pyx_mstate_global->__pyx_codeobj_tab[2] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_optimized_pop_pyx, __pyx_mstate->__pyx_n_u_push, __pyx_k_77HH_z_Q_HA_q_q_1F_QfBa_1F_QfBa, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[2])) goto bad;
+    const __Pyx_PyCode_New_function_description descr = {6, 0, 0, 8, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 577, 169};
+    PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_heap, __pyx_mstate->__pyx_n_u_items, __pyx_mstate->__pyx_n_u_max_heap, __pyx_mstate->__pyx_n_u_cmp, __pyx_mstate->__pyx_n_u_arity, __pyx_mstate->__pyx_n_u_nogil, __pyx_mstate->__pyx_n_u_dtype, __pyx_mstate->__pyx_n_u_item};
+    __pyx_mstate_global->__pyx_codeobj_tab[2] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_optimized_pop_pyx, __pyx_mstate->__pyx_n_u_push, __pyx_k_77HH_t3e4vS_d_AYc_6_A_z_Q_HA_1F, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[2])) goto bad;
   }
   {
-    const __Pyx_PyCode_New_function_description descr = {3, 0, 0, 7, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 699, 210};
+    const __Pyx_PyCode_New_function_description descr = {3, 0, 0, 7, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 609, 210};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_heap, __pyx_mstate->__pyx_n_u_max_heap, __pyx_mstate->__pyx_n_u_arity, __pyx_mstate->__pyx_n_u_n, __pyx_mstate->__pyx_n_u_i, __pyx_mstate->__pyx_n_u_j, __pyx_mstate->__pyx_n_u_child};
     __pyx_mstate_global->__pyx_codeobj_tab[3] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_optimized_pop_pyx, __pyx_mstate->__pyx_n_u_verify_heap, __pyx_k_0_1A_vS_E_ar_1_q_4q_2T_Ba_1_4q, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[3])) goto bad;
   }
@@ -13332,6 +13118,68 @@ static PyObject *__Pyx_Object_VectorcallMethod_CallFromBuilder(PyObject *name, P
 }
 #endif
 
+/* PyDictVersioning */
+#if CYTHON_USE_DICT_VERSIONS && CYTHON_USE_TYPE_SLOTS
+static CYTHON_INLINE PY_UINT64_T __Pyx_get_tp_dict_version(PyObject *obj) {
+    PyObject *dict = Py_TYPE(obj)->tp_dict;
+    return likely(dict) ? __PYX_GET_DICT_VERSION(dict) : 0;
+}
+static CYTHON_INLINE PY_UINT64_T __Pyx_get_object_dict_version(PyObject *obj) {
+    PyObject **dictptr = NULL;
+    Py_ssize_t offset = Py_TYPE(obj)->tp_dictoffset;
+    if (offset) {
+#if CYTHON_COMPILING_IN_CPYTHON
+        dictptr = (likely(offset > 0)) ? (PyObject **) ((char *)obj + offset) : _PyObject_GetDictPtr(obj);
+#else
+        dictptr = _PyObject_GetDictPtr(obj);
+#endif
+    }
+    return (dictptr && *dictptr) ? __PYX_GET_DICT_VERSION(*dictptr) : 0;
+}
+static CYTHON_INLINE int __Pyx_object_dict_version_matches(PyObject* obj, PY_UINT64_T tp_dict_version, PY_UINT64_T obj_dict_version) {
+    PyObject *dict = Py_TYPE(obj)->tp_dict;
+    if (unlikely(!dict) || unlikely(tp_dict_version != __PYX_GET_DICT_VERSION(dict)))
+        return 0;
+    return obj_dict_version == __Pyx_get_object_dict_version(obj);
+}
+#endif
+
+/* GetModuleGlobalName */
+#if CYTHON_USE_DICT_VERSIONS
+static PyObject *__Pyx__GetModuleGlobalName(PyObject *name, PY_UINT64_T *dict_version, PyObject **dict_cached_value)
+#else
+static CYTHON_INLINE PyObject *__Pyx__GetModuleGlobalName(PyObject *name)
+#endif
+{
+    PyObject *result;
+#if CYTHON_COMPILING_IN_LIMITED_API
+    if (unlikely(!__pyx_m)) {
+        if (!PyErr_Occurred())
+            PyErr_SetNone(PyExc_NameError);
+        return NULL;
+    }
+    result = PyObject_GetAttr(__pyx_m, name);
+    if (likely(result)) {
+        return result;
+    }
+    PyErr_Clear();
+#elif CYTHON_AVOID_BORROWED_REFS || CYTHON_AVOID_THREAD_UNSAFE_BORROWED_REFS
+    if (unlikely(__Pyx_PyDict_GetItemRef(__pyx_mstate_global->__pyx_d, name, &result) == -1)) PyErr_Clear();
+    __PYX_UPDATE_DICT_CACHE(__pyx_mstate_global->__pyx_d, result, *dict_cached_value, *dict_version)
+    if (likely(result)) {
+        return result;
+    }
+#else
+    result = _PyDict_GetItem_KnownHash(__pyx_mstate_global->__pyx_d, name, ((PyASCIIObject *) name)->hash);
+    __PYX_UPDATE_DICT_CACHE(__pyx_mstate_global->__pyx_d, result, *dict_cached_value, *dict_version)
+    if (likely(result)) {
+        return __Pyx_NewRef(result);
+    }
+    PyErr_Clear();
+#endif
+    return __Pyx_GetBuiltinName(name);
+}
+
 /* RaiseException */
 static void __Pyx_Raise(PyObject *type, PyObject *value, PyObject *tb, PyObject *cause) {
     PyObject* owned_instance = NULL;
@@ -14001,88 +13849,150 @@ bad:
     return -1;
 }
 
-/* TypeImport */
-#ifndef __PYX_HAVE_RT_ImportType_3_1_3
-#define __PYX_HAVE_RT_ImportType_3_1_3
-static PyTypeObject *__Pyx_ImportType_3_1_3(PyObject *module, const char *module_name, const char *class_name,
-    size_t size, size_t alignment, enum __Pyx_ImportType_CheckSize_3_1_3 check_size)
-{
-    PyObject *result = 0;
-    Py_ssize_t basicsize;
-    Py_ssize_t itemsize;
-#if CYTHON_COMPILING_IN_LIMITED_API
-    PyObject *py_basicsize;
-    PyObject *py_itemsize;
-#endif
-    result = PyObject_GetAttrString(module, class_name);
-    if (!result)
+/* Import */
+static PyObject *__Pyx_Import(PyObject *name, PyObject *from_list, int level) {
+    PyObject *module = 0;
+    PyObject *empty_dict = 0;
+    PyObject *empty_list = 0;
+    empty_dict = PyDict_New();
+    if (unlikely(!empty_dict))
         goto bad;
-    if (!PyType_Check(result)) {
-        PyErr_Format(PyExc_TypeError,
-            "%.200s.%.200s is not a type object",
-            module_name, class_name);
-        goto bad;
-    }
-#if !CYTHON_COMPILING_IN_LIMITED_API
-    basicsize = ((PyTypeObject *)result)->tp_basicsize;
-    itemsize = ((PyTypeObject *)result)->tp_itemsize;
-#else
-    if (size == 0) {
-        return (PyTypeObject *)result;
-    }
-    py_basicsize = PyObject_GetAttrString(result, "__basicsize__");
-    if (!py_basicsize)
-        goto bad;
-    basicsize = PyLong_AsSsize_t(py_basicsize);
-    Py_DECREF(py_basicsize);
-    py_basicsize = 0;
-    if (basicsize == (Py_ssize_t)-1 && PyErr_Occurred())
-        goto bad;
-    py_itemsize = PyObject_GetAttrString(result, "__itemsize__");
-    if (!py_itemsize)
-        goto bad;
-    itemsize = PyLong_AsSsize_t(py_itemsize);
-    Py_DECREF(py_itemsize);
-    py_itemsize = 0;
-    if (itemsize == (Py_ssize_t)-1 && PyErr_Occurred())
-        goto bad;
-#endif
-    if (itemsize) {
-        if (size % alignment) {
-            alignment = size % alignment;
+    if (level == -1) {
+        const char* package_sep = strchr(__Pyx_MODULE_NAME, '.');
+        if (package_sep != (0)) {
+            module = PyImport_ImportModuleLevelObject(
+                name, __pyx_mstate_global->__pyx_d, empty_dict, from_list, 1);
+            if (unlikely(!module)) {
+                if (unlikely(!PyErr_ExceptionMatches(PyExc_ImportError)))
+                    goto bad;
+                PyErr_Clear();
+            }
         }
-        if (itemsize < (Py_ssize_t)alignment)
-            itemsize = (Py_ssize_t)alignment;
+        level = 0;
     }
-    if ((size_t)(basicsize + itemsize) < size) {
-        PyErr_Format(PyExc_ValueError,
-            "%.200s.%.200s size changed, may indicate binary incompatibility. "
-            "Expected %zd from C header, got %zd from PyObject",
-            module_name, class_name, size, basicsize+itemsize);
-        goto bad;
+    if (!module) {
+        module = PyImport_ImportModuleLevelObject(
+            name, __pyx_mstate_global->__pyx_d, empty_dict, from_list, level);
     }
-    if (check_size == __Pyx_ImportType_CheckSize_Error_3_1_3 &&
-            ((size_t)basicsize > size || (size_t)(basicsize + itemsize) < size)) {
-        PyErr_Format(PyExc_ValueError,
-            "%.200s.%.200s size changed, may indicate binary incompatibility. "
-            "Expected %zd from C header, got %zd-%zd from PyObject",
-            module_name, class_name, size, basicsize, basicsize+itemsize);
-        goto bad;
-    }
-    else if (check_size == __Pyx_ImportType_CheckSize_Warn_3_1_3 && (size_t)basicsize > size) {
-        if (PyErr_WarnFormat(NULL, 0,
-                "%.200s.%.200s size changed, may indicate binary incompatibility. "
-                "Expected %zd from C header, got %zd from PyObject",
-                module_name, class_name, size, basicsize) < 0) {
-            goto bad;
-        }
-    }
-    return (PyTypeObject *)result;
 bad:
-    Py_XDECREF(result);
+    Py_XDECREF(empty_dict);
+    Py_XDECREF(empty_list);
+    return module;
+}
+
+/* ImportDottedModule */
+static PyObject *__Pyx__ImportDottedModule_Error(PyObject *name, PyObject *parts_tuple, Py_ssize_t count) {
+    PyObject *partial_name = NULL, *slice = NULL, *sep = NULL;
+    Py_ssize_t size;
+    if (unlikely(PyErr_Occurred())) {
+        PyErr_Clear();
+    }
+#if CYTHON_ASSUME_SAFE_SIZE
+    size = PyTuple_GET_SIZE(parts_tuple);
+#else
+    size = PyTuple_Size(parts_tuple);
+    if (size < 0) goto bad;
+#endif
+    if (likely(size == count)) {
+        partial_name = name;
+    } else {
+        slice = PySequence_GetSlice(parts_tuple, 0, count);
+        if (unlikely(!slice))
+            goto bad;
+        sep = PyUnicode_FromStringAndSize(".", 1);
+        if (unlikely(!sep))
+            goto bad;
+        partial_name = PyUnicode_Join(sep, slice);
+    }
+    PyErr_Format(
+        PyExc_ModuleNotFoundError,
+        "No module named '%U'", partial_name);
+bad:
+    Py_XDECREF(sep);
+    Py_XDECREF(slice);
+    Py_XDECREF(partial_name);
     return NULL;
 }
+static PyObject *__Pyx__ImportDottedModule_Lookup(PyObject *name) {
+    PyObject *imported_module;
+#if (CYTHON_COMPILING_IN_PYPY && PYPY_VERSION_NUM  < 0x07030400) ||\
+        CYTHON_COMPILING_IN_GRAAL
+    PyObject *modules = PyImport_GetModuleDict();
+    if (unlikely(!modules))
+        return NULL;
+    imported_module = __Pyx_PyDict_GetItemStr(modules, name);
+    Py_XINCREF(imported_module);
+#else
+    imported_module = PyImport_GetModule(name);
 #endif
+    return imported_module;
+}
+static PyObject *__Pyx_ImportDottedModule_WalkParts(PyObject *module, PyObject *name, PyObject *parts_tuple) {
+    Py_ssize_t i, nparts;
+#if CYTHON_ASSUME_SAFE_SIZE
+    nparts = PyTuple_GET_SIZE(parts_tuple);
+#else
+    nparts = PyTuple_Size(parts_tuple);
+    if (nparts < 0) return NULL;
+#endif
+    for (i=1; i < nparts && module; i++) {
+        PyObject *part, *submodule;
+#if CYTHON_ASSUME_SAFE_MACROS && !CYTHON_AVOID_BORROWED_REFS
+        part = PyTuple_GET_ITEM(parts_tuple, i);
+#else
+        part = __Pyx_PySequence_ITEM(parts_tuple, i);
+        if (!part) return NULL;
+#endif
+        submodule = __Pyx_PyObject_GetAttrStrNoError(module, part);
+#if !(CYTHON_ASSUME_SAFE_MACROS && !CYTHON_AVOID_BORROWED_REFS)
+        Py_DECREF(part);
+#endif
+        Py_DECREF(module);
+        module = submodule;
+    }
+    if (unlikely(!module)) {
+        return __Pyx__ImportDottedModule_Error(name, parts_tuple, i);
+    }
+    return module;
+}
+static PyObject *__Pyx__ImportDottedModule(PyObject *name, PyObject *parts_tuple) {
+    PyObject *imported_module;
+    PyObject *module = __Pyx_Import(name, NULL, 0);
+    if (!parts_tuple || unlikely(!module))
+        return module;
+    imported_module = __Pyx__ImportDottedModule_Lookup(name);
+    if (likely(imported_module)) {
+        Py_DECREF(module);
+        return imported_module;
+    }
+    PyErr_Clear();
+    return __Pyx_ImportDottedModule_WalkParts(module, name, parts_tuple);
+}
+static PyObject *__Pyx_ImportDottedModule(PyObject *name, PyObject *parts_tuple) {
+#if CYTHON_COMPILING_IN_CPYTHON
+    PyObject *module = __Pyx__ImportDottedModule_Lookup(name);
+    if (likely(module)) {
+        PyObject *spec = __Pyx_PyObject_GetAttrStrNoError(module, __pyx_mstate_global->__pyx_n_u_spec);
+        if (likely(spec)) {
+            PyObject *unsafe = __Pyx_PyObject_GetAttrStrNoError(spec, __pyx_mstate_global->__pyx_n_u_initializing);
+            if (likely(!unsafe || !__Pyx_PyObject_IsTrue(unsafe))) {
+                Py_DECREF(spec);
+                spec = NULL;
+            }
+            Py_XDECREF(unsafe);
+        }
+        if (likely(!spec)) {
+            PyErr_Clear();
+            return module;
+        }
+        Py_DECREF(spec);
+        Py_DECREF(module);
+    } else if (PyErr_Occurred()) {
+        PyErr_Clear();
+    }
+#endif
+    return __Pyx__ImportDottedModule(name, parts_tuple);
+}
 
 /* LimitedApiGetTypeDict */
 #if CYTHON_COMPILING_IN_LIMITED_API
@@ -15564,32 +15474,6 @@ static PyObject *__Pyx_CyFunction_New(PyMethodDef *ml, int flags, PyObject* qual
     }
     return op;
 }
-
-/* PyDictVersioning */
-#if CYTHON_USE_DICT_VERSIONS && CYTHON_USE_TYPE_SLOTS
-static CYTHON_INLINE PY_UINT64_T __Pyx_get_tp_dict_version(PyObject *obj) {
-    PyObject *dict = Py_TYPE(obj)->tp_dict;
-    return likely(dict) ? __PYX_GET_DICT_VERSION(dict) : 0;
-}
-static CYTHON_INLINE PY_UINT64_T __Pyx_get_object_dict_version(PyObject *obj) {
-    PyObject **dictptr = NULL;
-    Py_ssize_t offset = Py_TYPE(obj)->tp_dictoffset;
-    if (offset) {
-#if CYTHON_COMPILING_IN_CPYTHON
-        dictptr = (likely(offset > 0)) ? (PyObject **) ((char *)obj + offset) : _PyObject_GetDictPtr(obj);
-#else
-        dictptr = _PyObject_GetDictPtr(obj);
-#endif
-    }
-    return (dictptr && *dictptr) ? __PYX_GET_DICT_VERSION(*dictptr) : 0;
-}
-static CYTHON_INLINE int __Pyx_object_dict_version_matches(PyObject* obj, PY_UINT64_T tp_dict_version, PY_UINT64_T obj_dict_version) {
-    PyObject *dict = Py_TYPE(obj)->tp_dict;
-    if (unlikely(!dict) || unlikely(tp_dict_version != __PYX_GET_DICT_VERSION(dict)))
-        return 0;
-    return obj_dict_version == __Pyx_get_object_dict_version(obj);
-}
-#endif
 
 /* CLineInTraceback */
 #if CYTHON_CLINE_IN_TRACEBACK && CYTHON_CLINE_IN_TRACEBACK_RUNTIME

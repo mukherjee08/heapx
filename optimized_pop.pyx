@@ -6,89 +6,62 @@
 # cython: nonecheck=False
 # cython: overflowcheck=False
 # cython: infer_types=True
-# cython: optimize.use_switch=True
-# cython: optimize.unpack_method_calls=True
-# cython: linetrace=False
 
 """
-Ultra-Optimized Heap Operations for heapx
+Ultra-Optimized Heap Pop for heapx
 
-Optimizations:
-- Type-specialized fast paths (int, float, bool use bottom-up Floyd's algorithm)
-- Standard sift-down for str/custom (simpler, matches heapq performance)
-- Native Python comparison for strings (faster than PyUnicode_Compare)
-- Memory prefetching for cache optimization on numeric types
-- Direct C-level value extraction bypassing Python API
+Strategy:
+- int/float/bool: Specialized C-level comparisons with Floyd's algorithm
+- str/custom: Direct delegation to heapq (no wrapper overhead)
 """
 
-from cpython.object cimport PyObject
-from cpython.ref cimport Py_INCREF, Py_DECREF
+import heapq as _heapq
 
 cdef extern from "Python.h":
-    Py_ssize_t PyList_GET_SIZE(object)
-    PyObject* PyList_GET_ITEM(object, Py_ssize_t)
-    void PyList_SET_ITEM(object, Py_ssize_t, PyObject*)
     double PyFloat_AS_DOUBLE(object)
-    int PyObject_RichCompareBool(object, object, int) except -1
-    int Py_LT, Py_GT
-    PyObject* Py_True
 
-cdef extern from *:
-    """
-    #ifdef __GNUC__
-    #define PREFETCH(addr) __builtin_prefetch(addr, 0, 3)
-    #else
-    #define PREFETCH(addr) ((void)0)
-    #endif
-    """
-    void PREFETCH(void* addr) nogil
+# =============================================================================
+# TYPE DETECTION
+# =============================================================================
 
 DEF TYPE_INT = 1
 DEF TYPE_FLOAT = 2
-DEF TYPE_STR = 3
-DEF TYPE_BOOL = 4
-DEF TYPE_OTHER = 5
+DEF TYPE_BOOL = 3
+DEF TYPE_OTHER = 4
 
-cdef inline int detect_type(list heap, Py_ssize_t n) noexcept:
-    """Fast type detection from first element."""
-    if n == 0:
+cdef inline int _detect_type(list heap) noexcept:
+    if len(heap) == 0:
         return TYPE_OTHER
     cdef type t = type(heap[0])
     if t is int:
         return TYPE_INT
     if t is float:
         return TYPE_FLOAT
-    if t is str:
-        return TYPE_STR
     if t is bool:
         return TYPE_BOOL
     return TYPE_OTHER
 
 # =============================================================================
-# INTEGER SIFT-DOWN (Bottom-up Floyd's algorithm)
+# SPECIALIZED SIFT-DOWN FUNCTIONS (Floyd's bottom-up algorithm)
 # =============================================================================
 
-cdef inline void sift_down_int_min(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:
+cdef inline void _sift_int_min(list heap, Py_ssize_t n) noexcept:
     cdef:
-        Py_ssize_t child, right, parent, gc
-        object item = heap[pos]
+        Py_ssize_t pos = 0, child, right, parent
+        object item = heap[0]
         long item_val = <long>item
-        Py_ssize_t start = pos
     
     while True:
         child = (pos << 1) + 1
         if child >= n:
             break
-        gc = (child << 1) + 1
-        if gc < n:
-            PREFETCH(<void*>heap[gc])
         right = child + 1
         if right < n and <long>heap[right] < <long>heap[child]:
             child = right
         heap[pos] = heap[child]
         pos = child
     
-    while pos > start:
+    while pos > 0:
         parent = (pos - 1) >> 1
         if item_val >= <long>heap[parent]:
             break
@@ -96,27 +69,23 @@ cdef inline void sift_down_int_min(list heap, Py_ssize_t pos, Py_ssize_t n) noex
         pos = parent
     heap[pos] = item
 
-cdef inline void sift_down_int_max(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:
+cdef inline void _sift_int_max(list heap, Py_ssize_t n) noexcept:
     cdef:
-        Py_ssize_t child, right, parent, gc
-        object item = heap[pos]
+        Py_ssize_t pos = 0, child, right, parent
+        object item = heap[0]
         long item_val = <long>item
-        Py_ssize_t start = pos
     
     while True:
         child = (pos << 1) + 1
         if child >= n:
             break
-        gc = (child << 1) + 1
-        if gc < n:
-            PREFETCH(<void*>heap[gc])
         right = child + 1
         if right < n and <long>heap[right] > <long>heap[child]:
             child = right
         heap[pos] = heap[child]
         pos = child
     
-    while pos > start:
+    while pos > 0:
         parent = (pos - 1) >> 1
         if item_val <= <long>heap[parent]:
             break
@@ -124,31 +93,23 @@ cdef inline void sift_down_int_max(list heap, Py_ssize_t pos, Py_ssize_t n) noex
         pos = parent
     heap[pos] = item
 
-# =============================================================================
-# FLOAT SIFT-DOWN (Bottom-up Floyd's algorithm)
-# =============================================================================
-
-cdef inline void sift_down_float_min(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:
+cdef inline void _sift_float_min(list heap, Py_ssize_t n) noexcept:
     cdef:
-        Py_ssize_t child, right, parent, gc
-        object item = heap[pos]
+        Py_ssize_t pos = 0, child, right, parent
+        object item = heap[0]
         double item_val = PyFloat_AS_DOUBLE(item)
-        Py_ssize_t start = pos
     
     while True:
         child = (pos << 1) + 1
         if child >= n:
             break
-        gc = (child << 1) + 1
-        if gc < n:
-            PREFETCH(<void*>heap[gc])
         right = child + 1
         if right < n and PyFloat_AS_DOUBLE(heap[right]) < PyFloat_AS_DOUBLE(heap[child]):
             child = right
         heap[pos] = heap[child]
         pos = child
     
-    while pos > start:
+    while pos > 0:
         parent = (pos - 1) >> 1
         if item_val >= PyFloat_AS_DOUBLE(heap[parent]):
             break
@@ -156,27 +117,23 @@ cdef inline void sift_down_float_min(list heap, Py_ssize_t pos, Py_ssize_t n) no
         pos = parent
     heap[pos] = item
 
-cdef inline void sift_down_float_max(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:
+cdef inline void _sift_float_max(list heap, Py_ssize_t n) noexcept:
     cdef:
-        Py_ssize_t child, right, parent, gc
-        object item = heap[pos]
+        Py_ssize_t pos = 0, child, right, parent
+        object item = heap[0]
         double item_val = PyFloat_AS_DOUBLE(item)
-        Py_ssize_t start = pos
     
     while True:
         child = (pos << 1) + 1
         if child >= n:
             break
-        gc = (child << 1) + 1
-        if gc < n:
-            PREFETCH(<void*>heap[gc])
         right = child + 1
         if right < n and PyFloat_AS_DOUBLE(heap[right]) > PyFloat_AS_DOUBLE(heap[child]):
             child = right
         heap[pos] = heap[child]
         pos = child
     
-    while pos > start:
+    while pos > 0:
         parent = (pos - 1) >> 1
         if item_val <= PyFloat_AS_DOUBLE(heap[parent]):
             break
@@ -184,32 +141,23 @@ cdef inline void sift_down_float_max(list heap, Py_ssize_t pos, Py_ssize_t n) no
         pos = parent
     heap[pos] = item
 
-# =============================================================================
-# BOOL SIFT-DOWN (Bottom-up Floyd's algorithm - pointer comparison)
-# =============================================================================
-
-cdef inline void sift_down_bool_min(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:
+cdef inline void _sift_bool_min(list heap, Py_ssize_t n) noexcept:
     cdef:
-        Py_ssize_t child, right, parent, gc
-        object item = heap[pos]
+        Py_ssize_t pos = 0, child, right, parent
+        object item = heap[0]
         bint item_val = item is True
-        Py_ssize_t start = pos
     
     while True:
         child = (pos << 1) + 1
         if child >= n:
             break
-        gc = (child << 1) + 1
-        if gc < n:
-            PREFETCH(<void*>heap[gc])
         right = child + 1
-        # False < True, so prefer False (not True)
         if right < n and (heap[right] is not True) and (heap[child] is True):
             child = right
         heap[pos] = heap[child]
         pos = child
     
-    while pos > start:
+    while pos > 0:
         parent = (pos - 1) >> 1
         if item_val >= (heap[parent] is True):
             break
@@ -217,27 +165,23 @@ cdef inline void sift_down_bool_min(list heap, Py_ssize_t pos, Py_ssize_t n) noe
         pos = parent
     heap[pos] = item
 
-cdef inline void sift_down_bool_max(list heap, Py_ssize_t pos, Py_ssize_t n) noexcept:
+cdef inline void _sift_bool_max(list heap, Py_ssize_t n) noexcept:
     cdef:
-        Py_ssize_t child, right, parent, gc
-        object item = heap[pos]
+        Py_ssize_t pos = 0, child, right, parent
+        object item = heap[0]
         bint item_val = item is True
-        Py_ssize_t start = pos
     
     while True:
         child = (pos << 1) + 1
         if child >= n:
             break
-        gc = (child << 1) + 1
-        if gc < n:
-            PREFETCH(<void*>heap[gc])
         right = child + 1
         if right < n and (heap[right] is True) and (heap[child] is not True):
             child = right
         heap[pos] = heap[child]
         pos = child
     
-    while pos > start:
+    while pos > 0:
         parent = (pos - 1) >> 1
         if item_val <= (heap[parent] is True):
             break
@@ -245,343 +189,295 @@ cdef inline void sift_down_bool_max(list heap, Py_ssize_t pos, Py_ssize_t n) noe
         pos = parent
     heap[pos] = item
 
-# =============================================================================
-# STRING SIFT-DOWN (Standard top-down - matches heapq approach)
-# Uses native Python < operator which is highly optimized
-# =============================================================================
-
-cdef inline void sift_down_str_min(list heap, Py_ssize_t pos, Py_ssize_t n):
-    """Standard sift-down for strings using native Python comparison."""
+cdef inline void _sift_generic_max(list heap, Py_ssize_t n):
+    """Generic max-heap sift-down for any type."""
     cdef:
-        Py_ssize_t child, right, limit
-        object item = heap[pos]
+        Py_ssize_t pos = 0, child, right, parent
+        object item = heap[0]
     
-    limit = n >> 1
-    while pos < limit:
+    while True:
         child = (pos << 1) + 1
-        right = child + 1
-        if right < n and heap[right] < heap[child]:
-            child = right
-        if item <= heap[child]:
+        if child >= n:
             break
-        heap[pos] = heap[child]
-        pos = child
-    heap[pos] = item
-
-cdef inline void sift_down_str_max(list heap, Py_ssize_t pos, Py_ssize_t n):
-    """Standard sift-down for strings (max-heap)."""
-    cdef:
-        Py_ssize_t child, right, limit
-        object item = heap[pos]
-    
-    limit = n >> 1
-    while pos < limit:
-        child = (pos << 1) + 1
         right = child + 1
         if right < n and heap[right] > heap[child]:
             child = right
-        if item >= heap[child]:
-            break
         heap[pos] = heap[child]
         pos = child
-    heap[pos] = item
-
-# =============================================================================
-# GENERIC SIFT-DOWN (Standard top-down - for custom objects)
-# =============================================================================
-
-cdef inline void sift_down_generic_min(list heap, Py_ssize_t pos, Py_ssize_t n):
-    """Standard sift-down using native Python comparison."""
-    cdef:
-        Py_ssize_t child, right, limit
-        object item = heap[pos]
     
-    limit = n >> 1
-    while pos < limit:
-        child = (pos << 1) + 1
-        right = child + 1
-        if right < n and heap[right] < heap[child]:
-            child = right
-        if item <= heap[child]:
-            break
-        heap[pos] = heap[child]
-        pos = child
-    heap[pos] = item
-
-cdef inline void sift_down_generic_max(list heap, Py_ssize_t pos, Py_ssize_t n):
-    """Standard sift-down for max-heap."""
-    cdef:
-        Py_ssize_t child, right, limit
-        object item = heap[pos]
-    
-    limit = n >> 1
-    while pos < limit:
-        child = (pos << 1) + 1
-        right = child + 1
-        if right < n and heap[right] > heap[child]:
-            child = right
-        if item >= heap[child]:
-            break
-        heap[pos] = heap[child]
-        pos = child
-    heap[pos] = item
-
-# =============================================================================
-# SIFT-DOWN WITH KEY FUNCTION
-# =============================================================================
-
-cdef inline void sift_down_with_key_min(list heap, Py_ssize_t pos, Py_ssize_t n, object key):
-    cdef:
-        Py_ssize_t child, right, limit
-        object item = heap[pos]
-        object item_key = key(item)
-    
-    limit = n >> 1
-    while pos < limit:
-        child = (pos << 1) + 1
-        right = child + 1
-        if right < n and key(heap[right]) < key(heap[child]):
-            child = right
-        if item_key <= key(heap[child]):
-            break
-        heap[pos] = heap[child]
-        pos = child
-    heap[pos] = item
-
-cdef inline void sift_down_with_key_max(list heap, Py_ssize_t pos, Py_ssize_t n, object key):
-    cdef:
-        Py_ssize_t child, right, limit
-        object item = heap[pos]
-        object item_key = key(item)
-    
-    limit = n >> 1
-    while pos < limit:
-        child = (pos << 1) + 1
-        right = child + 1
-        if right < n and key(heap[right]) > key(heap[child]):
-            child = right
-        if item_key >= key(heap[child]):
-            break
-        heap[pos] = heap[child]
-        pos = child
-    heap[pos] = item
-
-# =============================================================================
-# N-ARY SIFT-DOWN
-# =============================================================================
-
-cdef inline void sift_down_nary_min(list heap, Py_ssize_t pos, Py_ssize_t n, Py_ssize_t arity):
-    cdef:
-        Py_ssize_t child, best, last, j
-        object item = heap[pos]
-    
-    while True:
-        child = arity * pos + 1
-        if child >= n:
-            break
-        best = child
-        last = child + arity
-        if last > n:
-            last = n
-        for j in range(child + 1, last):
-            if heap[j] < heap[best]:
-                best = j
-        if item <= heap[best]:
-            break
-        heap[pos] = heap[best]
-        pos = best
-    heap[pos] = item
-
-cdef inline void sift_down_nary_max(list heap, Py_ssize_t pos, Py_ssize_t n, Py_ssize_t arity):
-    cdef:
-        Py_ssize_t child, best, last, j
-        object item = heap[pos]
-    
-    while True:
-        child = arity * pos + 1
-        if child >= n:
-            break
-        best = child
-        last = child + arity
-        if last > n:
-            last = n
-        for j in range(child + 1, last):
-            if heap[j] > heap[best]:
-                best = j
-        if item >= heap[best]:
-            break
-        heap[pos] = heap[best]
-        pos = best
-    heap[pos] = item
-
-cdef inline void sift_down_nary_key_min(list heap, Py_ssize_t pos, Py_ssize_t n, Py_ssize_t arity, object key):
-    cdef:
-        Py_ssize_t child, best, last, j
-        object item = heap[pos]
-        object item_key = key(item)
-    
-    while True:
-        child = arity * pos + 1
-        if child >= n:
-            break
-        best = child
-        last = child + arity
-        if last > n:
-            last = n
-        for j in range(child + 1, last):
-            if key(heap[j]) < key(heap[best]):
-                best = j
-        if item_key <= key(heap[best]):
-            break
-        heap[pos] = heap[best]
-        pos = best
-    heap[pos] = item
-
-cdef inline void sift_down_nary_key_max(list heap, Py_ssize_t pos, Py_ssize_t n, Py_ssize_t arity, object key):
-    cdef:
-        Py_ssize_t child, best, last, j
-        object item = heap[pos]
-        object item_key = key(item)
-    
-    while True:
-        child = arity * pos + 1
-        if child >= n:
-            break
-        best = child
-        last = child + arity
-        if last > n:
-            last = n
-        for j in range(child + 1, last):
-            if key(heap[j]) > key(heap[best]):
-                best = j
-        if item_key >= key(heap[best]):
-            break
-        heap[pos] = heap[best]
-        pos = best
-    heap[pos] = item
-
-# =============================================================================
-# SIFT-UP
-# =============================================================================
-
-cdef inline void sift_up_min(list heap, Py_ssize_t pos):
-    cdef:
-        Py_ssize_t parent
-        object item = heap[pos]
     while pos > 0:
         parent = (pos - 1) >> 1
-        if item >= heap[parent]:
-            break
-        heap[pos] = heap[parent]
-        pos = parent
-    heap[pos] = item
-
-cdef inline void sift_up_max(list heap, Py_ssize_t pos):
-    cdef:
-        Py_ssize_t parent
-        object item = heap[pos]
-    while pos > 0:
-        parent = (pos - 1) >> 1
-        if item <= heap[parent]:
+        if not (item > heap[parent]):
             break
         heap[pos] = heap[parent]
         pos = parent
     heap[pos] = item
 
 # =============================================================================
-# DISPATCH SIFT-DOWN
+# HEAPIFY HELPERS
 # =============================================================================
 
-cdef inline void dispatch_sift_down(list heap, Py_ssize_t pos, Py_ssize_t n, bint is_max, int dtype):
-    if dtype == TYPE_INT:
-        if is_max:
-            sift_down_int_max(heap, pos, n)
-        else:
-            sift_down_int_min(heap, pos, n)
-    elif dtype == TYPE_FLOAT:
-        if is_max:
-            sift_down_float_max(heap, pos, n)
-        else:
-            sift_down_float_min(heap, pos, n)
-    elif dtype == TYPE_BOOL:
-        if is_max:
-            sift_down_bool_max(heap, pos, n)
-        else:
-            sift_down_bool_min(heap, pos, n)
-    elif dtype == TYPE_STR:
-        if is_max:
-            sift_down_str_max(heap, pos, n)
-        else:
-            sift_down_str_min(heap, pos, n)
-    else:
-        if is_max:
-            sift_down_generic_max(heap, pos, n)
-        else:
-            sift_down_generic_min(heap, pos, n)
-
-# =============================================================================
-# HEAPIFY
-# =============================================================================
-
-cdef void do_heapify(list heap, bint is_max, int dtype):
-    cdef Py_ssize_t n = len(heap), i
+cdef inline void _heapify_int(list heap, Py_ssize_t n, bint is_max) noexcept:
+    cdef Py_ssize_t i, pos, child, right, parent, start
+    cdef object item
+    cdef long item_val
+    
     for i in range((n >> 1) - 1, -1, -1):
-        dispatch_sift_down(heap, i, n, is_max, dtype)
+        pos = i
+        start = i
+        item = heap[pos]
+        item_val = <long>item
+        
+        while True:
+            child = (pos << 1) + 1
+            if child >= n:
+                break
+            right = child + 1
+            if is_max:
+                if right < n and <long>heap[right] > <long>heap[child]:
+                    child = right
+            else:
+                if right < n and <long>heap[right] < <long>heap[child]:
+                    child = right
+            heap[pos] = heap[child]
+            pos = child
+        
+        while pos > start:
+            parent = (pos - 1) >> 1
+            if is_max:
+                if item_val <= <long>heap[parent]:
+                    break
+            else:
+                if item_val >= <long>heap[parent]:
+                    break
+            heap[pos] = heap[parent]
+            pos = parent
+        heap[pos] = item
+
+cdef inline void _heapify_float(list heap, Py_ssize_t n, bint is_max) noexcept:
+    cdef Py_ssize_t i, pos, child, right, parent, start
+    cdef object item
+    cdef double item_val
+    
+    for i in range((n >> 1) - 1, -1, -1):
+        pos = i
+        start = i
+        item = heap[pos]
+        item_val = PyFloat_AS_DOUBLE(item)
+        
+        while True:
+            child = (pos << 1) + 1
+            if child >= n:
+                break
+            right = child + 1
+            if is_max:
+                if right < n and PyFloat_AS_DOUBLE(heap[right]) > PyFloat_AS_DOUBLE(heap[child]):
+                    child = right
+            else:
+                if right < n and PyFloat_AS_DOUBLE(heap[right]) < PyFloat_AS_DOUBLE(heap[child]):
+                    child = right
+            heap[pos] = heap[child]
+            pos = child
+        
+        while pos > start:
+            parent = (pos - 1) >> 1
+            if is_max:
+                if item_val <= PyFloat_AS_DOUBLE(heap[parent]):
+                    break
+            else:
+                if item_val >= PyFloat_AS_DOUBLE(heap[parent]):
+                    break
+            heap[pos] = heap[parent]
+            pos = parent
+        heap[pos] = item
+
+cdef inline void _heapify_bool(list heap, Py_ssize_t n, bint is_max) noexcept:
+    cdef Py_ssize_t i, pos, child, right, parent, start
+    cdef object item
+    cdef bint item_val
+    
+    for i in range((n >> 1) - 1, -1, -1):
+        pos = i
+        start = i
+        item = heap[pos]
+        item_val = item is True
+        
+        while True:
+            child = (pos << 1) + 1
+            if child >= n:
+                break
+            right = child + 1
+            if is_max:
+                if right < n and (heap[right] is True) and (heap[child] is not True):
+                    child = right
+            else:
+                if right < n and (heap[right] is not True) and (heap[child] is True):
+                    child = right
+            heap[pos] = heap[child]
+            pos = child
+        
+        while pos > start:
+            parent = (pos - 1) >> 1
+            if is_max:
+                if item_val <= (heap[parent] is True):
+                    break
+            else:
+                if item_val >= (heap[parent] is True):
+                    break
+            heap[pos] = heap[parent]
+            pos = parent
+        heap[pos] = item
+
+cdef inline void _heapify_generic_max(list heap, Py_ssize_t n):
+    cdef Py_ssize_t i, pos, child, right, parent, start
+    cdef object item
+    
+    for i in range((n >> 1) - 1, -1, -1):
+        pos = i
+        start = i
+        item = heap[pos]
+        
+        while True:
+            child = (pos << 1) + 1
+            if child >= n:
+                break
+            right = child + 1
+            if right < n and heap[right] > heap[child]:
+                child = right
+            heap[pos] = heap[child]
+            pos = child
+        
+        while pos > start:
+            parent = (pos - 1) >> 1
+            if not (item > heap[parent]):
+                break
+            heap[pos] = heap[parent]
+            pos = parent
+        heap[pos] = item
+
+# =============================================================================
+# N-ARY HEAP HELPERS
+# =============================================================================
+
+cdef void _nary_sift_down(list heap, Py_ssize_t pos, Py_ssize_t n, bint is_max, Py_ssize_t arity, object key):
+    cdef:
+        Py_ssize_t child, best, last, j
+        object item = heap[pos]
+        object item_key = key(item) if key is not None else item
+    
+    while True:
+        child = arity * pos + 1
+        if child >= n:
+            break
+        best = child
+        last = child + arity
+        if last > n:
+            last = n
+        
+        if key is not None:
+            for j in range(child + 1, last):
+                if is_max:
+                    if key(heap[j]) > key(heap[best]):
+                        best = j
+                else:
+                    if key(heap[j]) < key(heap[best]):
+                        best = j
+            if is_max:
+                if item_key >= key(heap[best]):
+                    break
+            else:
+                if item_key <= key(heap[best]):
+                    break
+        else:
+            for j in range(child + 1, last):
+                if is_max:
+                    if heap[j] > heap[best]:
+                        best = j
+                else:
+                    if heap[j] < heap[best]:
+                        best = j
+            if is_max:
+                if item >= heap[best]:
+                    break
+            else:
+                if item <= heap[best]:
+                    break
+        
+        heap[pos] = heap[best]
+        pos = best
+    heap[pos] = item
+
+cdef void _nary_sift_up(list heap, Py_ssize_t pos, bint is_max, Py_ssize_t arity, object key):
+    cdef:
+        Py_ssize_t parent
+        object item = heap[pos]
+        object item_key = key(item) if key is not None else item
+    
+    while pos > 0:
+        parent = (pos - 1) // arity
+        if key is not None:
+            if is_max:
+                if item_key <= key(heap[parent]):
+                    break
+            else:
+                if item_key >= key(heap[parent]):
+                    break
+        else:
+            if is_max:
+                if item <= heap[parent]:
+                    break
+            else:
+                if item >= heap[parent]:
+                    break
+        heap[pos] = heap[parent]
+        pos = parent
+    heap[pos] = item
+
+# =============================================================================
+# PUBLIC API: HEAPIFY
+# =============================================================================
 
 def heapify(list heap, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):
     """Transform list into heap in-place."""
     cdef Py_ssize_t n = len(heap), i
+    cdef int dtype
+    
     if n <= 1:
         return
-    if cmp is not None:
-        if arity == 2:
-            for i in range((n >> 1) - 1, -1, -1):
-                if max_heap:
-                    sift_down_with_key_max(heap, i, n, cmp)
-                else:
-                    sift_down_with_key_min(heap, i, n, cmp)
-        else:
-            for i in range((n - 2) // arity, -1, -1):
-                if max_heap:
-                    sift_down_nary_key_max(heap, i, n, arity, cmp)
-                else:
-                    sift_down_nary_key_min(heap, i, n, arity, cmp)
-    elif arity == 1:
-        heap.sort(reverse=max_heap)
-    elif arity == 2:
-        do_heapify(heap, max_heap, detect_type(heap, n))
-    else:
+    
+    if arity == 1:
+        heap.sort(key=cmp, reverse=max_heap)
+        return
+    
+    if cmp is not None or arity != 2:
         for i in range((n - 2) // arity, -1, -1):
-            if max_heap:
-                sift_down_nary_max(heap, i, n, arity)
-            else:
-                sift_down_nary_min(heap, i, n, arity)
+            _nary_sift_down(heap, i, n, max_heap, arity, cmp)
+        return
+    
+    dtype = _detect_type(heap)
+    
+    if dtype == TYPE_INT:
+        _heapify_int(heap, n, max_heap)
+    elif dtype == TYPE_FLOAT:
+        _heapify_float(heap, n, max_heap)
+    elif dtype == TYPE_BOOL:
+        _heapify_bool(heap, n, max_heap)
+    elif max_heap:
+        _heapify_generic_max(heap, n)
+    else:
+        _heapq.heapify(heap)
 
 # =============================================================================
-# POP
+# PUBLIC API: POP
 # =============================================================================
 
 def pop(list heap, Py_ssize_t n=1, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):
-    """
-    Pop and return the smallest (or largest if max_heap=True) item(s) from heap.
-    
-    Parameters:
-        heap: list - the heap to pop from
-        n: int - number of items to pop (default 1)
-        max_heap: bool - True for max-heap, False for min-heap (default)
-        cmp: callable - optional key function for comparison
-        arity: int - heap arity (default 2 for binary heap)
-        nogil: bool - API compatibility parameter
-    
-    Returns:
-        Single item if n=1, list of items if n>1
-    """
+    """Pop and return the smallest (or largest) item(s) from heap."""
     cdef:
         Py_ssize_t heap_size = len(heap)
-        Py_ssize_t new_size, i
         object result, last
-        list results
         int dtype
+        type t
     
     if heap_size == 0:
         raise IndexError("pop from empty heap")
@@ -595,105 +491,119 @@ def pop(list heap, Py_ssize_t n=1, bint max_heap=False, object cmp=None, Py_ssiz
     if n > heap_size:
         n = heap_size
     
-    # SINGLE POP
+    # FAST PATH: min-heap with binary arity and no key function
+    if cmp is None and arity == 2 and not max_heap:
+        # Quick type check - if not int/float/bool, delegate to heapq immediately
+        t = type(heap[0])
+        if t is not int and t is not float and t is not bool:
+            if n == 1:
+                return _heapq.heappop(heap)
+            else:
+                return [_heapq.heappop(heap) for _ in range(min(n, len(heap)))]
+    
+    # Single pop
     if n == 1:
-        result = heap[0]
-        if heap_size == 1:
-            heap.pop()
-            return result
-        if arity == 1:
-            del heap[0]
-            return result
-        
-        last = heap.pop()
-        heap[0] = last
-        new_size = heap_size - 1
-        
-        if cmp is not None:
-            if arity == 2:
-                if max_heap:
-                    sift_down_with_key_max(heap, 0, new_size, cmp)
-                else:
-                    sift_down_with_key_min(heap, 0, new_size, cmp)
-            else:
-                if max_heap:
-                    sift_down_nary_key_max(heap, 0, new_size, arity, cmp)
-                else:
-                    sift_down_nary_key_min(heap, 0, new_size, arity, cmp)
-        elif arity == 2:
-            dtype = detect_type(heap, new_size)
-            dispatch_sift_down(heap, 0, new_size, max_heap, dtype)
-        else:
-            if max_heap:
-                sift_down_nary_max(heap, 0, new_size, arity)
-            else:
-                sift_down_nary_min(heap, 0, new_size, arity)
+        return _pop_single_opt(heap, max_heap, cmp, arity)
+    
+    # Bulk pop
+    return _pop_bulk_opt(heap, n, max_heap, cmp, arity)
+
+cdef inline object _pop_single_opt(list heap, bint max_heap, object cmp, Py_ssize_t arity):
+    cdef:
+        Py_ssize_t heap_size = len(heap)
+        object result = heap[0]
+        object last
+        int dtype
+    
+    if heap_size == 1:
+        heap.pop()
         return result
     
-    # BULK POP
+    if arity == 1:
+        del heap[0]
+        return result
+    
+    last = heap.pop()
+    heap[0] = last
+    heap_size -= 1
+    
+    if cmp is not None or arity != 2:
+        _nary_sift_down(heap, 0, heap_size, max_heap, arity, cmp)
+        return result
+    
+    dtype = _detect_type(heap)
+    
+    if dtype == TYPE_INT:
+        if max_heap:
+            _sift_int_max(heap, heap_size)
+        else:
+            _sift_int_min(heap, heap_size)
+    elif dtype == TYPE_FLOAT:
+        if max_heap:
+            _sift_float_max(heap, heap_size)
+        else:
+            _sift_float_min(heap, heap_size)
+    elif dtype == TYPE_BOOL:
+        if max_heap:
+            _sift_bool_max(heap, heap_size)
+        else:
+            _sift_bool_min(heap, heap_size)
+    else:
+        # max_heap with generic type
+        _sift_generic_max(heap, heap_size)
+    
+    return result
+
+cdef list _pop_bulk_opt(list heap, Py_ssize_t n, bint max_heap, object cmp, Py_ssize_t arity):
+    cdef list results = []
+    cdef Py_ssize_t i
+    
     if arity == 1:
         results = heap[:n]
         del heap[:n]
         return results
     
-    results = []
-    dtype = detect_type(heap, heap_size) if cmp is None else TYPE_OTHER
-    
     for i in range(n):
         if len(heap) == 0:
             break
-        result = heap[0]
-        results.append(result)
-        if len(heap) == 1:
-            heap.pop()
-            continue
-        last = heap.pop()
-        heap[0] = last
-        new_size = len(heap)
-        
-        if cmp is not None:
-            if arity == 2:
-                if max_heap:
-                    sift_down_with_key_max(heap, 0, new_size, cmp)
-                else:
-                    sift_down_with_key_min(heap, 0, new_size, cmp)
-            else:
-                if max_heap:
-                    sift_down_nary_key_max(heap, 0, new_size, arity, cmp)
-                else:
-                    sift_down_nary_key_min(heap, 0, new_size, arity, cmp)
-        elif arity == 2:
-            dispatch_sift_down(heap, 0, new_size, max_heap, dtype)
-        else:
-            if max_heap:
-                sift_down_nary_max(heap, 0, new_size, arity)
-            else:
-                sift_down_nary_min(heap, 0, new_size, arity)
+        results.append(_pop_single_opt(heap, max_heap, cmp, arity))
+    
     return results
 
 # =============================================================================
-# PUSH
+# PUBLIC API: PUSH
 # =============================================================================
 
 def push(list heap, object items, bint max_heap=False, object cmp=None, Py_ssize_t arity=2, bint nogil=False):
     """Push item(s) onto heap."""
-    cdef object item
+    cdef int dtype
+    
+    # Fast path for str/custom min-heap
+    if cmp is None and arity == 2 and not max_heap:
+        dtype = _detect_type(heap) if len(heap) > 0 else TYPE_OTHER
+        if dtype == TYPE_OTHER:
+            if isinstance(items, (list, set, frozenset)):
+                for item in items:
+                    _heapq.heappush(heap, item)
+            else:
+                _heapq.heappush(heap, items)
+            return
+    
     if isinstance(items, (list, set, frozenset)):
         for item in items:
-            heap.append(item)
-            if max_heap:
-                sift_up_max(heap, len(heap) - 1)
-            else:
-                sift_up_min(heap, len(heap) - 1)
+            _push_single_opt(heap, item, max_heap, cmp, arity)
     else:
-        heap.append(items)
-        if max_heap:
-            sift_up_max(heap, len(heap) - 1)
-        else:
-            sift_up_min(heap, len(heap) - 1)
+        _push_single_opt(heap, items, max_heap, cmp, arity)
+
+cdef inline void _push_single_opt(list heap, object item, bint max_heap, object cmp, Py_ssize_t arity):
+    heap.append(item)
+    if max_heap or cmp is not None or arity != 2:
+        _nary_sift_up(heap, len(heap) - 1, max_heap, arity, cmp)
+    else:
+        _heapq._siftdown(heap, 0, len(heap) - 1)
 
 # =============================================================================
-# VERIFY
+# PUBLIC API: VERIFY
 # =============================================================================
 
 def verify_heap(list heap, bint max_heap=False, Py_ssize_t arity=2):
