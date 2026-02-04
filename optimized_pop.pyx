@@ -41,6 +41,13 @@ cdef extern from "Python.h":
     int PyUnicode_1BYTE_KIND
     int PyUnicode_2BYTE_KIND
     int PyUnicode_4BYTE_KIND
+    int PyObject_RichCompareBool(object, object, int) except -1
+
+cdef extern from *:
+    """
+    #define LIST_ITEMS(op) (((PyListObject *)(op))->ob_item)
+    """
+    PyObject** LIST_ITEMS(object)
 
 # =============================================================================
 # TYPE CONSTANTS
@@ -268,6 +275,124 @@ cdef inline int fast_compare_tuple_gt(object a, object b) except -2:
         if cmp_ba:
             return 0
     return 1 if len_a > len_b else 0
+
+
+# =============================================================================
+# OPTIMIZED SIFT - Uses PyObject_RichCompareBool for maximum performance
+# =============================================================================
+# These functions use direct pointer manipulation and PyObject_RichCompareBool
+# which is faster than Cython's native comparison (PyObject_RichCompare + IsTrue)
+
+cdef inline int _sift_richcmp_min(object heap, Py_ssize_t endpos) except -1:
+    """Floyd's bottom-up sift for min-heap using PyObject_RichCompareBool."""
+    cdef:
+        Py_ssize_t pos = 0, startpos = 0, childpos, limit, parentpos
+        PyObject** arr = LIST_ITEMS(heap)
+        PyObject* tmp1
+        PyObject* tmp2
+        PyObject* newitem
+        PyObject* parent
+        int cmp
+    
+    # Phase 1: Bubble smaller child up until hitting a leaf
+    limit = endpos >> 1
+    while pos < limit:
+        childpos = (pos << 1) + 1
+        if childpos + 1 < endpos:
+            Py_INCREF(<object>arr[childpos])
+            Py_INCREF(<object>arr[childpos + 1])
+            cmp = PyObject_RichCompareBool(<object>arr[childpos], <object>arr[childpos + 1], Py_LT)
+            Py_DECREF(<object>arr[childpos])
+            Py_DECREF(<object>arr[childpos + 1])
+            if cmp < 0:
+                return -1
+            if cmp == 0:
+                childpos += 1
+            arr = LIST_ITEMS(heap)
+        
+        # Swap arr[pos] and arr[childpos]
+        tmp1 = arr[childpos]
+        tmp2 = arr[pos]
+        arr[childpos] = tmp2
+        arr[pos] = tmp1
+        pos = childpos
+    
+    # Phase 2: Bubble up to final position
+    arr = LIST_ITEMS(heap)
+    newitem = arr[pos]
+    while pos > startpos:
+        parentpos = (pos - 1) >> 1
+        parent = arr[parentpos]
+        Py_INCREF(<object>newitem)
+        Py_INCREF(<object>parent)
+        cmp = PyObject_RichCompareBool(<object>newitem, <object>parent, Py_LT)
+        Py_DECREF(<object>parent)
+        Py_DECREF(<object>newitem)
+        if cmp < 0:
+            return -1
+        if cmp == 0:
+            break
+        arr = LIST_ITEMS(heap)
+        parent = arr[parentpos]
+        newitem = arr[pos]
+        arr[parentpos] = newitem
+        arr[pos] = parent
+        pos = parentpos
+    return 0
+
+cdef inline int _sift_richcmp_max(object heap, Py_ssize_t endpos) except -1:
+    """Floyd's bottom-up sift for max-heap using PyObject_RichCompareBool."""
+    cdef:
+        Py_ssize_t pos = 0, startpos = 0, childpos, limit, parentpos
+        PyObject** arr = LIST_ITEMS(heap)
+        PyObject* tmp1
+        PyObject* tmp2
+        PyObject* newitem
+        PyObject* parent
+        int cmp
+    
+    limit = endpos >> 1
+    while pos < limit:
+        childpos = (pos << 1) + 1
+        if childpos + 1 < endpos:
+            Py_INCREF(<object>arr[childpos])
+            Py_INCREF(<object>arr[childpos + 1])
+            cmp = PyObject_RichCompareBool(<object>arr[childpos], <object>arr[childpos + 1], Py_GT)
+            Py_DECREF(<object>arr[childpos])
+            Py_DECREF(<object>arr[childpos + 1])
+            if cmp < 0:
+                return -1
+            if cmp == 0:
+                childpos += 1
+            arr = LIST_ITEMS(heap)
+        
+        tmp1 = arr[childpos]
+        tmp2 = arr[pos]
+        arr[childpos] = tmp2
+        arr[pos] = tmp1
+        pos = childpos
+    
+    arr = LIST_ITEMS(heap)
+    newitem = arr[pos]
+    while pos > startpos:
+        parentpos = (pos - 1) >> 1
+        parent = arr[parentpos]
+        Py_INCREF(<object>newitem)
+        Py_INCREF(<object>parent)
+        cmp = PyObject_RichCompareBool(<object>newitem, <object>parent, Py_GT)
+        Py_DECREF(<object>parent)
+        Py_DECREF(<object>newitem)
+        if cmp < 0:
+            return -1
+        if cmp == 0:
+            break
+        arr = LIST_ITEMS(heap)
+        parent = arr[parentpos]
+        newitem = arr[pos]
+        arr[parentpos] = newitem
+        arr[pos] = parent
+        pos = parentpos
+    return 0
 
 
 # =============================================================================
@@ -658,67 +783,40 @@ cpdef pop(list heap, Py_ssize_t n=1, bint max_heap=False, object cmp=None, Py_ss
     """
     Pop and return the smallest (or largest if max_heap=True) item(s) from heap.
     
-    Uses native Python comparison which Cython optimizes to efficient C code.
+    Uses PyObject_RichCompareBool for maximum performance.
     """
     cdef:
-        Py_ssize_t heap_size = len(heap)
-        Py_ssize_t pos, child, right, parent
-        object result, last, item
+        Py_ssize_t heap_size = PyList_GET_SIZE(heap)
+        PyObject** arr
+        object result, last
     
     if heap_size == 0:
         raise IndexError("pop from empty heap")
     
     # Fast path: single pop with default parameters (most common case)
-    # Inline everything for maximum performance
     if n == 1 and cmp is None and arity == 2:
         result = heap[0]
         if heap_size == 1:
             heap.pop()
             return result
         
+        # Use heap.pop() and direct pointer manipulation
         last = heap.pop()
-        heap[0] = last
         heap_size -= 1
-        item = last
         
-        # Inline sift-down for min-heap (most common)
-        if not max_heap:
-            pos = 0
-            child = 1
-            while child < heap_size:
-                right = child + 1
-                if right < heap_size and heap[right] < heap[child]:
-                    child = right
-                heap[pos] = heap[child]
-                pos = child
-                child = (pos << 1) + 1
-            
-            while pos > 0:
-                parent = (pos - 1) >> 1
-                if not (item < heap[parent]):
-                    break
-                heap[pos] = heap[parent]
-                pos = parent
-            heap[pos] = item
+        # Put last at position 0 using direct pointer access
+        arr = LIST_ITEMS(heap)
+        Py_INCREF(last)
+        Py_DECREF(<object>arr[0])
+        arr[0] = <PyObject*>last
+        
+        # Use optimized sift with PyObject_RichCompareBool
+        if max_heap:
+            if _sift_richcmp_max(heap, heap_size) < 0:
+                raise RuntimeError("Comparison failed")
         else:
-            # Inline sift-down for max-heap
-            pos = 0
-            child = 1
-            while child < heap_size:
-                right = child + 1
-                if right < heap_size and heap[right] > heap[child]:
-                    child = right
-                heap[pos] = heap[child]
-                pos = child
-                child = (pos << 1) + 1
-            
-            while pos > 0:
-                parent = (pos - 1) >> 1
-                if not (item > heap[parent]):
-                    break
-                heap[pos] = heap[parent]
-                pos = parent
-            heap[pos] = item
+            if _sift_richcmp_min(heap, heap_size) < 0:
+                raise RuntimeError("Comparison failed")
         
         return result
     
