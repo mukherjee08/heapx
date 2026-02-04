@@ -627,12 +627,11 @@ cpdef pop(list heap, Py_ssize_t n=1, bint max_heap=False, object cmp=None, Py_ss
     return _pop_bulk(heap, n, max_heap, cmp, arity)
 
 cdef inline object _pop_single(list heap, bint max_heap, object cmp, Py_ssize_t arity):
-    """Single pop operation with type-specialized sift-down."""
+    """Single pop operation."""
     cdef:
         Py_ssize_t heap_size = len(heap)
         object result = heap[0]
         object last
-        int elem_type
     
     if heap_size == 1:
         heap.pop()
@@ -653,30 +652,7 @@ cdef inline object _pop_single(list heap, bint max_heap, object cmp, Py_ssize_t 
         sift_down_nary(heap, 0, heap_size, max_heap, arity, cmp)
         return result
     
-    # Size-based dispatch: type detection only pays off for larger heaps
-    # For small heaps, the detection overhead exceeds the comparison savings
-    if heap_size >= 10000:
-        elem_type = detect_element_type(heap)
-        if elem_type == TYPE_FLOAT:
-            if max_heap:
-                sift_float_max(heap, heap_size)
-            else:
-                sift_float_min(heap, heap_size)
-            return result
-        elif elem_type == TYPE_STR:
-            if max_heap:
-                sift_str_max(heap, heap_size)
-            else:
-                sift_str_min(heap, heap_size)
-            return result
-        elif elem_type == TYPE_INT:
-            if max_heap:
-                sift_int_max(heap, heap_size)
-            else:
-                sift_int_min(heap, heap_size)
-            return result
-    
-    # Small heaps or fallback: use fast_compare (still optimized per-comparison)
+    # Binary heap: use fast_compare-based sift
     if max_heap:
         sift_down_max(heap, 0, heap_size)
     else:
