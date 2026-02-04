@@ -563,6 +563,66 @@ cdef inline void sift_str_max(list heap, Py_ssize_t n) noexcept:
     heap[pos] = item
 
 # =============================================================================
+# NATIVE PYTHON COMPARISON SIFT - Ultra-fast using Cython's optimized < operator
+# =============================================================================
+# Key insight: Cython compiles `a < b` to highly optimized C code that's faster
+# than our manual fast_compare_lt which has multiple type checks per comparison.
+
+cdef inline void sift_native_min(list heap, Py_ssize_t n) noexcept:
+    """Ultra-fast sift-down for min-heap using native Python < operator.
+    
+    This is faster than fast_compare_lt because:
+    1. Cython optimizes `a < b` to direct C comparison when possible
+    2. No per-comparison type checking overhead
+    3. Better branch prediction and inlining
+    """
+    cdef:
+        Py_ssize_t pos = 0, child, right, parent
+        object item = heap[0]
+    
+    # Phase 1: Descend to leaf (Floyd's bottom-up)
+    child = 1
+    while child < n:
+        right = child + 1
+        if right < n and heap[right] < heap[child]:
+            child = right
+        heap[pos] = heap[child]
+        pos = child
+        child = (pos << 1) + 1
+    
+    # Phase 2: Bubble up
+    while pos > 0:
+        parent = (pos - 1) >> 1
+        if not (item < heap[parent]):
+            break
+        heap[pos] = heap[parent]
+        pos = parent
+    heap[pos] = item
+
+cdef inline void sift_native_max(list heap, Py_ssize_t n) noexcept:
+    """Ultra-fast sift-down for max-heap using native Python > operator."""
+    cdef:
+        Py_ssize_t pos = 0, child, right, parent
+        object item = heap[0]
+    
+    child = 1
+    while child < n:
+        right = child + 1
+        if right < n and heap[right] > heap[child]:
+            child = right
+        heap[pos] = heap[child]
+        pos = child
+        child = (pos << 1) + 1
+    
+    while pos > 0:
+        parent = (pos - 1) >> 1
+        if not (item > heap[parent]):
+            break
+        heap[pos] = heap[parent]
+        pos = parent
+    heap[pos] = item
+
+# =============================================================================
 # HEAPIFY
 # =============================================================================
 
@@ -627,7 +687,7 @@ cpdef pop(list heap, Py_ssize_t n=1, bint max_heap=False, object cmp=None, Py_ss
     return _pop_bulk(heap, n, max_heap, cmp, arity)
 
 cdef inline object _pop_single(list heap, bint max_heap, object cmp, Py_ssize_t arity):
-    """Single pop operation."""
+    """Single pop operation using ultra-fast native Python comparison."""
     cdef:
         Py_ssize_t heap_size = len(heap)
         object result = heap[0]
@@ -652,11 +712,13 @@ cdef inline object _pop_single(list heap, bint max_heap, object cmp, Py_ssize_t 
         sift_down_nary(heap, 0, heap_size, max_heap, arity, cmp)
         return result
     
-    # Binary heap: use fast_compare-based sift
+    # Binary heap: use ultra-fast native Python comparison sift
+    # This is faster than fast_compare_lt because Cython optimizes `a < b`
+    # to highly efficient C code without per-comparison type checking
     if max_heap:
-        sift_down_max(heap, 0, heap_size)
+        sift_native_max(heap, heap_size)
     else:
-        sift_down_min(heap, 0, heap_size)
+        sift_native_min(heap, heap_size)
     
     return result
 
@@ -757,7 +819,8 @@ cdef list _pop_bulk(list heap, Py_ssize_t n, bint max_heap, object cmp, Py_ssize
                 sift_int_min(heap, heap_size - 1)
         return results
     
-    # Generic path (bool, tuple, custom) - uses fast_compare with type checks
+    # Generic path (bool, tuple, custom) - use native Python comparison
+    # This is faster than fast_compare_lt for all types
     for i in range(n):
         heap_size = len(heap)
         if heap_size == 0:
@@ -771,9 +834,9 @@ cdef list _pop_bulk(list heap, Py_ssize_t n, bint max_heap, object cmp, Py_ssize
         heap[0] = last
         new_size = heap_size - 1
         if max_heap:
-            sift_down_max(heap, 0, new_size)
+            sift_native_max(heap, new_size)
         else:
-            sift_down_min(heap, 0, new_size)
+            sift_native_min(heap, new_size)
     
     return results
 
