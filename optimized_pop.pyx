@@ -658,17 +658,71 @@ cpdef pop(list heap, Py_ssize_t n=1, bint max_heap=False, object cmp=None, Py_ss
     """
     Pop and return the smallest (or largest if max_heap=True) item(s) from heap.
     
-    This implementation uses fast comparison paths for all Python types,
-    matching the heapx C implementation for maximum performance.
+    Uses native Python comparison which Cython optimizes to efficient C code.
     """
     cdef:
         Py_ssize_t heap_size = len(heap)
-        Py_ssize_t new_size, i
-        object result, last
-        list results
+        Py_ssize_t pos, child, right, parent
+        object result, last, item
     
     if heap_size == 0:
         raise IndexError("pop from empty heap")
+    
+    # Fast path: single pop with default parameters (most common case)
+    # Inline everything for maximum performance
+    if n == 1 and cmp is None and arity == 2:
+        result = heap[0]
+        if heap_size == 1:
+            heap.pop()
+            return result
+        
+        last = heap.pop()
+        heap[0] = last
+        heap_size -= 1
+        item = last
+        
+        # Inline sift-down for min-heap (most common)
+        if not max_heap:
+            pos = 0
+            child = 1
+            while child < heap_size:
+                right = child + 1
+                if right < heap_size and heap[right] < heap[child]:
+                    child = right
+                heap[pos] = heap[child]
+                pos = child
+                child = (pos << 1) + 1
+            
+            while pos > 0:
+                parent = (pos - 1) >> 1
+                if not (item < heap[parent]):
+                    break
+                heap[pos] = heap[parent]
+                pos = parent
+            heap[pos] = item
+        else:
+            # Inline sift-down for max-heap
+            pos = 0
+            child = 1
+            while child < heap_size:
+                right = child + 1
+                if right < heap_size and heap[right] > heap[child]:
+                    child = right
+                heap[pos] = heap[child]
+                pos = child
+                child = (pos << 1) + 1
+            
+            while pos > 0:
+                parent = (pos - 1) >> 1
+                if not (item > heap[parent]):
+                    break
+                heap[pos] = heap[parent]
+                pos = parent
+            heap[pos] = item
+        
+        return result
+    
+    # Validation for non-default parameters
     if n < 1:
         raise ValueError(f"n must be >= 1, got {n}")
     if arity < 1:
@@ -679,11 +733,11 @@ cpdef pop(list heap, Py_ssize_t n=1, bint max_heap=False, object cmp=None, Py_ss
     if n > heap_size:
         n = heap_size
     
-    # SINGLE POP (n=1)
+    # SINGLE POP (n=1) with non-default parameters
     if n == 1:
         return _pop_single(heap, max_heap, cmp, arity)
     
-    # BULK POP (n>1) - Entirely in Cython with fast comparison
+    # BULK POP (n>1)
     return _pop_bulk(heap, n, max_heap, cmp, arity)
 
 cdef inline object _pop_single(list heap, bint max_heap, object cmp, Py_ssize_t arity):
@@ -819,8 +873,7 @@ cdef list _pop_bulk(list heap, Py_ssize_t n, bint max_heap, object cmp, Py_ssize
                 sift_int_min(heap, heap_size - 1)
         return results
     
-    # Generic path (bool, tuple, custom) - use native Python comparison
-    # This is faster than fast_compare_lt for all types
+    # Generic path (bool, tuple, custom) - use fast_compare for type-specific optimization
     for i in range(n):
         heap_size = len(heap)
         if heap_size == 0:
@@ -834,9 +887,9 @@ cdef list _pop_bulk(list heap, Py_ssize_t n, bint max_heap, object cmp, Py_ssize
         heap[0] = last
         new_size = heap_size - 1
         if max_heap:
-            sift_native_max(heap, new_size)
+            sift_down_max(heap, 0, new_size)
         else:
-            sift_native_min(heap, new_size)
+            sift_down_min(heap, 0, new_size)
     
     return results
 
