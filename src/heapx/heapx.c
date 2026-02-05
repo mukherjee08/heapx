@@ -5064,6 +5064,7 @@ sift_richcmp_min(PyListObject *listobj, Py_ssize_t endpos) {
   Py_ssize_t pos = 0, startpos = 0, childpos, limit, parentpos;
   PyObject *tmp1, *tmp2, *newitem, *parent;
   int cmp;
+  Py_ssize_t original_size = endpos;
   
   /* Phase 1: Bubble smaller child up until hitting a leaf */
   limit = endpos >> 1;
@@ -5076,6 +5077,10 @@ sift_richcmp_min(PyListObject *listobj, Py_ssize_t endpos) {
       Py_DECREF(arr[childpos]);
       Py_DECREF(arr[childpos + 1]);
       if (cmp < 0) return -1;
+      if (unlikely(PyList_GET_SIZE(listobj) != original_size)) {
+        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        return -1;
+      }
       if (cmp == 0) childpos += 1;
       arr = listobj->ob_item;
     }
@@ -5100,6 +5105,10 @@ sift_richcmp_min(PyListObject *listobj, Py_ssize_t endpos) {
     Py_DECREF(parent);
     Py_DECREF(newitem);
     if (cmp < 0) return -1;
+    if (unlikely(PyList_GET_SIZE(listobj) != original_size)) {
+      PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+      return -1;
+    }
     if (cmp == 0) break;
     arr = listobj->ob_item;
     parent = arr[parentpos];
@@ -5119,6 +5128,7 @@ sift_richcmp_max(PyListObject *listobj, Py_ssize_t endpos) {
   Py_ssize_t pos = 0, startpos = 0, childpos, limit, parentpos;
   PyObject *tmp1, *tmp2, *newitem, *parent;
   int cmp;
+  Py_ssize_t original_size = endpos;
   
   limit = endpos >> 1;
   while (pos < limit) {
@@ -5130,6 +5140,10 @@ sift_richcmp_max(PyListObject *listobj, Py_ssize_t endpos) {
       Py_DECREF(arr[childpos]);
       Py_DECREF(arr[childpos + 1]);
       if (cmp < 0) return -1;
+      if (unlikely(PyList_GET_SIZE(listobj) != original_size)) {
+        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        return -1;
+      }
       if (cmp == 0) childpos += 1;
       arr = listobj->ob_item;
     }
@@ -5152,6 +5166,10 @@ sift_richcmp_max(PyListObject *listobj, Py_ssize_t endpos) {
     Py_DECREF(parent);
     Py_DECREF(newitem);
     if (cmp < 0) return -1;
+    if (unlikely(PyList_GET_SIZE(listobj) != original_size)) {
+      PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+      return -1;
+    }
     if (cmp == 0) break;
     arr = listobj->ob_item;
     parent = arr[parentpos];
@@ -5388,6 +5406,7 @@ sift_generic_min(PyListObject *listobj, Py_ssize_t n) {
   Py_ssize_t pos = 0, child, right, parent;
   PyObject *item = heap[0];
   int cmp;
+  Py_ssize_t original_size = n;
   
   /* Phase 1: Descend to leaf */
   while (1) {
@@ -5397,6 +5416,10 @@ sift_generic_min(PyListObject *listobj, Py_ssize_t n) {
     if (right < n) {
       cmp = optimized_compare(heap[right], heap[child], Py_LT);
       if (cmp < 0) return -1;
+      if (unlikely(PyList_GET_SIZE(listobj) != original_size)) {
+        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        return -1;
+      }
       if (cmp) child = right;
       heap = listobj->ob_item;
     }
@@ -5410,6 +5433,10 @@ sift_generic_min(PyListObject *listobj, Py_ssize_t n) {
     parent = (pos - 1) >> 1;
     cmp = optimized_compare(item, heap[parent], Py_LT);
     if (cmp < 0) return -1;
+    if (unlikely(PyList_GET_SIZE(listobj) != original_size)) {
+      PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+      return -1;
+    }
     if (!cmp) break;
     heap = listobj->ob_item;
     heap[pos] = heap[parent];
@@ -5426,6 +5453,7 @@ sift_generic_max(PyListObject *listobj, Py_ssize_t n) {
   Py_ssize_t pos = 0, child, right, parent;
   PyObject *item = heap[0];
   int cmp;
+  Py_ssize_t original_size = n;
   
   /* Phase 1: Descend to leaf */
   while (1) {
@@ -5435,6 +5463,10 @@ sift_generic_max(PyListObject *listobj, Py_ssize_t n) {
     if (right < n) {
       cmp = optimized_compare(heap[right], heap[child], Py_GT);
       if (cmp < 0) return -1;
+      if (unlikely(PyList_GET_SIZE(listobj) != original_size)) {
+        PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+        return -1;
+      }
       if (cmp) child = right;
       heap = listobj->ob_item;
     }
@@ -5448,6 +5480,10 @@ sift_generic_max(PyListObject *listobj, Py_ssize_t n) {
     parent = (pos - 1) >> 1;
     cmp = optimized_compare(item, heap[parent], Py_GT);
     if (cmp < 0) return -1;
+    if (unlikely(PyList_GET_SIZE(listobj) != original_size)) {
+      PyErr_SetString(PyExc_ValueError, "list modified during heap operation");
+      return -1;
+    }
     if (!cmp) break;
     heap = listobj->ob_item;
     heap[pos] = heap[parent];
