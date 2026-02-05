@@ -13,7 +13,7 @@ For each workflow,
   - install the artifact into that venv
   - run a small, deterministic smoke-test that imports the module and exercises the
     documented public API exported by the C module:
-      heapify, push, pop, sort, remove, replace, merge
+      heapify, push, pop, remove, replace, merge
   - produce clear, actionable diagnostics on failure
 
 Notes (important):
@@ -59,7 +59,7 @@ else:
   print("IMPORT-FAILED:", last_exc, file=sys.stderr)
   raise SystemExit(2)
 
-expected = ("heapify","push","pop","sort","remove","replace","merge")
+expected = ("heapify","push","pop","remove","replace","merge")
 missing = [name for name in expected if not hasattr(mod, name)]
 if missing:
   print("MISSING-FUNCTIONS:", missing, "in", module_name, file=sys.stderr)
@@ -99,18 +99,6 @@ res = mod.pop(h2, 3)
 if not isinstance(res, list) or res != [2,3,5]:
   print("BULK-POP unexpected:", type(res), res, file=sys.stderr)
   raise SystemExit(6)
-
-unsorted = [4,1,9,0,3]
-sorted_out = mod.sort(unsorted, reverse=False, inplace=False)
-if sorted_out != sorted(unsorted):
-  print("SORT (copy) mismatch:", sorted_out, file=sys.stderr)
-  raise SystemExit(7)
-
-l = [2,8,1]
-mod.sort(l, inplace=True)
-if l != sorted([2,8,1]):
-  print("SORT (inplace) mismatch:", l, file=sys.stderr)
-  raise SystemExit(8)
 
 rheap = [10,20,5,7]
 mod.heapify(rheap)

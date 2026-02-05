@@ -91,39 +91,12 @@ class TestStackBufferBoundary:
     heapx.heapify(data, cmp=lambda x: x)
     assert is_valid_heap(data, cmp=lambda x: x)
 
-  def test_sort_key_at_stack_size_minus_one(self):
-    """Test sort with key at n=127 (uses stack)."""
-    data = list(range(KEY_STACK_SIZE - 1, 0, -1))
-    result = heapx.sort(data, cmp=lambda x: x)
-    assert result == sorted(data)
-
-  def test_sort_key_at_exact_stack_size(self):
-    """Test sort with key at n=128 (uses stack)."""
-    data = list(range(KEY_STACK_SIZE, 0, -1))
-    result = heapx.sort(data, cmp=lambda x: x)
-    assert result == sorted(data)
-
-  def test_sort_key_at_stack_size_plus_one(self):
-    """Test sort with key at n=129 (uses heap)."""
-    data = list(range(KEY_STACK_SIZE + 1, 0, -1))
-    result = heapx.sort(data, cmp=lambda x: x)
-    assert result == sorted(data)
-
   @pytest.mark.parametrize("n", [1, 64, 127, 128, 129, 256, 512, 1000])
   def test_heapify_key_various_sizes(self, n):
     """Test heapify with key across stack/heap boundary."""
     data = list(range(n, 0, -1))
     heapx.heapify(data, cmp=lambda x: -x)
     assert is_valid_heap(data, cmp=lambda x: -x)
-
-  @pytest.mark.parametrize("n", [1, 64, 127, 128, 129, 256, 512, 1000])
-  def test_sort_key_various_sizes(self, n):
-    """Test sort with key across stack/heap boundary."""
-    data = generate_integers(n)
-    result = heapx.sort(data, cmp=abs)
-    # Heapsort is not stable, so check keys are sorted
-    result_keys = [abs(x) for x in result]
-    assert result_keys == sorted(result_keys)
 
 # ============================================================================
 # Thread Safety Tests
@@ -156,56 +129,18 @@ class TestThreadSafety:
       results = [f.result() for f in as_completed(futures)]
     assert all(results)
 
-  def test_concurrent_sort_with_key_small(self):
-    """Concurrent sort with key on small heaps (stack allocation)."""
-    def worker(seed):
-      data = generate_integers(64, seed)
-      result = heapx.sort(data, cmp=abs)
-      # Heapsort is not stable, so check keys are sorted
-      result_keys = [abs(x) for x in result]
-      return result_keys == sorted(result_keys)
-
-    with ThreadPoolExecutor(max_workers=8) as executor:
-      futures = [executor.submit(worker, i) for i in range(100)]
-      results = [f.result() for f in as_completed(futures)]
-    assert all(results)
-
-  def test_concurrent_sort_with_key_large(self):
-    """Concurrent sort with key on large heaps (heap allocation)."""
-    def worker(seed):
-      rng = random.Random(seed)
-      data = [rng.randint(-1000000, 1000000) for _ in range(500)]
-      result = heapx.sort(data, cmp=abs)
-      # Heapsort is not stable, so check keys are sorted
-      result_keys = [abs(x) for x in result]
-      return result_keys == sorted(result_keys)
-
-    with ThreadPoolExecutor(max_workers=8) as executor:
-      futures = [executor.submit(worker, i * 12345) for i in range(50)]
-      results = [f.result() for f in as_completed(futures)]
-    assert all(results)
-
   def test_concurrent_mixed_operations_with_key(self):
-    """Concurrent mixed heapify/sort with key functions."""
+    """Concurrent mixed heapify operations with key functions."""
     def heapify_worker(seed):
       rng = random.Random(seed)
       data = [rng.randint(-1000000, 1000000) for _ in range(200)]
       heapx.heapify(data, cmp=lambda x: x % 100)
       return is_valid_heap(data, cmp=lambda x: x % 100)
 
-    def sort_worker(seed):
-      rng = random.Random(seed)
-      data = [rng.randint(-1000000, 1000000) for _ in range(200)]
-      result = heapx.sort(data, cmp=lambda x: x % 100)
-      # Heapsort is not stable, so check keys are sorted
-      result_keys = [x % 100 for x in result]
-      return result_keys == sorted(result_keys)
-
     with ThreadPoolExecutor(max_workers=8) as executor:
       futures = []
-      for i in range(50):
+      for i in range(100):
         futures.append(executor.submit(heapify_worker, i * 12345))
-        futures.append(executor.submit(sort_worker, (i + 1000) * 12345))
       results = [f.result() for f in as_completed(futures)]
     assert all(results)
 
@@ -247,21 +182,6 @@ class TestReentrancy:
     assert is_valid_heap(outer_data, cmp=lambda x: x)
     assert len(inner_results) == 100
     assert all(inner_results)
-
-  def test_nested_sort_with_key(self):
-    """Test nested sort calls with key functions."""
-    outer_data = list(range(50, 0, -1))
-    inner_count = [0]
-
-    def outer_key(x):
-      inner_data = list(range(30, 0, -1))
-      result = heapx.sort(inner_data, cmp=lambda y: y)
-      inner_count[0] += 1
-      return x
-
-    result = heapx.sort(outer_data, cmp=outer_key)
-    # Key function called during heapify and sort phases
-    assert inner_count[0] >= 50
 
   def test_deeply_nested_key_functions(self):
     """Test deeply nested key function calls."""
@@ -378,24 +298,6 @@ class TestArityWithKey:
     heapx.heapify(data, cmp=abs, arity=arity)
     assert is_valid_heap(data, cmp=abs, arity=arity)
 
-  @pytest.mark.parametrize("arity", [2, 3, 4, 5, 8])
-  def test_sort_key_small_various_arity(self, arity):
-    """Test sort with key on small heap (stack) with various arities."""
-    data = generate_integers(64)
-    result = heapx.sort(data, cmp=abs, arity=arity)
-    # Heapsort is not stable, so check keys are sorted
-    result_keys = [abs(x) for x in result]
-    assert result_keys == sorted(result_keys)
-
-  @pytest.mark.parametrize("arity", [2, 3, 4, 5, 8])
-  def test_sort_key_large_various_arity(self, arity):
-    """Test sort with key on large heap (heap alloc) with various arities."""
-    data = generate_integers(200)
-    result = heapx.sort(data, cmp=abs, arity=arity)
-    # Heapsort is not stable, so check keys are sorted
-    result_keys = [abs(x) for x in result]
-    assert result_keys == sorted(result_keys)
-
   @pytest.mark.parametrize("arity", [2, 3, 4])
   def test_heapify_key_boundary_various_arity(self, arity):
     """Test heapify with key at boundary with various arities."""
@@ -424,14 +326,6 @@ class TestMaxHeapWithKey:
     heapx.heapify(data, max_heap=True, cmp=abs)
     assert is_valid_heap(data, max_heap=True, cmp=abs)
     assert data[0] == 200
-
-  def test_sort_max_key_reverse(self):
-    """Test sort with max_heap and key."""
-    data = generate_integers(200)
-    result = heapx.sort(data, cmp=abs, reverse=True)
-    # Heapsort is not stable, so check keys are sorted in reverse
-    result_keys = [abs(x) for x in result]
-    assert result_keys == sorted(result_keys, reverse=True)
 
   @pytest.mark.parametrize("n", [64, 128, 200])
   def test_heapify_max_key_various_sizes(self, n):
@@ -478,14 +372,6 @@ class TestMemorySafety:
         pass
     gc.collect()
 
-  def test_no_memory_leak_sort_with_key(self):
-    """Test no memory leak with sort key operations."""
-    gc.collect()
-    for _ in range(100):
-      data = generate_integers(300)
-      heapx.sort(data, cmp=abs)
-    gc.collect()
-
 # ============================================================================
 # Empty and Single Element Tests
 # ============================================================================
@@ -504,18 +390,6 @@ class TestEmptyAndSingle:
     data = [42]
     heapx.heapify(data, cmp=abs)
     assert data == [42]
-
-  def test_sort_empty_with_key(self):
-    """Test sort empty list with key."""
-    data = []
-    result = heapx.sort(data, cmp=abs)
-    assert result == []
-
-  def test_sort_single_with_key(self):
-    """Test sort single element with key."""
-    data = [42]
-    result = heapx.sort(data, cmp=abs)
-    assert result == [42]
 
 # ============================================================================
 # Stress Tests
@@ -608,51 +482,6 @@ class TestDataTypesWithKey:
     assert is_valid_heap(data, cmp=abs)
 
 # ============================================================================
-# Sort Specific Tests
-# ============================================================================
-
-class TestSortWithKey:
-  """Test sort operation with key functions."""
-
-  def test_sort_inplace_with_key_small(self):
-    """Test inplace sort with key on small heap."""
-    data = list(range(64, 0, -1))
-    heapx.heapify(data, cmp=abs)
-    heapx.sort(data, inplace=True, cmp=abs)
-    assert data == sorted(range(64, 0, -1), key=abs)
-
-  def test_sort_inplace_with_key_large(self):
-    """Test inplace sort with key on large heap."""
-    data = list(range(200, 0, -1))
-    heapx.heapify(data, cmp=abs)
-    heapx.sort(data, inplace=True, cmp=abs)
-    assert data == sorted(range(200, 0, -1), key=abs)
-
-  def test_sort_reverse_with_key(self):
-    """Test reverse sort with key."""
-    data = generate_integers(150)
-    result = heapx.sort(data, cmp=abs, reverse=True)
-    # Heapsort is not stable, so check keys are sorted in reverse
-    result_keys = [abs(x) for x in result]
-    assert result_keys == sorted(result_keys, reverse=True)
-
-  def test_sort_preserves_original(self):
-    """Test sort doesn't modify original."""
-    original = list(range(150, 0, -1))
-    data = original.copy()
-    result = heapx.sort(data, cmp=abs)
-    assert data == original
-
-  @pytest.mark.parametrize("n", [1, 50, 127, 128, 129, 200, 500])
-  def test_sort_various_sizes_with_key(self, n):
-    """Test sort with key at various sizes."""
-    data = generate_integers(n)
-    result = heapx.sort(data, cmp=abs)
-    # Heapsort is not stable, so check keys are sorted
-    result_keys = [abs(x) for x in result]
-    assert result_keys == sorted(result_keys)
-
-# ============================================================================
 # Correctness Verification Tests
 # ============================================================================
 
@@ -672,24 +501,6 @@ class TestCorrectness:
       data = generate_integers(300, seed)
       heapx.heapify(data, cmp=abs)
       assert is_valid_heap(data, cmp=abs)
-
-  def test_sort_key_correctness_small(self):
-    """Verify sort correctness with key on small heap."""
-    for seed in range(100):
-      data = generate_integers(64, seed)
-      result = heapx.sort(data, cmp=abs)
-      # Heapsort is not stable, so check keys are sorted
-      result_keys = [abs(x) for x in result]
-      assert result_keys == sorted(result_keys)
-
-  def test_sort_key_correctness_large(self):
-    """Verify sort correctness with key on large heap."""
-    for seed in range(50):
-      data = generate_integers(300, seed)
-      result = heapx.sort(data, cmp=abs)
-      # Heapsort is not stable, so check keys are sorted
-      result_keys = [abs(x) for x in result]
-      assert result_keys == sorted(result_keys)
 
   def test_min_element_with_key(self):
     """Verify min element is at root with key."""
@@ -720,24 +531,6 @@ class TestConcurrentAllConfigurations:
       data = [rng.randint(-1000, 1000) for _ in range(n)]
       heapx.heapify(data, max_heap=max_heap, cmp=abs, arity=arity)
       return is_valid_heap(data, max_heap=max_heap, cmp=abs, arity=arity)
-
-    with ThreadPoolExecutor(max_workers=8) as executor:
-      futures = [executor.submit(worker, i * 999) for i in range(20)]
-      results = [f.result() for f in as_completed(futures)]
-    assert all(results)
-
-  @pytest.mark.parametrize("arity", [2, 3, 4])
-  @pytest.mark.parametrize("reverse", [False, True])
-  @pytest.mark.parametrize("n", [64, 128, 200])
-  def test_concurrent_sort_all_configs(self, arity, reverse, n):
-    """Concurrent sort with all configuration combinations."""
-    def worker(seed):
-      rng = random.Random(seed)
-      data = [rng.randint(-1000, 1000) for _ in range(n)]
-      result = heapx.sort(data, reverse=reverse, cmp=abs, arity=arity)
-      result_keys = [abs(x) for x in result]
-      expected = sorted(result_keys, reverse=reverse)
-      return result_keys == expected
 
     with ThreadPoolExecutor(max_workers=8) as executor:
       futures = [executor.submit(worker, i * 999) for i in range(20)]
@@ -867,18 +660,6 @@ class TestReentrancyBoundary:
     assert is_valid_heap(data, cmp=lambda x: x)
     assert all(inner_valid)
 
-  def test_reentrant_sort_at_boundary(self):
-    """Re-entrant sort at boundary sizes."""
-    inner_count = [0]
-    def outer_key(x):
-      inner = list(range(128, 0, -1))
-      result = heapx.sort(inner, cmp=lambda y: y)
-      inner_count[0] += 1
-      return x
-    data = list(range(129, 0, -1))
-    heapx.sort(data, cmp=outer_key)
-    assert inner_count[0] > 0
-
 # ============================================================================
 # Exception Handling with Proper Cleanup
 # ============================================================================
@@ -946,29 +727,29 @@ class TestExceptionCleanup:
     with pytest.raises(ValueError):
       heapx.heapify(data, cmp=bad_key)
 
-  def test_exception_in_sort_small(self):
-    """Exception during sort with small heap."""
+  def test_exception_in_heapify_small(self):
+    """Exception during heapify with small heap."""
     call_count = [0]
     def bad_key(x):
       call_count[0] += 1
       if call_count[0] > 50:
-        raise ValueError("sort exception")
+        raise ValueError("heapify exception")
       return x
     data = list(range(64, 0, -1))
     with pytest.raises(ValueError):
-      heapx.sort(data, cmp=bad_key)
+      heapx.heapify(data, cmp=bad_key)
 
-  def test_exception_in_sort_large(self):
-    """Exception during sort with large heap."""
+  def test_exception_in_heapify_large(self):
+    """Exception during heapify with large heap."""
     call_count = [0]
     def bad_key(x):
       call_count[0] += 1
       if call_count[0] > 150:
-        raise ValueError("sort exception")
+        raise ValueError("heapify exception")
       return x
     data = list(range(200, 0, -1))
     with pytest.raises(ValueError):
-      heapx.sort(data, cmp=bad_key)
+      heapx.heapify(data, cmp=bad_key)
 
   def test_repeated_exceptions_no_leak(self):
     """Repeated exceptions should not leak memory."""

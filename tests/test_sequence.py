@@ -68,12 +68,6 @@ class TestListSequence:
     assert result == 1
     assert is_valid_heap(heap)
 
-  def test_sort_list(self):
-    """Test sort with list."""
-    data = [5, 2, 8, 1, 9]
-    result = heapx.sort(data)
-    assert result == [1, 2, 5, 8, 9]
-
   def test_merge_lists(self):
     """Test merge with lists."""
     heap1 = [1, 3, 5]
@@ -124,12 +118,6 @@ class TestArraySequence:
     assert is_valid_heap(list(data), max_heap=True)
     assert data[0] == 9
 
-  def test_sort_array(self):
-    """Test sort with array."""
-    data = array.array('i', [5, 2, 8, 1, 9])
-    result = heapx.sort(data)
-    assert result == [1, 2, 5, 8, 9]
-
   def test_array_various_types(self):
     """Test heapify with various array type codes."""
     type_codes = ['b', 'h', 'i', 'l', 'f', 'd']
@@ -155,12 +143,6 @@ class TestBytearraySequence:
     assert is_valid_heap(list(data), max_heap=True)
     assert data[0] == 9
 
-  def test_sort_bytearray(self):
-    """Test sort with bytearray."""
-    data = bytearray([5, 2, 8, 1, 9])
-    result = heapx.sort(data)
-    assert result == [1, 2, 5, 8, 9]
-
   def test_bytearray_range(self):
     """Test heapify with bytearray containing full byte range."""
     data = bytearray([255, 128, 0, 64, 192])
@@ -184,12 +166,6 @@ class TestDequeSequence:
     heapx.heapify(data, max_heap=True)
     assert is_valid_heap(list(data), max_heap=True)
     assert data[0] == 9
-
-  def test_sort_deque(self):
-    """Test sort with deque."""
-    data = collections.deque([5, 2, 8, 1, 9])
-    result = heapx.sort(data)
-    assert result == [1, 2, 5, 8, 9]
 
   def test_deque_with_maxlen(self):
     """Test heapify with bounded deque."""
@@ -228,12 +204,6 @@ class TestCustomSequence:
     assert is_valid_heap(list(data._data), max_heap=True)
     assert data[0] == 9
 
-  def test_sort_custom_sequence(self):
-    """Test sort with custom sequence."""
-    data = self.SimpleSequence([5, 2, 8, 1, 9])
-    result = heapx.sort(data)
-    assert result == [1, 2, 5, 8, 9]
-
 # ============================================================================
 # Comprehensive Operation Tests Across Sequence Types
 # ============================================================================
@@ -252,18 +222,6 @@ class TestAllOperationsAcrossTypes:
     seq = seq_type(data)
     heapx.heapify(seq)
     assert is_valid_heap(list(seq))
-
-  @pytest.mark.parametrize("seq_type,data", [
-    (list, [5, 2, 8, 1, 9]),
-    (lambda x: array.array('i', x), [5, 2, 8, 1, 9]),
-    (bytearray, [5, 2, 8, 1, 9]),
-    (collections.deque, [5, 2, 8, 1, 9]),
-  ])
-  def test_sort_all_types(self, seq_type, data):
-    """Test sort works with all sequence types."""
-    seq = seq_type(data)
-    result = heapx.sort(seq)
-    assert result == sorted(data)
 
   @pytest.mark.parametrize("arity", [1, 2, 3, 4, 8])
   def test_arity_with_sequences(self, arity):
@@ -332,16 +290,6 @@ class TestSequenceCorrectness:
       data = seq_type(test_data)
       heapx.heapify(data)
       assert is_valid_heap(list(data)), f"Failed for {seq_type.__name__}"
-
-  def test_sort_produces_sorted_output(self):
-    """Verify sort produces correctly sorted output."""
-    test_data = [5, 2, 8, 1, 9, 3, 7, 4, 6, 10]
-    expected = sorted(test_data)
-    
-    for seq_type in [list, bytearray, collections.deque]:
-      data = seq_type(test_data)
-      result = heapx.sort(data)
-      assert result == expected, f"Failed for {seq_type.__name__}"
 
   def test_max_heap_correctness(self):
     """Verify max-heap property is maintained."""

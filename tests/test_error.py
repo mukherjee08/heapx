@@ -48,16 +48,6 @@ class TestParameterValidationErrors:
     assert "list" in msg
     print(f"✓ pop cmp error: {msg}")
 
-  def test_sort_cmp_not_callable(self):
-    """Test: cmp must be callable or None, not <type>"""
-    data = [3, 1, 2]
-    with pytest.raises(TypeError) as exc_info:
-      heapx.sort(data, cmp={})
-    msg = str(exc_info.value)
-    assert "cmp must be callable or None" in msg
-    assert "dict" in msg
-    print(f"✓ sort cmp error: {msg}")
-
   def test_remove_cmp_not_callable(self):
     """Test: cmp must be callable or None, not <type>"""
     data = [1, 2, 3]
@@ -170,16 +160,6 @@ class TestParameterValidationErrors:
     assert "arity must be >= 1 and <= 64" in msg
     assert "got 0" in msg
     print(f"✓ pop arity=0 error: {msg}")
-
-  def test_sort_arity_invalid(self):
-    """Test: arity must be >= 1 and <= 64, got -1"""
-    data = [3, 1, 2]
-    with pytest.raises(ValueError) as exc_info:
-      heapx.sort(data, arity=-1)
-    msg = str(exc_info.value)
-    assert "arity must be >= 1 and <= 64" in msg
-    assert "got -1" in msg
-    print(f"✓ sort arity=-1 error: {msg}")
 
   def test_remove_arity_invalid(self):
     """Test: arity must be >= 1 and <= 64, got 128"""
@@ -478,48 +458,6 @@ class TestListModificationErrors:
     assert "list modified during" in msg
     assert "expected size" in msg
     print(f"✓ pop (generic) list modified error: {msg}")
-
-  # ============================================================================
-  # list modified during sort
-  # ============================================================================
-
-  def test_sort_list_modified_heapify_phase(self):
-    """Test: list modified during heapify (sort's heapify phase)"""
-    data = list(range(20))
-    
-    def evil_cmp(x):
-      if len(data) > 10:
-        data.pop()
-      return x
-    
-    with pytest.raises(ValueError) as exc_info:
-      heapx.sort(data, cmp=evil_cmp, inplace=True)
-    msg = str(exc_info.value)
-    # Sort first heapifies, so triggers heapify error
-    assert "list modified during heapify" in msg
-    assert "expected size" in msg
-    assert "got" in msg
-    print(f"✓ sort (heapify phase) list modified error: {msg}")
-
-  def test_sort_list_modified_heapsort_phase(self):
-    """Test: list modified during sort (heapsort extraction phase)"""
-    # Use a larger dataset and trigger modification during heapsort phase
-    data = list(range(50))
-    call_count = [0]
-    
-    def evil_cmp(x):
-      call_count[0] += 1
-      # Only modify after heapify is done (after ~50 calls)
-      if call_count[0] > 60 and len(data) > 40:
-        data.pop()
-      return x
-    
-    with pytest.raises(ValueError) as exc_info:
-      heapx.sort(data, cmp=evil_cmp, inplace=True)
-    msg = str(exc_info.value)
-    assert "list modified during sort" in msg
-    assert "expected size" in msg
-    print(f"✓ sort (heapsort phase) list modified error: {msg}")
 
   # ============================================================================
   # list modified during remove

@@ -142,23 +142,6 @@ class TestTimeComparison:
     
     print("=" * 90)
 
-  def test_sort_time(self):
-    """Compare sort time for large datasets."""
-    print_table_header()
-    
-    for n in SIZES:
-      # Python sorted (Timsort)
-      data_py = generate_integers(n)
-      py_time, _ = time_func(sorted, data_py)
-      
-      # heapx sort
-      data_hx = generate_integers(n)
-      hx_time, _ = time_func(heapx.sort, data_hx)
-      
-      print_row("sort", n, py_time, hx_time)
-    
-    print("=" * 90)
-
   def test_full_comparison(self):
     """Run full comparison and print summary table."""
     print("\n")
