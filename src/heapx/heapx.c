@@ -6916,8 +6916,23 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
       PyObject *results = PyList_New(n_pop);
       if (unlikely(!results)) return NULL;
       
-      /* Detect element type once for type-specialized sift */
-      int elem_type = (arity == 2) ? detect_element_type(listobj) : ELEM_TYPE_OTHER;
+      /* Detect element type for type-specialized sift using robust homogeneity check.
+       * detect_homogeneous_type checks ALL elements (SIMD-optimized) and returns:
+       *   0 = not homogeneous or n < 8
+       *   1 = homogeneous integers
+       *   2 = homogeneous floats
+       * For integers, also verify first element fits in C long to avoid overflow. */
+      int elem_type = ELEM_TYPE_OTHER;
+      if (arity == 2) {
+        int homogeneous = detect_homogeneous_type(listobj->ob_item, heap_size);
+        if (homogeneous == 1) {
+          int overflow = 0;
+          (void)PyLong_AsLongAndOverflow(listobj->ob_item[0], &overflow);
+          if (!overflow) elem_type = ELEM_TYPE_INT;
+        } else if (homogeneous == 2) {
+          elem_type = ELEM_TYPE_FLOAT;
+        }
+      }
       
       for (Py_ssize_t i = 0; i < n_pop; i++) {
         Py_ssize_t current_size = PyList_GET_SIZE(heap);
