@@ -5047,6 +5047,416 @@ list_sift_up_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, int
   return 0;
 }
 
+/* =============================================================================
+ * OPTIMIZED SIFT - Floyd's bottom-up algorithm with PyObject_RichCompareBool
+ * =============================================================================
+ * This implementation matches the optimized_pop.pyx approach:
+ * 1. Uses PyObject_RichCompareBool directly (single call vs fast_compare + fallback)
+ * 2. Uses direct pointer swaps without extra reference counting overhead
+ * 3. Floyd's bottom-up: descend to leaf, then bubble up
+ */
+
+/* Optimized Floyd's bottom-up sift for min-heap using PyObject_RichCompareBool
+ * This matches optimized_pop.pyx _sift_richcmp_min exactly */
+HOT_FUNCTION static inline int
+sift_richcmp_min(PyListObject *listobj, Py_ssize_t endpos) {
+  PyObject **arr = listobj->ob_item;
+  Py_ssize_t pos = 0, startpos = 0, childpos, limit, parentpos;
+  PyObject *tmp1, *tmp2, *newitem, *parent;
+  int cmp;
+  
+  /* Phase 1: Bubble smaller child up until hitting a leaf */
+  limit = endpos >> 1;
+  while (pos < limit) {
+    childpos = (pos << 1) + 1;
+    if (childpos + 1 < endpos) {
+      Py_INCREF(arr[childpos]);
+      Py_INCREF(arr[childpos + 1]);
+      cmp = PyObject_RichCompareBool(arr[childpos], arr[childpos + 1], Py_LT);
+      Py_DECREF(arr[childpos]);
+      Py_DECREF(arr[childpos + 1]);
+      if (cmp < 0) return -1;
+      if (cmp == 0) childpos += 1;
+      arr = listobj->ob_item;
+    }
+    
+    /* Swap arr[pos] and arr[childpos] */
+    tmp1 = arr[childpos];
+    tmp2 = arr[pos];
+    arr[childpos] = tmp2;
+    arr[pos] = tmp1;
+    pos = childpos;
+  }
+  
+  /* Phase 2: Bubble up to final position */
+  arr = listobj->ob_item;
+  newitem = arr[pos];
+  while (pos > startpos) {
+    parentpos = (pos - 1) >> 1;
+    parent = arr[parentpos];
+    Py_INCREF(newitem);
+    Py_INCREF(parent);
+    cmp = PyObject_RichCompareBool(newitem, parent, Py_LT);
+    Py_DECREF(parent);
+    Py_DECREF(newitem);
+    if (cmp < 0) return -1;
+    if (cmp == 0) break;
+    arr = listobj->ob_item;
+    parent = arr[parentpos];
+    newitem = arr[pos];
+    arr[parentpos] = newitem;
+    arr[pos] = parent;
+    pos = parentpos;
+  }
+  return 0;
+}
+
+/* Optimized Floyd's bottom-up sift for max-heap using PyObject_RichCompareBool
+ * This matches optimized_pop.pyx _sift_richcmp_max exactly */
+HOT_FUNCTION static inline int
+sift_richcmp_max(PyListObject *listobj, Py_ssize_t endpos) {
+  PyObject **arr = listobj->ob_item;
+  Py_ssize_t pos = 0, startpos = 0, childpos, limit, parentpos;
+  PyObject *tmp1, *tmp2, *newitem, *parent;
+  int cmp;
+  
+  limit = endpos >> 1;
+  while (pos < limit) {
+    childpos = (pos << 1) + 1;
+    if (childpos + 1 < endpos) {
+      Py_INCREF(arr[childpos]);
+      Py_INCREF(arr[childpos + 1]);
+      cmp = PyObject_RichCompareBool(arr[childpos], arr[childpos + 1], Py_GT);
+      Py_DECREF(arr[childpos]);
+      Py_DECREF(arr[childpos + 1]);
+      if (cmp < 0) return -1;
+      if (cmp == 0) childpos += 1;
+      arr = listobj->ob_item;
+    }
+    
+    tmp1 = arr[childpos];
+    tmp2 = arr[pos];
+    arr[childpos] = tmp2;
+    arr[pos] = tmp1;
+    pos = childpos;
+  }
+  
+  arr = listobj->ob_item;
+  newitem = arr[pos];
+  while (pos > startpos) {
+    parentpos = (pos - 1) >> 1;
+    parent = arr[parentpos];
+    Py_INCREF(newitem);
+    Py_INCREF(parent);
+    cmp = PyObject_RichCompareBool(newitem, parent, Py_GT);
+    Py_DECREF(parent);
+    Py_DECREF(newitem);
+    if (cmp < 0) return -1;
+    if (cmp == 0) break;
+    arr = listobj->ob_item;
+    parent = arr[parentpos];
+    newitem = arr[pos];
+    arr[parentpos] = newitem;
+    arr[pos] = parent;
+    pos = parentpos;
+  }
+  return 0;
+}
+
+/* =============================================================================
+ * TYPE-SPECIALIZED SIFT FUNCTIONS FOR BULK POP
+ * These match optimized_pop.pyx exactly - no type checking per comparison
+ * =============================================================================
+ */
+
+/* Float min-heap sift - no type checking per comparison */
+HOT_FUNCTION static inline void
+sift_float_min(PyListObject *listobj, Py_ssize_t n) {
+  PyObject **heap = listobj->ob_item;
+  Py_ssize_t pos = 0, child, right, parent;
+  PyObject *item = heap[0];
+  double item_val = PyFloat_AS_DOUBLE(item);
+  
+  while (1) {
+    child = (pos << 1) + 1;
+    if (child >= n) break;
+    right = child + 1;
+    if (right < n && PyFloat_AS_DOUBLE(heap[right]) < PyFloat_AS_DOUBLE(heap[child]))
+      child = right;
+    heap[pos] = heap[child];
+    pos = child;
+  }
+  
+  while (pos > 0) {
+    parent = (pos - 1) >> 1;
+    if (item_val >= PyFloat_AS_DOUBLE(heap[parent])) break;
+    heap[pos] = heap[parent];
+    pos = parent;
+  }
+  heap[pos] = item;
+}
+
+/* Float max-heap sift */
+HOT_FUNCTION static inline void
+sift_float_max(PyListObject *listobj, Py_ssize_t n) {
+  PyObject **heap = listobj->ob_item;
+  Py_ssize_t pos = 0, child, right, parent;
+  PyObject *item = heap[0];
+  double item_val = PyFloat_AS_DOUBLE(item);
+  
+  while (1) {
+    child = (pos << 1) + 1;
+    if (child >= n) break;
+    right = child + 1;
+    if (right < n && PyFloat_AS_DOUBLE(heap[right]) > PyFloat_AS_DOUBLE(heap[child]))
+      child = right;
+    heap[pos] = heap[child];
+    pos = child;
+  }
+  
+  while (pos > 0) {
+    parent = (pos - 1) >> 1;
+    if (item_val <= PyFloat_AS_DOUBLE(heap[parent])) break;
+    heap[pos] = heap[parent];
+    pos = parent;
+  }
+  heap[pos] = item;
+}
+
+/* Int min-heap sift - no type checking per comparison */
+HOT_FUNCTION static inline void
+sift_int_min(PyListObject *listobj, Py_ssize_t n) {
+  PyObject **heap = listobj->ob_item;
+  Py_ssize_t pos = 0, child, right, parent;
+  PyObject *item = heap[0];
+  long item_val = PyLong_AsLong(item);
+  
+  while (1) {
+    child = (pos << 1) + 1;
+    if (child >= n) break;
+    right = child + 1;
+    if (right < n && PyLong_AsLong(heap[right]) < PyLong_AsLong(heap[child]))
+      child = right;
+    heap[pos] = heap[child];
+    pos = child;
+  }
+  
+  while (pos > 0) {
+    parent = (pos - 1) >> 1;
+    if (item_val >= PyLong_AsLong(heap[parent])) break;
+    heap[pos] = heap[parent];
+    pos = parent;
+  }
+  heap[pos] = item;
+}
+
+/* Int max-heap sift */
+HOT_FUNCTION static inline void
+sift_int_max(PyListObject *listobj, Py_ssize_t n) {
+  PyObject **heap = listobj->ob_item;
+  Py_ssize_t pos = 0, child, right, parent;
+  PyObject *item = heap[0];
+  long item_val = PyLong_AsLong(item);
+  
+  while (1) {
+    child = (pos << 1) + 1;
+    if (child >= n) break;
+    right = child + 1;
+    if (right < n && PyLong_AsLong(heap[right]) > PyLong_AsLong(heap[child]))
+      child = right;
+    heap[pos] = heap[child];
+    pos = child;
+  }
+  
+  while (pos > 0) {
+    parent = (pos - 1) >> 1;
+    if (item_val <= PyLong_AsLong(heap[parent])) break;
+    heap[pos] = heap[parent];
+    pos = parent;
+  }
+  heap[pos] = item;
+}
+
+/* String less-than helper without type check */
+static inline int str_lt(PyObject *a, PyObject *b) {
+  Py_ssize_t len_a = PyUnicode_GET_LENGTH(a);
+  Py_ssize_t len_b = PyUnicode_GET_LENGTH(b);
+  Py_ssize_t min_len = len_a < len_b ? len_a : len_b;
+  int kind_a = PyUnicode_KIND(a);
+  int kind_b = PyUnicode_KIND(b);
+  
+  if (kind_a == kind_b && len_a > 0 && len_b > 0) {
+    void *data_a = PyUnicode_DATA(a);
+    void *data_b = PyUnicode_DATA(b);
+    int cmp;
+    if (kind_a == PyUnicode_1BYTE_KIND)
+      cmp = memcmp(data_a, data_b, min_len);
+    else if (kind_a == PyUnicode_2BYTE_KIND)
+      cmp = memcmp(data_a, data_b, min_len * 2);
+    else
+      cmp = memcmp(data_a, data_b, min_len * 4);
+    if (cmp == 0) return len_a < len_b;
+    return cmp < 0;
+  }
+  /* Fallback */
+  int result;
+  PyObject *cmp_result = PyObject_RichCompare(a, b, Py_LT);
+  if (!cmp_result) return 0;
+  result = PyObject_IsTrue(cmp_result);
+  Py_DECREF(cmp_result);
+  return result > 0;
+}
+
+/* String min-heap sift */
+HOT_FUNCTION static inline void
+sift_str_min(PyListObject *listobj, Py_ssize_t n) {
+  PyObject **heap = listobj->ob_item;
+  Py_ssize_t pos = 0, child, right, parent;
+  PyObject *item = heap[0];
+  
+  while (1) {
+    child = (pos << 1) + 1;
+    if (child >= n) break;
+    right = child + 1;
+    if (right < n && str_lt(heap[right], heap[child]))
+      child = right;
+    heap[pos] = heap[child];
+    pos = child;
+  }
+  
+  while (pos > 0) {
+    parent = (pos - 1) >> 1;
+    if (!str_lt(item, heap[parent])) break;
+    heap[pos] = heap[parent];
+    pos = parent;
+  }
+  heap[pos] = item;
+}
+
+/* String max-heap sift */
+HOT_FUNCTION static inline void
+sift_str_max(PyListObject *listobj, Py_ssize_t n) {
+  PyObject **heap = listobj->ob_item;
+  Py_ssize_t pos = 0, child, right, parent;
+  PyObject *item = heap[0];
+  
+  while (1) {
+    child = (pos << 1) + 1;
+    if (child >= n) break;
+    right = child + 1;
+    if (right < n && str_lt(heap[child], heap[right]))
+      child = right;
+    heap[pos] = heap[child];
+    pos = child;
+  }
+  
+  while (pos > 0) {
+    parent = (pos - 1) >> 1;
+    if (!str_lt(heap[parent], item)) break;
+    heap[pos] = heap[parent];
+    pos = parent;
+  }
+  heap[pos] = item;
+}
+
+/* Type detection constants matching optimized_pop.pyx */
+#define ELEM_TYPE_INT 1
+#define ELEM_TYPE_FLOAT 2
+#define ELEM_TYPE_BOOL 3
+#define ELEM_TYPE_STR 4
+#define ELEM_TYPE_BYTES 5
+#define ELEM_TYPE_TUPLE 6
+#define ELEM_TYPE_OTHER 7
+
+/* Detect element type from first element */
+static inline int detect_element_type(PyListObject *listobj) {
+  if (PyList_GET_SIZE(listobj) == 0) return ELEM_TYPE_OTHER;
+  PyObject *first = listobj->ob_item[0];
+  if (PyLong_CheckExact(first)) return ELEM_TYPE_INT;
+  if (PyFloat_CheckExact(first)) return ELEM_TYPE_FLOAT;
+  if (PyBool_Check(first)) return ELEM_TYPE_BOOL;
+  if (PyUnicode_CheckExact(first)) return ELEM_TYPE_STR;
+  if (PyBytes_CheckExact(first)) return ELEM_TYPE_BYTES;
+  if (PyTuple_CheckExact(first)) return ELEM_TYPE_TUPLE;
+  return ELEM_TYPE_OTHER;
+}
+
+/* Generic sift using optimized_compare - matches optimized_pop.pyx sift_down_min */
+HOT_FUNCTION static inline int
+sift_generic_min(PyListObject *listobj, Py_ssize_t n) {
+  PyObject **heap = listobj->ob_item;
+  Py_ssize_t pos = 0, child, right, parent;
+  PyObject *item = heap[0];
+  int cmp;
+  
+  /* Phase 1: Descend to leaf */
+  while (1) {
+    child = (pos << 1) + 1;
+    if (child >= n) break;
+    right = child + 1;
+    if (right < n) {
+      cmp = optimized_compare(heap[right], heap[child], Py_LT);
+      if (cmp < 0) return -1;
+      if (cmp) child = right;
+      heap = listobj->ob_item;
+    }
+    heap[pos] = heap[child];
+    pos = child;
+  }
+  
+  /* Phase 2: Bubble up */
+  heap = listobj->ob_item;
+  while (pos > 0) {
+    parent = (pos - 1) >> 1;
+    cmp = optimized_compare(item, heap[parent], Py_LT);
+    if (cmp < 0) return -1;
+    if (!cmp) break;
+    heap = listobj->ob_item;
+    heap[pos] = heap[parent];
+    pos = parent;
+  }
+  heap[pos] = item;
+  return 0;
+}
+
+/* Generic sift using optimized_compare - matches optimized_pop.pyx sift_down_max */
+HOT_FUNCTION static inline int
+sift_generic_max(PyListObject *listobj, Py_ssize_t n) {
+  PyObject **heap = listobj->ob_item;
+  Py_ssize_t pos = 0, child, right, parent;
+  PyObject *item = heap[0];
+  int cmp;
+  
+  /* Phase 1: Descend to leaf */
+  while (1) {
+    child = (pos << 1) + 1;
+    if (child >= n) break;
+    right = child + 1;
+    if (right < n) {
+      cmp = optimized_compare(heap[right], heap[child], Py_GT);
+      if (cmp < 0) return -1;
+      if (cmp) child = right;
+      heap = listobj->ob_item;
+    }
+    heap[pos] = heap[child];
+    pos = child;
+  }
+  
+  /* Phase 2: Bubble up */
+  heap = listobj->ob_item;
+  while (pos > 0) {
+    parent = (pos - 1) >> 1;
+    cmp = optimized_compare(item, heap[parent], Py_GT);
+    if (cmp < 0) return -1;
+    if (!cmp) break;
+    heap = listobj->ob_item;
+    heap[pos] = heap[parent];
+    pos = parent;
+  }
+  heap[pos] = item;
+  return 0;
+}
+
 /* Bottom-up sift down for lists without key functions - for single element operations */
 /* Safety: INCREF objects held across comparisons to prevent use-after-free. */
 HOT_FUNCTION static inline int
@@ -6330,6 +6740,7 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
       Py_INCREF(result);
       
       if (n == 1) {
+        /* Single element - clear the list */
         if (unlikely(PyList_SetSlice(heap, 0, 1, NULL) < 0)) {
           Py_DECREF(result);
           return NULL;
@@ -6346,23 +6757,39 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
         return result;
       }
       
-      /* Save last item and shrink list */
+      /* Fast path: Get last item, shrink list, put last at position 0
+       * This matches optimized_pop.pyx's approach */
       PyObject *last_item = items[n - 1];
       Py_INCREF(last_item);
       
-      if (unlikely(PyList_SetSlice(heap, n - 1, n, NULL) < 0)) {
-        Py_DECREF(last_item);
-        Py_DECREF(result);
-        return NULL;
-      }
+      /* Shrink list by 1 - equivalent to list.pop() */
+      Py_SET_SIZE(listobj, n - 1);
       
-      /* Refresh pointer after modification */
-      items = listobj->ob_item;
       Py_ssize_t new_size = n - 1;
-      Py_SETREF(items[0], last_item);
       
-      /* DISPATCH TABLE FOR SIFT-DOWN - use already-fixed functions */
+      /* Put last item at position 0 */
+      items = listobj->ob_item;
+      Py_DECREF(items[0]);
+      items[0] = last_item;
+      
+      /* DISPATCH TABLE FOR SIFT-DOWN */
       if (likely(cmp == Py_None)) {
+        /* Fast path: arity=2, no cmp - use optimized RichCompareBool sift */
+        if (likely(arity == 2)) {
+          if (is_max) {
+            if (unlikely(sift_richcmp_max(listobj, new_size) < 0)) {
+              Py_DECREF(result);
+              return NULL;
+            }
+          } else {
+            if (unlikely(sift_richcmp_min(listobj, new_size) < 0)) {
+              Py_DECREF(result);
+              return NULL;
+            }
+          }
+          return result;
+        }
+        /* Non-binary arity or small heap */
         if (unlikely(new_size <= HEAPX_SMALL_HEAP_THRESHOLD)) {
           if (unlikely(list_heapify_small_ultra_optimized(listobj, is_max, arity) < 0)) {
             Py_DECREF(result);
@@ -6447,9 +6874,12 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
     }
     
     if (likely(cmp == Py_None)) {
-      /* Optimized bulk pop without key function */
+      /* Optimized bulk pop without key function - matches optimized_pop.pyx _pop_bulk */
       PyObject *results = PyList_New(n_pop);
       if (unlikely(!results)) return NULL;
+      
+      /* Detect element type once for type-specialized sift */
+      int elem_type = (arity == 2) ? detect_element_type(listobj) : ELEM_TYPE_OTHER;
       
       for (Py_ssize_t i = 0; i < n_pop; i++) {
         Py_ssize_t current_size = PyList_GET_SIZE(heap);
@@ -6461,102 +6891,46 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
         PyList_SET_ITEM(results, i, item);
         
         if (current_size > 1) {
+          /* Get last item and shrink list - matches optimized_pop.pyx heap.pop() */
           PyObject *last_item = items[current_size - 1];
-          Py_INCREF(last_item);
+          Py_SET_SIZE(listobj, current_size - 1);
           
-          if (unlikely(PyList_SetSlice(heap, current_size - 1, current_size, NULL) < 0)) {
-            Py_DECREF(last_item);
-            Py_DECREF(results);
-            return NULL;
-          }
-          
+          /* Put last at position 0 - matches optimized_pop.pyx heap[0] = last */
           items = listobj->ob_item;
           Py_ssize_t new_size = current_size - 1;
-          Py_SETREF(items[0], last_item);
+          Py_DECREF(items[0]);
+          items[0] = last_item;
           
-          /* Use optimized sift-down based on arity */
+          /* Use type-specialized sift for arity=2, matching optimized_pop.pyx */
           if (likely(arity == 2)) {
-            Py_ssize_t pos = 0;
-            PyObject *sift_item = items[0];
-            Py_INCREF(sift_item);
-            
-            while (1) {
-              Py_ssize_t child = (pos << 1) + 1;
-              if (unlikely(child >= new_size)) break;
-              
-              /* SAFETY CHECK before reading children */
-              if (unlikely(PyList_GET_SIZE(heap) != new_size)) {
-                PyErr_Format(PyExc_ValueError, "list modified during pop (expected size %zd, got %zd)", new_size, PyList_GET_SIZE(heap));
-                Py_DECREF(sift_item);
-                Py_DECREF(results);
-                return NULL;
-              }
-              items = listobj->ob_item;
-              
-              Py_ssize_t best = child;
-              PyObject *best_item = items[child];
-              Py_INCREF(best_item);
-              
-              Py_ssize_t right = child + 1;
-              if (likely(right < new_size)) {
-                PyObject *right_item = items[right];
-                Py_INCREF(right_item);
-                int cmp_res = optimized_compare(right_item, best_item, is_max ? Py_GT : Py_LT);
-                /* SAFETY CHECK */
-                if (unlikely(PyList_GET_SIZE(heap) != new_size)) {
-                  PyErr_Format(PyExc_ValueError, "list modified during pop (expected size %zd, got %zd)", new_size, PyList_GET_SIZE(heap));
-                  Py_DECREF(right_item);
-                  Py_DECREF(best_item);
-                  Py_DECREF(sift_item);
-                  Py_DECREF(results);
-                  return NULL;
-                }
-                if (unlikely(cmp_res < 0)) {
-                  Py_DECREF(right_item);
-                  Py_DECREF(best_item);
-                  Py_DECREF(sift_item);
-                  Py_DECREF(results);
-                  return NULL;
-                }
-                items = listobj->ob_item;
-                if (cmp_res) {
-                  Py_DECREF(best_item);
-                  best = right;
-                  best_item = right_item;
-                } else {
-                  Py_DECREF(right_item);
-                }
-              }
-              
-              int should_swap = optimized_compare(best_item, sift_item, is_max ? Py_GT : Py_LT);
-              /* SAFETY CHECK */
-              if (unlikely(PyList_GET_SIZE(heap) != new_size)) {
-                PyErr_Format(PyExc_ValueError, "list modified during pop (expected size %zd, got %zd)", new_size, PyList_GET_SIZE(heap));
-                Py_DECREF(best_item);
-                Py_DECREF(sift_item);
-                Py_DECREF(results);
-                return NULL;
-              }
-              if (unlikely(should_swap < 0)) {
-                Py_DECREF(best_item);
-                Py_DECREF(sift_item);
-                Py_DECREF(results);
-                return NULL;
-              }
-              items = listobj->ob_item;
-              
-              if (!should_swap) {
-                Py_DECREF(best_item);
+            switch (elem_type) {
+              case ELEM_TYPE_FLOAT:
+                if (is_max) sift_float_max(listobj, new_size);
+                else sift_float_min(listobj, new_size);
                 break;
-              }
-              
-              items[pos] = items[best];
-              pos = best;
-              Py_DECREF(best_item);
+              case ELEM_TYPE_INT:
+                if (is_max) sift_int_max(listobj, new_size);
+                else sift_int_min(listobj, new_size);
+                break;
+              case ELEM_TYPE_STR:
+                if (is_max) sift_str_max(listobj, new_size);
+                else sift_str_min(listobj, new_size);
+                break;
+              default:
+                /* Generic path for bool, tuple, custom - use optimized_compare (matches sift_down_min/max) */
+                if (is_max) {
+                  if (unlikely(sift_generic_max(listobj, new_size) < 0)) {
+                    Py_DECREF(results);
+                    return NULL;
+                  }
+                } else {
+                  if (unlikely(sift_generic_min(listobj, new_size) < 0)) {
+                    Py_DECREF(results);
+                    return NULL;
+                  }
+                }
+                break;
             }
-            items = listobj->ob_item;
-            items[pos] = sift_item;
-            Py_DECREF(sift_item);
           } else {
             if (unlikely(list_sift_down_ultra_optimized(listobj, 0, new_size, is_max, arity) < 0)) {
               Py_DECREF(results);
@@ -6564,10 +6938,8 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
             }
           }
         } else {
-          if (unlikely(PyList_SetSlice(heap, 0, 1, NULL) < 0)) {
-            Py_DECREF(results);
-            return NULL;
-          }
+          /* Single element remaining - just clear it */
+          Py_SET_SIZE(listobj, 0);
         }
       }
       return results;
