@@ -6606,10 +6606,12 @@ list_pop_bulk_homogeneous_int_nogil(PyListObject *listobj, Py_ssize_t k, int is_
     values[i] = PyLong_AsLongAndOverflow(items[i], &overflow);
     if (unlikely(overflow != 0)) {
       if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); PyMem_Free(popped_indices); }
-      return NULL; /* Overflow - caller should fallback */
+      PyErr_Clear(); /* Clear to allow fallback to standard path */
+      return NULL;
     }
     if (unlikely(values[i] == -1 && PyErr_Occurred())) {
       if (!use_stack) { PyMem_Free(values); PyMem_Free(indices); PyMem_Free(popped_indices); }
+      PyErr_Clear(); /* Clear to allow fallback to standard path */
       return NULL;
     }
     indices[i] = i;
