@@ -4726,6 +4726,79 @@ list_sift_up_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, int
 }
 
 /* =============================================================================
+ * SIFT-UP using PyObject_RichCompareBool - matches CPython's _heapq approach
+ * =============================================================================
+ * This implementation uses PyObject_RichCompareBool directly without the
+ * fast_compare overhead, matching CPython's _heapqmodule.c siftdown function.
+ */
+
+/* Sift-up for min-heap using PyObject_RichCompareBool directly */
+HOT_FUNCTION static inline int
+sift_up_richcmp_min(PyListObject *listobj, Py_ssize_t pos) {
+  if (pos == 0) return 0;
+  
+  PyObject **arr = listobj->ob_item;
+  Py_ssize_t size = PyList_GET_SIZE(listobj);
+  PyObject *newitem = arr[pos];
+  
+  while (pos > 0) {
+    Py_ssize_t parentpos = (pos - 1) >> 1;
+    PyObject *parent = arr[parentpos];
+    Py_INCREF(newitem);
+    Py_INCREF(parent);
+    int cmp = PyObject_RichCompareBool(newitem, parent, Py_LT);
+    Py_DECREF(parent);
+    Py_DECREF(newitem);
+    if (cmp < 0) return -1;
+    if (unlikely(size != PyList_GET_SIZE(listobj))) {
+      PyErr_SetString(PyExc_RuntimeError, "list changed size during iteration");
+      return -1;
+    }
+    if (cmp == 0) break;
+    arr = listobj->ob_item;
+    parent = arr[parentpos];
+    newitem = arr[pos];
+    arr[parentpos] = newitem;
+    arr[pos] = parent;
+    pos = parentpos;
+  }
+  return 0;
+}
+
+/* Sift-up for max-heap using PyObject_RichCompareBool directly */
+HOT_FUNCTION static inline int
+sift_up_richcmp_max(PyListObject *listobj, Py_ssize_t pos) {
+  if (pos == 0) return 0;
+  
+  PyObject **arr = listobj->ob_item;
+  Py_ssize_t size = PyList_GET_SIZE(listobj);
+  PyObject *newitem = arr[pos];
+  
+  while (pos > 0) {
+    Py_ssize_t parentpos = (pos - 1) >> 1;
+    PyObject *parent = arr[parentpos];
+    Py_INCREF(newitem);
+    Py_INCREF(parent);
+    int cmp = PyObject_RichCompareBool(newitem, parent, Py_GT);
+    Py_DECREF(parent);
+    Py_DECREF(newitem);
+    if (cmp < 0) return -1;
+    if (unlikely(size != PyList_GET_SIZE(listobj))) {
+      PyErr_SetString(PyExc_RuntimeError, "list changed size during iteration");
+      return -1;
+    }
+    if (cmp == 0) break;
+    arr = listobj->ob_item;
+    parent = arr[parentpos];
+    newitem = arr[pos];
+    arr[parentpos] = newitem;
+    arr[pos] = parent;
+    pos = parentpos;
+  }
+  return 0;
+}
+
+/* =============================================================================
  * OPTIMIZED SIFT - Floyd's bottom-up algorithm with PyObject_RichCompareBool
  * =============================================================================
  * This implementation matches the optimized_pop.pyx approach:
@@ -5651,8 +5724,11 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
     if (likely(cmp == Py_None)) {
       /* No key function path */
       
-      /* Homogeneous detection only for bulk pushes (n_items > 1) where detection cost
-       * is amortized. Single-item push uses generic path for safety with mixed types. */
+      /* Homogeneous detection for heaps >= 8 elements.
+       * Single-item push cannot safely use homogeneous fast path because we can't
+       * verify the entire heap is homogeneous in O(1). The heap may contain mixed
+       * types even if first element and new item are the same type.
+       * Bulk push: Full scan is amortized over n_items. */
       int homogeneous = (n_items > 1 && total_size >= 8) ? detect_homogeneous_type(listobj->ob_item, total_size) : 0;
       
       /* Priority 2: Arity = 1 (sorted list) */
@@ -5711,33 +5787,7 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
         }
         binary_generic:
         for (Py_ssize_t idx = n; idx < total_size; idx++) {
-          /* REFRESH POINTER */
-          arr = listobj->ob_item;
-          Py_ssize_t pos = idx;
-          PyObject *item = arr[pos];
-          Py_INCREF(item);
-          while (pos > 0) {
-            Py_ssize_t parent = (pos - 1) >> 1;
-            /* REFRESH POINTER */
-            arr = listobj->ob_item;
-            int cmp_res = optimized_compare(item, arr[parent], is_max ? Py_GT : Py_LT);
-            /* SAFETY CHECK */
-            if (unlikely(PyList_GET_SIZE(heap) != total_size)) {
-              PyErr_Format(PyExc_ValueError, "list modified during push (expected size %zd, got %zd)", total_size, PyList_GET_SIZE(heap));
-              Py_DECREF(item);
-              return NULL;
-            }
-            if (unlikely(cmp_res < 0)) { Py_DECREF(item); return NULL; }
-            /* REFRESH POINTER */
-            arr = listobj->ob_item;
-            if (!cmp_res) break;
-            arr[pos] = arr[parent];
-            pos = parent;
-          }
-          /* REFRESH POINTER */
-          arr = listobj->ob_item;
-          arr[pos] = item;
-          Py_DECREF(item);
+          if (unlikely(list_sift_up_ultra_optimized(listobj, idx, is_max, 2) < 0)) return NULL;
         }
         Py_RETURN_NONE;
       }

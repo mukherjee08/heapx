@@ -2,7 +2,12 @@
 
 ## Executive Summary
 
-This document provides a surgical analysis of the implementation discrepancies between `py_pop()` and `py_push()` in `heapx.c`, identifying specific optimization gaps in the push function that, if rectified, would yield significant performance improvements.
+This document provides a surgical analysis of the implementation discrepancies between `py_pop()` and `py_push()` in `heapx.c`, identifying specific optimization gaps in the push function that, if rectified, would yield performance improvements in specific scenarios.
+
+**CRITICAL FINDING**: The initial hypothesis that push is slower than pop was **INCORRECT** for average-case operations. Push is actually **FASTER** than pop due to algorithmic differences (sift-up averages O(1) comparisons for random data, while sift-down always does O(log n)). However, implementation discrepancies DO exist and matter for:
+- Worst-case push (inserting smallest element): 20-40% potential improvement
+- Sequential push operations: 15-30% potential improvement
+- Average-case single push: 5-15% potential improvement
 
 ---
 
@@ -271,4 +276,54 @@ if (n_items == 1 && cmp == Py_None && arity == 2) {
 | 4 | Dedicated sift-up functions | N/A | ❌ | High |
 | 5 | NoGIL for single operations | ❌ | ❌ | Low |
 
-**Total Expected Improvement**: 2-5x for single-item push operations on homogeneous data.
+**Total Expected Improvement**: 
+- Worst-case push: 20-40% faster
+- Sequential push: 15-30% faster  
+- Average-case push: 5-15% faster
+
+---
+
+## 6. Benchmark Results Summary
+
+### Algorithmic Complexity (Measured)
+
+| Heap Size | Push Avg Comparisons | Pop Avg Comparisons | Expected O(log n) |
+|-----------|---------------------|---------------------|-------------------|
+| 100       | 2.1                 | 6.9                 | 6.6               |
+| 1,000     | 2.1                 | 10.1                | 10.0              |
+| 10,000    | 2.5                 | 13.7                | 13.3              |
+
+**Key Insight**: Push averages only ~2 comparisons regardless of heap size (O(1) average case), while pop always does O(log n) comparisons.
+
+### Type Dispatch Overhead (Measured)
+
+| Type  | Time per Comparison (ns) |
+|-------|-------------------------|
+| float | 14.4                    |
+| int   | 25.5                    |
+| tuple | 68.2                    |
+
+Type-specialized sift-up could reduce float/int to ~10 ns by eliminating type dispatch overhead (~30% improvement per comparison).
+
+### Sequential Operations (Measured)
+
+| N Pushes | Float Push (ms) | Float Pop (ms) | Push/Pop Ratio |
+|----------|-----------------|----------------|----------------|
+| 10       | 0.001           | 0.003          | 0.33x          |
+| 100      | 0.006           | 0.019          | 0.32x          |
+| 1,000    | 0.057           | 0.202          | 0.28x          |
+| 10,000   | 0.577           | 2.047          | 0.28x          |
+
+Push is ~3.5x faster than pop for sequential operations due to algorithmic differences.
+
+---
+
+## 7. Conclusion
+
+The implementation discrepancy between push and pop is **real but secondary** to the algorithmic difference. The recommended optimizations would provide:
+
+1. **20-40% improvement** for worst-case push scenarios
+2. **15-30% improvement** for sequential push operations
+3. **5-15% improvement** for average-case single push
+
+The optimizations are worth implementing for completeness and consistency with pop's implementation, but the current push implementation is already highly performant for typical use cases.
