@@ -345,22 +345,7 @@ class TestSequenceSummary:
       except Exception as e:
         output.append(f"{name:<25} {'✗ FAIL':<10} {'N/A':<10} {str(e)[:12]:<12}")
     
-    output.append("\n2. SORT OPERATION")
-    output.append("-"*80)
-    output.append(f"{'Sequence Type':<25} {'Status':<10} {'Correct':<12}")
-    output.append("-"*80)
-    
-    for name, seq_type, desc in sequence_types:
-      try:
-        data = seq_type(test_data)
-        result = heapx.sort(data)
-        correct = result == sorted(test_data)
-        status = "✓ PASS" if correct else "✗ FAIL"
-        output.append(f"{name:<25} {status:<10} {str(correct):<12}")
-      except Exception as e:
-        output.append(f"{name:<25} {'✗ FAIL':<10} {str(e)[:12]:<12}")
-    
-    output.append("\n3. MAX-HEAP OPERATION")
+    output.append("\n2. MAX-HEAP OPERATION")
     output.append("-"*80)
     output.append(f"{'Sequence Type':<25} {'Status':<10} {'Root':<10} {'Valid Heap':<12}")
     output.append("-"*80)
@@ -376,7 +361,7 @@ class TestSequenceSummary:
       except Exception as e:
         output.append(f"{name:<25} {'✗ FAIL':<10} {'N/A':<10} {str(e)[:12]:<12}")
     
-    output.append("\n4. N-ARY HEAP SUPPORT")
+    output.append("\n3. N-ARY HEAP SUPPORT")
     output.append("-"*80)
     output.append(f"{'Arity':<10} {'list':<10} {'array':<10} {'bytearray':<12} {'deque':<10}")
     output.append("-"*80)
@@ -393,12 +378,12 @@ class TestSequenceSummary:
           results.append("✗")
       output.append(f"{arity:<10} {results[0]:<10} {results[1]:<10} {results[2]:<12} {results[3]:<10}")
     
-    output.append("\n5. SEQUENCE TYPE DESCRIPTIONS")
+    output.append("\n4. SEQUENCE TYPE DESCRIPTIONS")
     output.append("-"*80)
     for name, seq_type, desc in sequence_types:
       output.append(f"  • {name}: {desc}")
     
-    output.append("\n6. SEQUENCE PROTOCOL REQUIREMENTS")
+    output.append("\n5. SEQUENCE PROTOCOL REQUIREMENTS")
     output.append("-"*80)
     output.append("  heapx supports any Python object that implements:")
     output.append("    • __len__() - returns sequence length")
@@ -406,13 +391,12 @@ class TestSequenceSummary:
     output.append("    • __setitem__(index, value) - sets element at index (mutable)")
     output.append("    • PySequence_Check - recognized as sequence by Python C API")
     
-    output.append("\n7. SUPPORTED OPERATIONS")
+    output.append("\n6. SUPPORTED OPERATIONS")
     output.append("-"*80)
     operations = [
       ("heapify", "Transform sequence into heap structure"),
       ("push", "Insert elements into heap"),
       ("pop", "Extract root element from heap"),
-      ("sort", "Sort sequence using heapsort"),
       ("merge", "Merge multiple heaps"),
       ("remove", "Remove elements by index/predicate"),
       ("replace", "Replace elements maintaining heap property"),
@@ -420,7 +404,7 @@ class TestSequenceSummary:
     for op, desc in operations:
       output.append(f"  • {op:<12} - {desc}")
     
-    output.append("\n8. PERFORMANCE CHARACTERISTICS")
+    output.append("\n7. PERFORMANCE CHARACTERISTICS")
     output.append("-"*80)
     output.append("  • list:        Fastest (direct memory access, C-optimized)")
     output.append("  • array.array: Fast (typed arrays, memory efficient)")

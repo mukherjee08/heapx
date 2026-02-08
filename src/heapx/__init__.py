@@ -11,7 +11,7 @@ try:
   __version__ = _metadata.version("heapx")
 except _metadata.PackageNotFoundError:
   # Fallback if the package is not installed (e.g., local development without -e)
-  __version__ = "0.0.0+unknown"
+  __version__ = "0.9.0+unknown"
 
 # ---------------------------------------------------------------------------
 # 2. C-Extension Loading

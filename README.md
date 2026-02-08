@@ -32,7 +32,7 @@ Data structures are the foundation of reliable, high‑performance software: the
 
 ## `heapx` useability benefits & why each is necessary
 
-1. **Complete Heap Ecosystem in One Module**: `heapx` provides all essential heap operations (`heapify`, `push`, `pop`, `remove`, `replace`, `sort`, `merge`) in a single, comprehensive API. This eliminates the need for users to combine multiple libraries or write custom heap utilities, ensuring consistency and reducing integration complexity.
+1. **Complete Heap Ecosystem in One Module**: `heapx` provides all essential heap operations (`heapify`, `push`, `pop`, `remove`, `replace`, `merge`) in a single, comprehensive API. This eliminates the need for users to combine multiple libraries or write custom heap utilities, ensuring consistency and reducing integration complexity.
 
 2. **Native Min/Max Heap Support Without Data Transformation**: `heapx` natively supports both min-heap and max-heap modes through a simple parameter. This preserves data integrity, simplifies debugging, and eliminates conversion overhead.
 
@@ -44,15 +44,13 @@ Data structures are the foundation of reliable, high‑performance software: the
 
 6. **Flexible Element Selection via Multiple Identification Methods**: The `remove` and `replace` functions support three distinct identification modes: by index (fast $O(log n)$ removal), by object identity (pointer comparison), and by predicate function (flexible condition matching). This provides users with flexibility for heap modification without sacrificing performance.
 
-7. **In-Place and Copy Modes for Memory Control**: The `sort` operation offers both in-place modification (minimal memory overhead) and copy-based sorting (preserves original heap). This gives users explicit control over memory usage patterns crucial for large-scale or embedded applications.
+7. **Efficient Multi-Heap Merging**: The `merge` function combines multiple heaps in linear time with automatic algorithm selection based on input characteristics, providing optimal performance for streaming aggregation scenarios.
 
-8. **Efficient Multi-Heap Merging**: The `merge` function combines multiple heaps in linear time with automatic algorithm selection based on input characteristics, providing optimal performance for streaming aggregation scenarios.
+8. **Automatic Algorithm Selection via $11$-Priority Dispatch Table**: `heapx` chooses the optimal implementation based on heap size, arity, presence of key functions, and data type homogeneity. This eliminates manual optimization decisions while ensuring each operation uses the most efficient algorithm for the specific context.
 
-9. **Automatic Algorithm Selection via $11$-Priority Dispatch Table**: `heapx` chooses the optimal implementation based on heap size, arity, presence of key functions, and data type homogeneity. This eliminates manual optimization decisions while ensuring each operation uses the most efficient algorithm for the specific context.
+9. **Small-Heap Specialization with Insertion Sort Fallback**: For heaps of size $\le 16$, `heapx` automatically switches to insertion sort algorithms that outperform traditional heap algorithms for small datasets. This optimization is particularly valuable for real-time systems and microservices where heap sizes are frequently small.
 
-10. **Small-Heap Specialization with Insertion Sort Fallback**: For heaps of size $\le 16$, `heapx` automatically switches to insertion sort algorithms that outperform traditional heap algorithms for small datasets. This optimization is particularly valuable for real-time systems and microservices where heap sizes are frequently small.
-
-11. **Homogeneous Type Detection with SIMD-Optimized Paths**: Automatic detection of uniform numeric types (all integers or all floats) enables use of specialized comparison functions and potential SIMD vectorization opportunities, providing significant speedups for scientific computing and numerical analysis workloads.
+10. **Homogeneous Type Detection with SIMD-Optimized Paths**: Automatic detection of uniform numeric types (all integers or all floats) enables use of specialized comparison functions and potential SIMD vectorization opportunities, providing significant speedups for scientific computing and numerical analysis workloads.
 
 12. **Production-Grade Error Handling and Memory Safety**: All operations maintain proper Python reference counting, handle allocation failures gracefully, and provide clear error messages. The key memory pool reduces allocation fragmentation while ensuring deterministic performance in long-running applications.
 
@@ -80,7 +78,6 @@ Data structures are the foundation of reliable, high‑performance software: the
   - [pop](#pop)
   - [remove](#remove)
   - [replace](#replace)
-  - [sort](#sort)
   - [merge](#merge)
 - [Advanced Usage](#advanced-usage)
 - [Technical Details](#technical-details)
@@ -205,7 +202,6 @@ Beyond basic heap operations, `heapx` provides:
 - **remove:** Remove items by index, object identity, or predicate
 - **replace:** Replace items with O(log n) heap maintenance
 - **merge:** Efficiently merge multiple heaps
-- **sort:** Heapsort with in-place and copy modes
 
 ## Installation
 
@@ -270,11 +266,6 @@ heap2 = [2, 4, 6]
 heapx.heapify(heap1)
 heapx.heapify(heap2)
 merged = heapx.merge(heap1, heap2)
-
-# Sort using heapsort
-data = [5, 2, 8, 1, 9]
-sorted_data = heapx.sort(data)  # Returns [1, 2, 5, 8, 9]
-heapx.sort(data, inplace=True, reverse=True)  # In-place descending sort
 ```
 
 ## Performance
@@ -403,7 +394,7 @@ The following table illustrates the algorithm selection logic applied across all
 | 10 | `List + arity≥4 + key` | General n-ary with key caching | O(n log_k n) + O(n) key calls | Flexible custom ordering |
 | 11 | `Sequence (non-list)` | Generic sequence algorithm | O(n log_k n) | Tuples, arrays, custom sequences |
 
-**Note:** This dispatch strategy is applied consistently across `heapify`, `push`, `pop`, `sort`, `remove`, `replace`, and `merge` operations, ensuring predictable performance characteristics throughout the API.
+**Note:** This dispatch strategy is applied consistently across `heapify`, `push`, `pop`, `remove`, `replace`, and `merge` operations, ensuring predictable performance characteristics throughout the API.
 
 ### **1. Heapify**
 
@@ -1261,213 +1252,7 @@ count = heapx.replace(heap, Task("urgent", 0), predicate=lambda t: t.priority > 
 - **Object Tracking:** Replace specific object instances in heap
 - **Value Normalization:** Replace items based on complex predicates
 
-### **6. Sort**
-
-Sort a sequence using the heapsort algorithm with optimal O(n log n) time complexity. Supports in-place and copy modes, custom comparison functions, and all heap arities.
-
-```python
-heapx.sort(heap, reverse=False, inplace=False, max_heap=False, cmp=None, arity=2)
-```
-
-**Parameters:**
-
-- **`heap`** *(required, sequence)*  
-  The sequence to sort. Can be any Python sequence supporting `len()`, `__getitem__()`, and `__setitem__()`. Commonly a `list`, but also supports `tuple`, `bytearray`, or custom sequences. When `inplace=False` (default), the original sequence is unchanged and a sorted copy is returned.
-
-- **`reverse`** *(optional, bool, default=False)*  
-  Sort order:
-  - `False`: Ascending order (smallest to largest)
-  - `True`: Descending order (largest to smallest)
-  
-  Independent of `max_heap` parameter.
-
-- **`inplace`** *(optional, bool, default=False)*  
-  Modification mode:
-  - `False`: Returns a new sorted list, original unchanged
-  - `True`: Sorts in-place, modifies original sequence, returns `None`
-  
-  When `inplace=True` and the input is already a heap, the heap property is restored after sorting.
-
-- **`max_heap`** *(optional, bool, default=False)*  
-  Heap type for internal heapify operation:
-  - `False`: Uses min-heap for heapify phase
-  - `True`: Uses max-heap for heapify phase
-  
-  Only relevant when input is already a heap. For non-heap input, this parameter is automatically handled.
-
-- **`cmp`** *(optional, callable or None, default=None)*  
-  Custom key function for element comparison. When provided:
-  - Each element `x` is compared using `cmp(x)` instead of `x` directly
-  - Keys are computed on-demand during heap operations (O(1) auxiliary space)
-  - Signature: `cmp(element) -> comparable_value`
-  - Example: `cmp=lambda x: x.priority` for priority-based sorting
-  - Example: `cmp=abs` to sort by absolute value
-  
-  When `None`, elements are compared directly using their natural ordering.
-
-- **`arity`** *(optional, int ≥ 1, default=2)*  
-  The branching factor of the heap used internally:
-  - `arity=1`: Sorted list (O(n²) insertion sort for small data, O(n) if already sorted)
-  - `arity=2`: Binary heap (standard heapsort with bit-shift optimization)
-  - `arity=3`: Ternary heap (reduced tree height)
-  - `arity=4`: Quaternary heap (bit-shift optimization)
-  - `arity≥5`: General n-ary heap (flexible branching)
-  
-  Higher arity reduces tree height but increases comparison overhead per level. Binary heaps (arity=2) are optimal for most use cases.
-
-**Returns:** 
-- `inplace=False`: Sorted list (new list object)
-- `inplace=True`: `None` (original sequence modified)
-
-**Raises:**
-- `TypeError`: If `cmp` is not callable or None
-- `ValueError`: If `arity < 1`
-
-**Time Complexity:** 
-- Heapsort: O(n log n) for all cases
-- Small heap (n ≤ 16, no key): O(n²) insertion sort but faster in practice
-- Arity=1: O(n²) insertion sort for unsorted data, O(n) if already sorted
-- With key function: O(n log n) + O(n log n) key calls (on-demand computation)
-
-**Space Complexity:** 
-- `inplace=False`: O(n) for new list
-- `inplace=True`: O(1) auxiliary space (no key caching; keys computed on-demand)
-
-**Algorithm Details:**
-
-The sort operation follows an 11-priority dispatch table for optimal performance:
-
-1. **Small heap (n ≤ 16, no key):** Direct insertion sort (O(n²) but faster constant factors)
-2. **Arity=1 (sorted list):** Insertion sort to ensure order, then reverse if needed (O(n²) or O(n))
-3. **Binary heap (arity=2, no key):** Floyd's heapify + inline binary heapsort with bit-shift
-4. **Ternary heap (arity=3, no key):** Ternary heapify + inline ternary heapsort
-5. **Quaternary heap (arity=4, no key):** Quaternary heapify + inline quaternary heapsort with bit-shift
-6. **N-ary heap (arity≥5, no key, n<1000):** Small n-ary heapify + general heapsort loop
-7. **N-ary heap (arity≥5, no key, n≥1000):** Generic heapify + general heapsort loop
-8. **Binary heap with key (arity=2):** Binary heapify with key + inline heapsort with on-demand keys
-9. **Ternary heap with key (arity=3):** Ternary heapify with key + ternary heapsort with key
-10. **N-ary heap with key (arity≥4):** Generic heapify with key + general heapsort with key
-11. **Generic sequence (non-list):** Generic heapify + PySequence API heapsort
-
-**Key Optimizations:**
-
-- **Direct C function calls:** All heapify operations use direct C calls instead of Python API wrappers
-- **Inline heapsort implementations:** Binary, ternary, and quaternary heaps have specialized inline loops
-- **Bit-shift optimization:** Binary (arity=2) and quaternary (arity=4) use fast bit-shift operations
-- **On-demand key computation:** Keys computed only when needed during sift operations (O(1) space)
-- **Small heap fast path:** Direct insertion sort for n ≤ 16 (better constant factors)
-- **Arity=1 optimization:** O(n) sort for already sorted data instead of O(n log n)
-- **Size-based dispatch:** Separate paths for n<1000 vs n≥1000 with arity≥5
-- **Memory safety:** Proper reference counting with `Py_INCREF`/`Py_DECREF` and `Py_SETREF`
-
-**Example Usage:**
-
-```python
-import heapx
-
-# Basic ascending sort
-data = [5, 2, 8, 1, 9, 3, 7]
-result = heapx.sort(data)
-# result is [1, 2, 3, 5, 7, 8, 9], data unchanged
-
-# Descending sort
-data = [5, 2, 8, 1, 9, 3, 7]
-result = heapx.sort(data, reverse=True)
-# result is [9, 8, 7, 5, 3, 2, 1]
-
-# In-place sort
-data = [5, 2, 8, 1, 9]
-heapx.heapify(data)
-heapx.sort(data, inplace=True)
-# data is now [1, 2, 5, 8, 9], returns None
-
-# Sort with custom comparison (by absolute value)
-data = [-5, 2, -8, 1, 9, -3, 7]
-result = heapx.sort(data, cmp=abs)
-# result is [1, 2, -3, -5, 7, -8, 9]
-
-# Sort strings by length
-data = ["apple", "pie", "banana", "kiwi"]
-result = heapx.sort(data, cmp=len)
-# result is ['pie', 'kiwi', 'apple', 'banana']
-
-# Sort with ternary heap
-data = list(range(100, 0, -1))
-result = heapx.sort(data, arity=3)
-# result is [1, 2, 3, ..., 100]
-
-# Sort from existing heap
-data = [5, 2, 8, 1, 9]
-heapx.heapify(data)
-result = heapx.sort(data, max_heap=False)
-# result is [1, 2, 5, 8, 9]
-
-# Sort with key and reverse
-data = [-5, 2, -8, 1, 9]
-result = heapx.sort(data, cmp=abs, reverse=True)
-# result is [9, -8, -5, 2, 1]
-
-# Sort custom objects
-class Task:
-    def __init__(self, name, priority):
-        self.name = name
-        self.priority = priority
-    def __repr__(self):
-        return f"Task({self.name}, {self.priority})"
-
-tasks = [Task("low", 10), Task("high", 1), Task("medium", 5)]
-result = heapx.sort(tasks, cmp=lambda t: t.priority)
-# result is [Task(high, 1), Task(medium, 5), Task(low, 10)]
-
-# Sort large dataset with quaternary heap
-data = list(range(10000, 0, -1))
-result = heapx.sort(data, arity=4)
-# result is [1, 2, 3, ..., 10000]
-
-# Sort tuple input
-data = (5, 2, 8, 1, 9)
-result = heapx.sort(data)
-# result is [1, 2, 5, 8, 9] (returns list)
-
-# Sort with modulo key
-data = list(range(1, 51))
-result = heapx.sort(data, cmp=lambda x: x % 10)
-# Sorted by last digit: [10, 20, 30, 40, 50, 1, 11, 21, ...]
-
-# In-place sort preserves heap property
-data = [5, 2, 8, 1, 9, 3, 7]
-heapx.heapify(data, max_heap=True)
-heapx.sort(data, max_heap=True, inplace=True)
-# data is [1, 2, 3, 5, 7, 8, 9] and maintains heap property
-
-# Sort with arity=1 (sorted list optimization)
-data = list(range(100, 0, -1))
-result = heapx.sort(data, arity=1)
-# result is [1, 2, 3, ..., 100] using optimized path
-```
-
-**Performance Notes:**
-
-- Heapsort is **not stable** - equal elements may not maintain their original relative order
-- Small heaps (n ≤ 16) use insertion sort which is faster than heapsort for tiny datasets
-- Binary heaps (arity=2) are fastest for most use cases due to bit-shift optimizations
-- Key functions add ~3x overhead due to function call costs
-- Arity=1 (sorted list) has O(n) cost if data is already sorted
-- Ternary and quaternary heaps reduce tree height, improving cache performance for large datasets
-- In-place sort is more memory efficient but modifies the original sequence
-- For stable sorting, use Python's built-in `sorted()` function
-
-**Common Use Cases:**
-
-- **General Sorting:** Sort any sequence with O(n log n) guaranteed performance
-- **Large Datasets:** Efficient sorting with predictable memory usage
-- **Custom Ordering:** Sort by complex criteria using key functions
-- **In-Place Sorting:** Memory-efficient sorting when original order is not needed
-- **Heap-Based Algorithms:** Sort data that's already in heap form
-- **Priority-Based Sorting:** Sort tasks, events, or items by priority
-- **Numerical Analysis:** Sort data by absolute value, magnitude, or custom metrics
-
-### **7. Merge**
+### **6. Merge**
 
 Merge multiple sequences into a single heap with optimal O(N) time complexity. Supports custom comparison functions and all heap arities.
 
@@ -1719,7 +1504,7 @@ def top_k_elements(data, k, key=None):
             if item > heap[0]:
                 heapx.replace(heap, item, indices=0)
     
-    return heapx.sort(heap, reverse=True, cmp=key)
+    return sorted(heap, key=key, reverse=True)
 
 # Usage
 data = [5, 2, 8, 1, 9, 3, 7, 4, 6]

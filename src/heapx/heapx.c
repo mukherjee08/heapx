@@ -4264,8 +4264,8 @@ py_heapify(PyObject *self, PyObject *args, PyObject *kwargs)
 }
 
 /* Forward declarations for functions defined after PyMethodDef array */
-static PyObject *py_push(PyObject *self, PyObject *args, PyObject *kwargs);
-static PyObject *py_pop(PyObject *self, PyObject *args, PyObject *kwargs);
+static PyObject *py_push(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnames);
+static PyObject *py_pop(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnames);
 static PyObject *py_remove(PyObject *self, PyObject *args, PyObject *kwargs);
 static PyObject *py_replace(PyObject *self, PyObject *args, PyObject *kwargs);
 static PyObject *py_merge(PyObject *self, PyObject *args, PyObject *kwargs);
@@ -4296,7 +4296,7 @@ static PyMethodDef Methods[] = {
    "  - Fast paths for integers, floats, strings, bytes, booleans, and tuples\n"
    "  - Optimized implementations for binary, ternary, and quaternary heaps"},
    
-  {"push", (PyCFunction)py_push, METH_VARARGS | METH_KEYWORDS,
+  {"push", (PyCFunction)py_push, METH_FASTCALL | METH_KEYWORDS,
    "push(heap, items, max_heap=False, cmp=None, arity=2, nogil=False)\n\n"
    "Insert items into heap maintaining heap property.\n\n"
    "Parameters:\n"
@@ -4308,7 +4308,7 @@ static PyMethodDef Methods[] = {
    "  nogil: bool (default False). Accepted for API consistency.\n\n"
    "Complexity: O(log n) single insert, O(k log n) bulk insert"},
    
-  {"pop", (PyCFunction)py_pop, METH_VARARGS | METH_KEYWORDS,
+  {"pop", (PyCFunction)py_pop, METH_FASTCALL | METH_KEYWORDS,
    "pop(heap, n=1, max_heap=False, cmp=None, arity=2, nogil=False)\n\n"
    "Remove and return top n items from heap.\n\n"
    "Parameters:\n"
@@ -4403,7 +4403,7 @@ PyInit__heapx(void)
   if (unlikely(!module)) return NULL;
 
   /* Add module-level constants */
-  if (unlikely(PyModule_AddStringConstant(module, "__version__", "0.0.0") < 0)) {
+  if (unlikely(PyModule_AddStringConstant(module, "__version__", "0.9.0") < 0)) {
     Py_DECREF(module);
     return NULL;
   }
@@ -5561,8 +5561,85 @@ list_remove_at_index_optimized(PyListObject *listobj, Py_ssize_t idx, int is_max
 
 /* Ultra-optimized push with comprehensive dispatch following priority table */
 static PyObject *
-py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
+py_push(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnames) {
   (void)self;  /* Module method, self is unused */
+  
+  /* ========== FAST PATH: push(heap, item) with all defaults ========== 
+   * Condition: exactly 2 positional args, no kwargs, heap is list, item is not list (bulk)
+   * This bypasses PyArg_ParseTupleAndKeywords entirely for ~20ns savings */
+  if (likely(nargs == 2 && kwnames == NULL)) {
+    PyObject *heap = args[0];
+    PyObject *item = args[1];
+    
+    if (likely(PyList_CheckExact(heap) && !PyList_CheckExact(item))) {
+      /* Append item */
+      if (unlikely(PyList_Append(heap, item) < 0)) return NULL;
+      
+      /* Inline binary min-heap sift-up with safety checks */
+      PyListObject *listobj = (PyListObject *)heap;
+      Py_ssize_t n = PyList_GET_SIZE(heap);
+      Py_ssize_t pos = n - 1;
+      
+      while (pos > 0) {
+        Py_ssize_t parent = (pos - 1) >> 1;
+        
+        /* Refresh pointer after potential reallocation */
+        PyObject **arr = listobj->ob_item;
+        PyObject *newitem = arr[pos];
+        PyObject *parent_item = arr[parent];
+        
+        Py_INCREF(newitem);
+        Py_INCREF(parent_item);
+        int cmp = PyObject_RichCompareBool(newitem, parent_item, Py_LT);
+        Py_DECREF(parent_item);
+        Py_DECREF(newitem);
+        
+        /* Safety check: verify list wasn't modified during comparison */
+        if (unlikely(PyList_GET_SIZE(heap) != n)) {
+          PyErr_Format(PyExc_ValueError, "list modified during heap operation (expected size %zd, got %zd)", n, PyList_GET_SIZE(heap));
+          return NULL;
+        }
+        
+        if (unlikely(cmp < 0)) return NULL;
+        if (cmp == 0) break;
+        
+        /* Refresh pointer and swap */
+        arr = listobj->ob_item;
+        PyObject *tmp = arr[parent];
+        arr[parent] = arr[pos];
+        arr[pos] = tmp;
+        pos = parent;
+      }
+      
+      Py_RETURN_NONE;
+    }
+  }
+  
+  /* ========== SLOW PATH: Full argument parsing ========== */
+  /* Convert FASTCALL args to tuple and kwargs dict for PyArg_ParseTupleAndKeywords */
+  PyObject *args_tuple = PyTuple_New(nargs);
+  if (unlikely(!args_tuple)) return NULL;
+  for (Py_ssize_t i = 0; i < nargs; i++) {
+    Py_INCREF(args[i]);
+    PyTuple_SET_ITEM(args_tuple, i, args[i]);
+  }
+  
+  PyObject *kwargs = NULL;
+  if (kwnames != NULL) {
+    Py_ssize_t nkw = PyTuple_GET_SIZE(kwnames);
+    kwargs = PyDict_New();
+    if (unlikely(!kwargs)) { Py_DECREF(args_tuple); return NULL; }
+    for (Py_ssize_t i = 0; i < nkw; i++) {
+      PyObject *key = PyTuple_GET_ITEM(kwnames, i);
+      PyObject *value = args[nargs + i];
+      if (unlikely(PyDict_SetItem(kwargs, key, value) < 0)) {
+        Py_DECREF(args_tuple);
+        Py_DECREF(kwargs);
+        return NULL;
+      }
+    }
+  }
+  
   static char *kwlist[] = {"heap", "items", "max_heap", "cmp", "arity", "nogil", NULL};
   PyObject *heap, *items;
   PyObject *max_heap_obj = Py_False;
@@ -5570,9 +5647,14 @@ py_push(PyObject *self, PyObject *args, PyObject *kwargs) {
   Py_ssize_t arity = 2;
   PyObject *nogil_obj = Py_False;
 
-  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|OOnO:push", kwlist,
-                                   &heap, &items, &max_heap_obj, &cmp, &arity, &nogil_obj))
+  if (!PyArg_ParseTupleAndKeywords(args_tuple, kwargs, "OO|OOnO:push", kwlist,
+                                   &heap, &items, &max_heap_obj, &cmp, &arity, &nogil_obj)) {
+    Py_DECREF(args_tuple);
+    Py_XDECREF(kwargs);
     return NULL;
+  }
+  Py_DECREF(args_tuple);
+  Py_XDECREF(kwargs);
 
   int is_max = PyObject_IsTrue(max_heap_obj);
   if (unlikely(is_max < 0)) return NULL;
@@ -6453,8 +6535,77 @@ list_pop_bulk_homogeneous_int_nogil(PyListObject *listobj, Py_ssize_t k, int is_
 
 /* Ultra-optimized pop with comprehensive 11-priority dispatch table */
 static PyObject *
-py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
+py_pop(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnames) {
   (void)self;  /* Module method, self is unused */
+  
+  /* ========== FAST PATH: pop(heap) with all defaults ========== 
+   * Condition: exactly 1 positional arg, no kwargs, heap is list
+   * This bypasses PyArg_ParseTupleAndKeywords entirely for ~20ns savings */
+  if (likely(nargs == 1 && kwnames == NULL)) {
+    PyObject *heap = args[0];
+    
+    if (likely(PyList_CheckExact(heap))) {
+      PyListObject *listobj = (PyListObject *)heap;
+      Py_ssize_t n = PyList_GET_SIZE(heap);
+      
+      if (unlikely(n == 0)) {
+        PyErr_SetString(PyExc_IndexError, "pop from empty heap");
+        return NULL;
+      }
+      
+      PyObject **arr = listobj->ob_item;
+      PyObject *returnitem = arr[0];
+      Py_INCREF(returnitem);
+      
+      if (n == 1) {
+        /* Only one element - just clear */
+        Py_SET_SIZE(heap, 0);
+        return returnitem;
+      }
+      
+      /* Get last element, move to root, shrink list */
+      PyObject *lastelt = arr[n - 1];
+      Py_INCREF(lastelt);
+      Py_DECREF(arr[0]);
+      arr[0] = lastelt;
+      Py_SET_SIZE(heap, n - 1);
+      Py_ssize_t new_size = n - 1;
+      
+      /* Use the optimized sift function which has safety checks */
+      if (unlikely(sift_richcmp_min(listobj, new_size) < 0)) {
+        Py_DECREF(returnitem);
+        return NULL;
+      }
+      
+      return returnitem;
+    }
+  }
+  
+  /* ========== SLOW PATH: Full argument parsing ========== */
+  /* Convert FASTCALL args to tuple and kwargs dict for PyArg_ParseTupleAndKeywords */
+  PyObject *args_tuple = PyTuple_New(nargs);
+  if (unlikely(!args_tuple)) return NULL;
+  for (Py_ssize_t i = 0; i < nargs; i++) {
+    Py_INCREF(args[i]);
+    PyTuple_SET_ITEM(args_tuple, i, args[i]);
+  }
+  
+  PyObject *kwargs = NULL;
+  if (kwnames != NULL) {
+    Py_ssize_t nkw = PyTuple_GET_SIZE(kwnames);
+    kwargs = PyDict_New();
+    if (unlikely(!kwargs)) { Py_DECREF(args_tuple); return NULL; }
+    for (Py_ssize_t i = 0; i < nkw; i++) {
+      PyObject *key = PyTuple_GET_ITEM(kwnames, i);
+      PyObject *value = args[nargs + i];
+      if (unlikely(PyDict_SetItem(kwargs, key, value) < 0)) {
+        Py_DECREF(args_tuple);
+        Py_DECREF(kwargs);
+        return NULL;
+      }
+    }
+  }
+  
   static char *kwlist[] = {"heap", "n", "max_heap", "cmp", "arity", "nogil", NULL};
   PyObject *heap;
   Py_ssize_t n_pop = 1;
@@ -6463,9 +6614,14 @@ py_pop(PyObject *self, PyObject *args, PyObject *kwargs) {
   Py_ssize_t arity = 2;
   PyObject *nogil_obj = Py_False;
 
-  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|nOOnO:pop", kwlist,
-                                   &heap, &n_pop, &max_heap_obj, &cmp, &arity, &nogil_obj))
+  if (!PyArg_ParseTupleAndKeywords(args_tuple, kwargs, "O|nOOnO:pop", kwlist,
+                                   &heap, &n_pop, &max_heap_obj, &cmp, &arity, &nogil_obj)) {
+    Py_DECREF(args_tuple);
+    Py_XDECREF(kwargs);
     return NULL;
+  }
+  Py_DECREF(args_tuple);
+  Py_XDECREF(kwargs);
 
   int is_max = PyObject_IsTrue(max_heap_obj);
   if (unlikely(is_max < 0)) return NULL;

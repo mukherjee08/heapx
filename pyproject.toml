@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "heapx"
-version = "1.0.0"
+version = "0.9.0"
 description = "Ultra-optimized heap operations with comprehensive functionality and superior performance"
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.8"
@@ -25,7 +25,7 @@ keywords = [
   "min-heap",
 ]
 classifiers = [
-  "Development Status :: 5 - Production/Stable",
+  "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: MIT License",
@@ -91,7 +91,7 @@ include = ["heapx*"]
 # write version into the src package so builds in an isolated environment succeed
 write_to = "src/heapx/_version.py"
 # fallback when no git metadata present (useful for local/offline tests)
-fallback_version = "0.0.0"
+fallback_version = "0.9.0"
 
 [tool.black]
 line-length = 100
