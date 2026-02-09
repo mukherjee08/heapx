@@ -4726,79 +4726,6 @@ list_sift_up_with_key_ultra_optimized(PyListObject *listobj, Py_ssize_t pos, int
 }
 
 /* =============================================================================
- * SIFT-UP using PyObject_RichCompareBool - matches CPython's _heapq approach
- * =============================================================================
- * This implementation uses PyObject_RichCompareBool directly without the
- * fast_compare overhead, matching CPython's _heapqmodule.c siftdown function.
- */
-
-/* Sift-up for min-heap using PyObject_RichCompareBool directly */
-HOT_FUNCTION static inline int
-sift_up_richcmp_min(PyListObject *listobj, Py_ssize_t pos) {
-  if (pos == 0) return 0;
-  
-  PyObject **arr = listobj->ob_item;
-  Py_ssize_t size = PyList_GET_SIZE(listobj);
-  PyObject *newitem = arr[pos];
-  
-  while (pos > 0) {
-    Py_ssize_t parentpos = (pos - 1) >> 1;
-    PyObject *parent = arr[parentpos];
-    Py_INCREF(newitem);
-    Py_INCREF(parent);
-    int cmp = PyObject_RichCompareBool(newitem, parent, Py_LT);
-    Py_DECREF(parent);
-    Py_DECREF(newitem);
-    if (cmp < 0) return -1;
-    if (unlikely(size != PyList_GET_SIZE(listobj))) {
-      PyErr_SetString(PyExc_RuntimeError, "list changed size during iteration");
-      return -1;
-    }
-    if (cmp == 0) break;
-    arr = listobj->ob_item;
-    parent = arr[parentpos];
-    newitem = arr[pos];
-    arr[parentpos] = newitem;
-    arr[pos] = parent;
-    pos = parentpos;
-  }
-  return 0;
-}
-
-/* Sift-up for max-heap using PyObject_RichCompareBool directly */
-HOT_FUNCTION static inline int
-sift_up_richcmp_max(PyListObject *listobj, Py_ssize_t pos) {
-  if (pos == 0) return 0;
-  
-  PyObject **arr = listobj->ob_item;
-  Py_ssize_t size = PyList_GET_SIZE(listobj);
-  PyObject *newitem = arr[pos];
-  
-  while (pos > 0) {
-    Py_ssize_t parentpos = (pos - 1) >> 1;
-    PyObject *parent = arr[parentpos];
-    Py_INCREF(newitem);
-    Py_INCREF(parent);
-    int cmp = PyObject_RichCompareBool(newitem, parent, Py_GT);
-    Py_DECREF(parent);
-    Py_DECREF(newitem);
-    if (cmp < 0) return -1;
-    if (unlikely(size != PyList_GET_SIZE(listobj))) {
-      PyErr_SetString(PyExc_RuntimeError, "list changed size during iteration");
-      return -1;
-    }
-    if (cmp == 0) break;
-    arr = listobj->ob_item;
-    parent = arr[parentpos];
-    newitem = arr[pos];
-    arr[parentpos] = newitem;
-    arr[pos] = parent;
-    pos = parentpos;
-  }
-  return 0;
-}
-
-/* =============================================================================
  * OPTIMIZED SIFT - Floyd's bottom-up algorithm with PyObject_RichCompareBool
  * =============================================================================
  * This implementation matches the optimized_pop.pyx approach:
@@ -5128,27 +5055,11 @@ sift_str_max(PyListObject *listobj, Py_ssize_t n) {
   heap[pos] = item;
 }
 
-/* Type detection constants matching optimized_pop.pyx */
+/* Type detection constants for pop dispatch */
 #define ELEM_TYPE_INT 1
 #define ELEM_TYPE_FLOAT 2
-#define ELEM_TYPE_BOOL 3
 #define ELEM_TYPE_STR 4
-#define ELEM_TYPE_BYTES 5
-#define ELEM_TYPE_TUPLE 6
 #define ELEM_TYPE_OTHER 7
-
-/* Detect element type from first element */
-static inline int detect_element_type(PyListObject *listobj) {
-  if (PyList_GET_SIZE(listobj) == 0) return ELEM_TYPE_OTHER;
-  PyObject *first = listobj->ob_item[0];
-  if (PyLong_CheckExact(first)) return ELEM_TYPE_INT;
-  if (PyFloat_CheckExact(first)) return ELEM_TYPE_FLOAT;
-  if (PyBool_Check(first)) return ELEM_TYPE_BOOL;
-  if (PyUnicode_CheckExact(first)) return ELEM_TYPE_STR;
-  if (PyBytes_CheckExact(first)) return ELEM_TYPE_BYTES;
-  if (PyTuple_CheckExact(first)) return ELEM_TYPE_TUPLE;
-  return ELEM_TYPE_OTHER;
-}
 
 /* Generic sift using optimized_compare - matches optimized_pop.pyx sift_down_min */
 HOT_FUNCTION static inline int

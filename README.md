@@ -1519,8 +1519,8 @@ import heapx
 
 class MedianFinder:
     def __init__(self):
-        self._max_heap = []  # Lower half
-        self._min_heap = []  # Upper half
+        self._max_heap = [] # Lower half
+        self._min_heap = [] # Upper half
     
     def add_num(self, num):
         if not self._max_heap or num <= -self._max_heap[0]:
@@ -1717,32 +1717,8 @@ SOFTWARE.
 ---
 
 **Author:** Aniruddha Mukherjee  
-**Email:** mukher66@purdue.edu  
-**GitHub:** https://github.com/ivan121500/heapx  
+**Email:** aniruddhamukherjee2000@gmail.com
 **PyPI:** https://pypi.org/project/heapx/
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+**Anaconda**: TBD.
 
 
