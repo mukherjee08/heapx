@@ -1521,7 +1521,7 @@ class MedianFinder:
     def __init__(self):
         self._max_heap = [] # Lower half
         self._min_heap = [] # Upper half
-    
+
     def add_num(self, num):
         if not self._max_heap or num <= -self._max_heap[0]:
             heapx.push(self._max_heap, -num)
