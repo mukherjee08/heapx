@@ -3449,3 +3449,10 @@ ORIG wins: 414 (16.3%)
 Ties: 1425 (56.0%)
 ========================================================================================================================
 ```
+
+### Column Legend
+
+| Column | File | Description |
+|--------|------|-------------|
+| **ORIG** | `src/heapx/heapx.c` (git HEAD) | Original unmodified source from repository |
+| **OPT** | `testing/heapx_original.c` | Optimized version with specialized sift functions |
