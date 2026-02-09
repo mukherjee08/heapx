@@ -107,12 +107,12 @@ import heapx
 # Min-heap (default) - smallest element at root
 data = [5, 2, 8, 1, 9]
 heapx.heapify(data)
-print(data[0])  # 1
+print(data[0]) # 1
 
 # Max-heap - largest element at root
 data = [5, 2, 8, 1, 9]
 heapx.heapify(data, max_heap=True)
-print(data[0])  # 9
+print(data[0]) # 9
 ```
 
 **Benefits:**
@@ -222,20 +222,20 @@ import heapx
 # Create a min-heap
 data = [5, 2, 8, 1, 9, 3, 7]
 heapx.heapify(data)
-print(data)  # [1, 2, 3, 5, 9, 8, 7]
+print(data) # [1, 2, 3, 5, 9, 8, 7]
 
 # Push new items
 heapx.push(data, 4)
-heapx.push(data, [0, 6])  # Bulk insert
+heapx.push(data, [0, 6]) # Bulk insert
 
 # Pop smallest items
-smallest = heapx.pop(data)  # Returns 0
-top_three = heapx.pop(data, n=3)  # Returns [1, 2, 3]
+smallest = heapx.pop(data) # Returns 0
+top_three = heapx.pop(data, n=3) # Returns [1, 2, 3]
 
 # Create a max-heap
 data = [5, 2, 8, 1, 9]
 heapx.heapify(data, max_heap=True)
-largest = heapx.pop(data, max_heap=True)  # Returns 9
+largest = heapx.pop(data, max_heap=True) # Returns 9
 
 # Custom comparison (priority queue)
 tasks = [
@@ -245,20 +245,20 @@ tasks = [
 ]
 heapx.heapify(tasks, cmp=lambda x: x["priority"])
 next_task = heapx.pop(tasks, cmp=lambda x: x["priority"])
-print(next_task)  # {"name": "urgent", "priority": 1}
+print(next_task) # {"name": "urgent", "priority": 1}
 
 # Ternary heap for large datasets
 large_data = list(range(1000000, 0, -1))
-heapx.heapify(large_data, arity=3)  # Faster for large datasets
+heapx.heapify(large_data, arity=3) # Faster for large datasets
 
 # Remove specific items
 data = [1, 2, 3, 4, 5]
 heapx.heapify(data)
-heapx.remove(data, indices=2)  # Remove by index
-heapx.remove(data, predicate=lambda x: x > 3)  # Remove by condition
+heapx.remove(data, indices=2) # Remove by index
+heapx.remove(data, predicate=lambda x: x > 3) # Remove by condition
 
 # Replace items efficiently
-heapx.replace(data, 10, indices=0)  # Replace root with 10
+heapx.replace(data, 10, indices=0) # Replace root with 10
 
 # Merge multiple heaps
 heap1 = [1, 3, 5]
@@ -274,15 +274,15 @@ merged = heapx.merge(heap1, heap2)
 
 Performance comparison against Python's `heapq` module (lower is better):
 
-| Operation | Dataset Size | heapq (ms) | heapx (ms) | Speedup |
-|-----------|--------------|------------|------------|---------|
-| heapify | 10,000 | 1.2 | 0.5 | 2.4x |
-| heapify | 100,000 | 15.3 | 6.8 | 2.2x |
-| heapify | 1,000,000 | 182.4 | 78.1 | 2.3x |
-| push (single) | 10,000 | 0.8 | 0.4 | 2.0x |
-| push (bulk) | 10,000 | 12.5 | 4.2 | 3.0x |
-| pop (single) | 10,000 | 0.9 | 0.5 | 1.8x |
-| pop (bulk) | 10,000 | 14.2 | 7.1 | 2.0x |
+| Operation | Dataset Size | heapx (ms) |
+|-----------|--------------|------------|
+| heapify | 10,000 | 0.5 |
+| heapify | 100,000 | 6.8 |
+| heapify | 1,000,000 | 78.1 |
+| push (single) | 10,000 | 0.4 |
+| push (bulk) | 10,000 | 4.2 |
+| pop (single) | 10,000 | 0.5 |
+| pop (bulk) | 10,000 | 7.1 |
 
 **Key Performance Factors:**
 - **Small heaps (n ≤ 16):** Insertion sort optimization provides 3-5x speedup
@@ -465,8 +465,6 @@ heapx.heapify(data, cmp=abs)
 data = list(range(1000))
 heapx.heapify(data, arity=3)
 ```
-
-
 
 ### **2. Push**
 
@@ -1483,7 +1481,7 @@ pq = PriorityQueue()
 pq.push("task1", priority=5)
 pq.push("task2", priority=1)
 pq.push("task3", priority=3)
-print(pq.pop())  # "task2" (lowest priority)
+print(pq.pop()) # "task2" (lowest priority)
 ```
 
 ### Top-K Elements
@@ -1509,7 +1507,7 @@ def top_k_elements(data, k, key=None):
 # Usage
 data = [5, 2, 8, 1, 9, 3, 7, 4, 6]
 top_3 = top_k_elements(data, 3)
-print(top_3)  # [9, 8, 7]
+print(top_3) # [9, 8, 7]
 ```
 
 ### Median Maintenance
@@ -1576,7 +1574,7 @@ list1 = [1, 4, 7]
 list2 = [2, 5, 8]
 list3 = [3, 6, 9]
 merged = k_way_merge(list1, list2, list3)
-print(merged)  # [1, 2, 3, 4, 5, 6, 7, 8, 9]
+print(merged) # [1, 2, 3, 4, 5, 6, 7, 8, 9]
 ```
 
 ## Technical Details
