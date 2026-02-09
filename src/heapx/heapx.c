@@ -6423,7 +6423,23 @@ list_remove_at_index_optimized(PyListObject *listobj, Py_ssize_t idx, int is_max
         return -1;
       }
       if (cmp_res) {
-        if (unlikely(list_sift_up_ultra_optimized(listobj, idx, is_max, arity) < 0)) {
+        /* Use specialized sift_up based on arity */
+        int rc;
+        switch (arity) {
+          case 2:
+            rc = list_sift_up_binary_ultra_optimized(listobj, idx, is_max);
+            break;
+          case 4:
+            rc = list_sift_up_quaternary_ultra_optimized(listobj, idx, is_max);
+            break;
+          case 8:
+            rc = list_sift_up_octonary_ultra_optimized(listobj, idx, is_max);
+            break;
+          default:
+            rc = list_sift_up_ultra_optimized(listobj, idx, is_max, arity);
+            break;
+        }
+        if (unlikely(rc < 0)) {
           Py_DECREF(removed);
           return -1;
         }
@@ -6431,7 +6447,23 @@ list_remove_at_index_optimized(PyListObject *listobj, Py_ssize_t idx, int is_max
         return 0;
       }
     }
-    if (unlikely(list_sift_down_ultra_optimized(listobj, idx, new_size, is_max, arity) < 0)) {
+    /* Use specialized sift_down based on arity */
+    int rc;
+    switch (arity) {
+      case 2:
+        rc = list_sift_down_binary_ultra_optimized(listobj, idx, new_size, is_max);
+        break;
+      case 4:
+        rc = list_sift_down_quaternary_ultra_optimized(listobj, idx, new_size, is_max);
+        break;
+      case 8:
+        rc = list_sift_down_octonary_ultra_optimized(listobj, idx, new_size, is_max);
+        break;
+      default:
+        rc = list_sift_down_ultra_optimized(listobj, idx, new_size, is_max, arity);
+        break;
+    }
+    if (unlikely(rc < 0)) {
       Py_DECREF(removed);
       return -1;
     }
@@ -6809,8 +6841,9 @@ py_push(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnam
           Py_RETURN_NONE;
         }
         binary_generic:
+        /* Use specialized binary sift_up with bit-shift optimization */
         for (Py_ssize_t idx = n; idx < total_size; idx++) {
-          if (unlikely(list_sift_up_ultra_optimized(listobj, idx, is_max, 2) < 0)) return NULL;
+          if (unlikely(list_sift_up_binary_ultra_optimized(listobj, idx, is_max) < 0)) return NULL;
         }
         Py_RETURN_NONE;
       }
@@ -6883,39 +6916,23 @@ py_push(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnam
           Py_RETURN_NONE;
         }
         quaternary_generic:
+        /* Use specialized quaternary sift_up with bit-shift optimization */
         for (Py_ssize_t idx = n; idx < total_size; idx++) {
-          /* REFRESH POINTER */
-          arr = listobj->ob_item;
-          Py_ssize_t pos = idx;
-          PyObject *item = arr[pos];
-          Py_INCREF(item);
-          while (pos > 0) {
-            Py_ssize_t parent = (pos - 1) >> 2;
-            /* REFRESH POINTER */
-            arr = listobj->ob_item;
-            int cmp_res = optimized_compare(item, arr[parent], is_max ? Py_GT : Py_LT);
-            /* SAFETY CHECK */
-            if (unlikely(PyList_GET_SIZE(heap) != total_size)) {
-              PyErr_Format(PyExc_ValueError, "list modified during push (expected size %zd, got %zd)", total_size, PyList_GET_SIZE(heap));
-              Py_DECREF(item);
-              return NULL;
-            }
-            if (unlikely(cmp_res < 0)) { Py_DECREF(item); return NULL; }
-            /* REFRESH POINTER */
-            arr = listobj->ob_item;
-            if (!cmp_res) break;
-            arr[pos] = arr[parent];
-            pos = parent;
-          }
-          /* REFRESH POINTER */
-          arr = listobj->ob_item;
-          arr[pos] = item;
-          Py_DECREF(item);
+          if (unlikely(list_sift_up_quaternary_ultra_optimized(listobj, idx, is_max) < 0)) return NULL;
         }
         Py_RETURN_NONE;
       }
       
-      /* Priority 6 & 7: General n-ary (arity≥5) */
+      /* Priority 6: Octonary heap (arity=8) */
+      if (arity == 8) {
+        /* Use specialized octonary sift_up with bit-shift optimization */
+        for (Py_ssize_t idx = n; idx < total_size; idx++) {
+          if (unlikely(list_sift_up_octonary_ultra_optimized(listobj, idx, is_max) < 0)) return NULL;
+        }
+        Py_RETURN_NONE;
+      }
+      
+      /* Priority 7: General n-ary (arity≥5, arity!=8) */
       /* Homogeneous fast path for n-ary heap */
       if (homogeneous == 2) {
         for (Py_ssize_t idx = n; idx < total_size; idx++) {
@@ -7658,9 +7675,27 @@ py_pop(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *kwname
             Py_DECREF(result);
             return NULL;
           }
-        } else if (unlikely(list_sift_down_ultra_optimized(listobj, 0, new_size, is_max, arity) < 0)) {
-          Py_DECREF(result);
-          return NULL;
+        } else {
+          /* Use specialized sift_down based on arity */
+          int rc;
+          switch (arity) {
+            case 2:
+              rc = list_sift_down_binary_ultra_optimized(listobj, 0, new_size, is_max);
+              break;
+            case 4:
+              rc = list_sift_down_quaternary_ultra_optimized(listobj, 0, new_size, is_max);
+              break;
+            case 8:
+              rc = list_sift_down_octonary_ultra_optimized(listobj, 0, new_size, is_max);
+              break;
+            default:
+              rc = list_sift_down_ultra_optimized(listobj, 0, new_size, is_max, arity);
+              break;
+          }
+          if (unlikely(rc < 0)) {
+            Py_DECREF(result);
+            return NULL;
+          }
         }
         return result;
       } else {
@@ -7810,7 +7845,23 @@ py_pop(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *kwname
                 break;
             }
           } else {
-            if (unlikely(list_sift_down_ultra_optimized(listobj, 0, new_size, is_max, arity) < 0)) {
+            /* Use specialized sift_down based on arity */
+            int rc;
+            switch (arity) {
+              case 2:
+                rc = list_sift_down_binary_ultra_optimized(listobj, 0, new_size, is_max);
+                break;
+              case 4:
+                rc = list_sift_down_quaternary_ultra_optimized(listobj, 0, new_size, is_max);
+                break;
+              case 8:
+                rc = list_sift_down_octonary_ultra_optimized(listobj, 0, new_size, is_max);
+                break;
+              default:
+                rc = list_sift_down_ultra_optimized(listobj, 0, new_size, is_max, arity);
+                break;
+            }
+            if (unlikely(rc < 0)) {
               Py_DECREF(results);
               return NULL;
             }
@@ -8479,11 +8530,29 @@ list_replace_at_index_optimized(PyListObject *listobj, Py_ssize_t idx, PyObject 
       if (unlikely(cmp_res < 0)) return -1;
       if (cmp_res) {
         /* New value violates parent relationship - sift up */
-        return list_sift_up_ultra_optimized(listobj, idx, is_max, arity);
+        switch (arity) {
+          case 2:
+            return list_sift_up_binary_ultra_optimized(listobj, idx, is_max);
+          case 4:
+            return list_sift_up_quaternary_ultra_optimized(listobj, idx, is_max);
+          case 8:
+            return list_sift_up_octonary_ultra_optimized(listobj, idx, is_max);
+          default:
+            return list_sift_up_ultra_optimized(listobj, idx, is_max, arity);
+        }
       }
     }
     /* Sift down to restore heap property */
-    return list_sift_down_ultra_optimized(listobj, idx, n, is_max, arity);
+    switch (arity) {
+      case 2:
+        return list_sift_down_binary_ultra_optimized(listobj, idx, n, is_max);
+      case 4:
+        return list_sift_down_quaternary_ultra_optimized(listobj, idx, n, is_max);
+      case 8:
+        return list_sift_down_octonary_ultra_optimized(listobj, idx, n, is_max);
+      default:
+        return list_sift_down_ultra_optimized(listobj, idx, n, is_max, arity);
+    }
   } else {
     if (idx > 0) {
       Py_ssize_t parent = (idx - 1) / arity;
