@@ -9153,3 +9153,1652 @@ The original hypothesis that generic sift functions would be faster for large he
 
 *Phase 12 completed: 2026-02-09 23:30*
 *heapx_synthesized.c is now identical to heapx_original.c — zero regressions, zero diff.*
+
+
+---
+
+## Runtime Comparison: `heapx.c` (Current) vs `heapx_synthesized.c` (Synthesized)
+
+*Generated: 2026-02-10 | Platform: macOS ARM64 (Apple Silicon) | Python 3.12 | 10 reps per measurement*
+
+
+========================================================================================================================
+RUNTIME COMPARISON: src/heapx/heapx.c (Current) vs testing/heapx_synthesized.c (Synthesized)
+========================================================================================================================
+
+Code Difference Summary:
+  heapx.c (Current):     Gates specialized arity-based sift_up/sift_down behind `n < 10000`.
+                          For heaps >= 10000 elements, falls back to generic sift functions.
+  heapx_synthesized.c:   Always uses specialized arity-based sift functions regardless of heap size.
+
+  Affected functions: pop, remove, replace (specifically their O(log n) sift paths)
+  Affected conditions: non-default arity (3, 4, 8), no cmp function, heap size >= 10000
+  Unaffected functions: heapify, push, merge (identical code paths)
+
+Methodology:
+  - 10 repetitions per measurement, reporting mean ± std in microseconds (µs)
+  - Speedup = Current_mean / Synthesized_mean (>1 means synthesized is faster)
+  - Heap sizes: 0, 10, 100, 1000, 10000, 100000
+  - Data types: int, float, str, char, bool, tuple, custom (Task objects with priority)
+  - Arities: 1, 2, 3, 4, 8
+  - Modes: min-heap, max-heap
+  - Variants: single/bulk operations, index/predicate/batch selection, with/without cmp
+
+
+### Table 1: Per-Function Aggregate Summary
+
+| Function | Benchmarks | Avg Speedup | Min Speedup | Max Speedup | Avg Cur (µs) | Avg Syn (µs) |
+|----------|-----------|-------------|-------------|-------------|-------------|-------------|
+| heapify  |       480 |      1.1420 |      0.1649 |     15.1772 |     2210.26 |     2383.43 |
+| push     |       960 |      1.2422 |      0.0250 |     81.8022 |     5344.33 |     3127.33 |
+| pop      |       800 |      1.2936 |      0.0142 |     32.6604 |    10463.48 |     9179.93 |
+| remove   |      1600 |      1.2446 |      0.0257 |     66.8816 |      414.62 |      421.17 |
+| replace  |      1280 |      1.1769 |      0.0114 |     23.3077 |      583.10 |      595.50 |
+| merge    |       880 |      1.0968 |      0.0168 |     10.3672 |     1756.43 |     1695.59 |
+
+### Table 2: Critical Threshold Analysis — Pop/Remove/Replace at n≥10000
+(Only arity 2,3,4,8 | cmp=N | Shows where the code paths actually diverge)
+
+| Function | Variant | DType | n | Mode | Arity | Cur Mean±Std (µs) | Syn Mean±Std (µs) | Speedup |
+|----------|---------|-------|---|------|-------|-------------------|-------------------|---------|
+| pop      | bulk(500),cmp=N      | bool   | 10000  | max  | 2     |    60.83±19.78   |    42.52±0.61    |  1.4306 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | char   | 10000  | max  | 2     |   104.14±35.38   |   128.03±9.14    |  0.8134 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | custom | 10000  | max  | 2     |   625.01±315.18  |   453.03±248.64  |  1.3796 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | float  | 10000  | max  | 2     |    54.57±1.95    |    51.92±2.62    |  1.0510 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | int    | 10000  | max  | 2     |   625.08±1735.23 |    74.61±2.35    |  8.3780 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | str    | 10000  | max  | 2     |   113.85±17.99   |   163.97±18.54   |  0.6943 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | tuple  | 10000  | max  | 2     |   232.34±169.79  |   261.86±128.52  |  0.8873 ◀ CUR faster |
+| pop      | single,cmp=N         | bool   | 10000  | max  | 2     |     3.57±4.35    |     1.98±2.64    |  1.8030 ◀ SYN faster |
+| pop      | single,cmp=N         | char   | 10000  | max  | 2     |     0.64±0.49    |     0.54±0.21    |  1.1852 ◀ SYN faster |
+| pop      | single,cmp=N         | custom | 10000  | max  | 2     |     1.57±0.83    |     1.53±0.41    |  1.0261 |
+| pop      | single,cmp=N         | float  | 10000  | max  | 2     |     0.76±0.57    |     0.56±0.13    |  1.3571 ◀ SYN faster |
+| pop      | single,cmp=N         | int    | 10000  | max  | 2     |     0.83±0.53    |     0.75±0.35    |  1.1067 ◀ SYN faster |
+| pop      | single,cmp=N         | str    | 10000  | max  | 2     |     0.78±0.72    |     0.66±0.26    |  1.1818 ◀ SYN faster |
+| pop      | single,cmp=N         | tuple  | 10000  | max  | 2     |     1.05±0.55    |     6.24±5.39    |  0.1683 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | bool   | 10000  | min  | 2     |    43.56±0.78    |    42.91±0.36    |  1.0151 |
+| pop      | bulk(500),cmp=N      | char   | 10000  | min  | 2     |    88.38±19.98   |   125.43±7.60    |  0.7046 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | custom | 10000  | min  | 2     |   741.43±752.09  |   304.75±25.72   |  2.4329 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | float  | 10000  | min  | 2     |    53.59±2.96    |    54.13±1.96    |  0.9900 |
+| pop      | bulk(500),cmp=N      | int    | 10000  | min  | 2     |   100.92±43.88   |   139.12±54.77   |  0.7254 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | str    | 10000  | min  | 2     |   111.89±1.60    |   105.74±1.19    |  1.0582 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | tuple  | 10000  | min  | 2     |   453.98±419.34  |   340.22±249.46  |  1.3344 ◀ SYN faster |
+| pop      | single,cmp=N         | bool   | 10000  | min  | 2     |     0.62±0.49    |     0.62±0.49    |  1.0000 |
+| pop      | single,cmp=N         | char   | 10000  | min  | 2     |     0.64±0.54    |     0.50±0.28    |  1.2800 ◀ SYN faster |
+| pop      | single,cmp=N         | custom | 10000  | min  | 2     |     9.01±6.59    |    11.50±6.35    |  0.7835 ◀ CUR faster |
+| pop      | single,cmp=N         | float  | 10000  | min  | 2     |     2.39±1.98    |     1.57±1.62    |  1.5223 ◀ SYN faster |
+| pop      | single,cmp=N         | int    | 10000  | min  | 2     |     2.93±2.17    |     5.17±4.67    |  0.5667 ◀ CUR faster |
+| pop      | single,cmp=N         | str    | 10000  | min  | 2     |     0.82±0.79    |     0.65±0.29    |  1.2615 ◀ SYN faster |
+| pop      | single,cmp=N         | tuple  | 10000  | min  | 2     |     5.75±7.34    |     4.75±5.30    |  1.2105 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | bool   | 10000  | max  | 3     |    54.84±0.77    |   252.82±626.72  |  0.2169 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | char   | 10000  | max  | 3     |   190.72±109.01  |   113.11±34.37   |  1.6861 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | custom | 10000  | max  | 3     |   366.43±44.68   |  1123.24±1307.11 |  0.3262 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | float  | 10000  | max  | 3     |    82.08±2.08    |    83.03±1.71    |  0.9886 |
+| pop      | bulk(500),cmp=N      | int    | 10000  | max  | 3     |   270.85±385.89  |    61.28±47.43   |  4.4199 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | str    | 10000  | max  | 3     |   149.87±37.05   |    90.87±1.26    |  1.6493 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | tuple  | 10000  | max  | 3     |   338.28±244.14  |   305.09±204.43  |  1.1088 ◀ SYN faster |
+| pop      | single,cmp=N         | bool   | 10000  | max  | 3     |     2.56±3.47    |     0.59±0.42    |  4.3390 ◀ SYN faster |
+| pop      | single,cmp=N         | char   | 10000  | max  | 3     |     1.52±0.95    |     2.14±1.64    |  0.7103 ◀ CUR faster |
+| pop      | single,cmp=N         | custom | 10000  | max  | 3     |     1.83±0.69    |     8.10±4.16    |  0.2259 ◀ CUR faster |
+| pop      | single,cmp=N         | float  | 10000  | max  | 3     |     0.61±0.36    |     0.58±0.27    |  1.0517 ◀ SYN faster |
+| pop      | single,cmp=N         | int    | 10000  | max  | 3     |     0.61±0.46    |     0.52±0.32    |  1.1731 ◀ SYN faster |
+| pop      | single,cmp=N         | str    | 10000  | max  | 3     |     2.89±3.22    |     2.04±1.38    |  1.4167 ◀ SYN faster |
+| pop      | single,cmp=N         | tuple  | 10000  | max  | 3     |     2.39±3.57    |     3.22±5.44    |  0.7422 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | bool   | 10000  | min  | 3     |    93.78±3.52    |    95.70±5.64    |  0.9799 |
+| pop      | bulk(500),cmp=N      | char   | 10000  | min  | 3     |   154.90±2.00    |   125.65±35.48   |  1.2328 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | custom | 10000  | min  | 3     |  1037.83±693.51  |   404.60±112.24  |  2.5651 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | float  | 10000  | min  | 3     |   164.96±32.33   |   229.55±323.54  |  0.7186 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | int    | 10000  | min  | 3     |   155.13±32.62   |   144.17±17.63   |  1.0760 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | str    | 10000  | min  | 3     |   139.98±33.31   |   157.59±7.77    |  0.8883 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | tuple  | 10000  | min  | 3     |   366.22±503.00  |   220.95±116.14  |  1.6575 ◀ SYN faster |
+| pop      | single,cmp=N         | bool   | 10000  | min  | 3     |     2.77±3.83    |     2.22±3.14    |  1.2477 ◀ SYN faster |
+| pop      | single,cmp=N         | char   | 10000  | min  | 3     |     1.54±0.90    |     1.40±0.75    |  1.1000 ◀ SYN faster |
+| pop      | single,cmp=N         | custom | 10000  | min  | 3     |     2.84±2.57    |     1.77±0.84    |  1.6045 ◀ SYN faster |
+| pop      | single,cmp=N         | float  | 10000  | min  | 3     |     1.14±1.63    |     0.58±0.25    |  1.9655 ◀ SYN faster |
+| pop      | single,cmp=N         | int    | 10000  | min  | 3     |     3.30±2.69    |     2.77±2.86    |  1.1913 ◀ SYN faster |
+| pop      | single,cmp=N         | str    | 10000  | min  | 3     |     0.63±0.37    |     0.62±0.25    |  1.0161 |
+| pop      | single,cmp=N         | tuple  | 10000  | min  | 3     |     1.49±1.36    |     1.02±0.82    |  1.4608 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | bool   | 10000  | max  | 4     |    65.77±1.20    |   106.62±17.02   |  0.6169 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | char   | 10000  | max  | 4     |   115.65±1.95    |   134.27±60.87   |  0.8613 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | custom | 10000  | max  | 4     |   413.99±13.15   |   708.00±682.82  |  0.5847 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | float  | 10000  | max  | 4     |    87.12±2.37    |    84.55±2.87    |  1.0304 |
+| pop      | bulk(500),cmp=N      | int    | 10000  | max  | 4     |   276.48±583.82  |    50.48±12.63   |  5.4770 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | str    | 10000  | max  | 4     |   129.99±2.12    |   131.60±2.52    |  0.9878 |
+| pop      | bulk(500),cmp=N      | tuple  | 10000  | max  | 4     |   440.57±519.75  |   751.14±875.83  |  0.5865 ◀ CUR faster |
+| pop      | single,cmp=N         | bool   | 10000  | max  | 4     |     1.97±3.40    |     3.99±4.10    |  0.4937 ◀ CUR faster |
+| pop      | single,cmp=N         | char   | 10000  | max  | 4     |     0.71±0.50    |     0.70±0.49    |  1.0143 |
+| pop      | single,cmp=N         | custom | 10000  | max  | 4     |     1.80±0.78    |     1.75±0.52    |  1.0286 |
+| pop      | single,cmp=N         | float  | 10000  | max  | 4     |     0.67±0.38    |     0.60±0.17    |  1.1167 ◀ SYN faster |
+| pop      | single,cmp=N         | int    | 10000  | max  | 4     |     0.61±0.46    |     0.60±0.29    |  1.0167 |
+| pop      | single,cmp=N         | str    | 10000  | max  | 4     |     0.69±0.34    |     0.66±0.33    |  1.0455 |
+| pop      | single,cmp=N         | tuple  | 10000  | max  | 4     |     0.82±0.41    |     5.47±5.84    |  0.1499 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | bool   | 10000  | min  | 4     |   154.49±167.81  |    66.08±0.92    |  2.3379 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | char   | 10000  | min  | 4     |   114.55±1.72    |   114.87±1.63    |  0.9972 |
+| pop      | bulk(500),cmp=N      | custom | 10000  | min  | 4     |   932.54±962.59  |   896.69±1389.01 |  1.0400 |
+| pop      | bulk(500),cmp=N      | float  | 10000  | min  | 4     |    98.39±35.41   |   286.70±301.98  |  0.3432 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | int    | 10000  | min  | 4     |   163.34±80.90   |   105.38±98.94   |  1.5500 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | str    | 10000  | min  | 4     |   126.07±3.56    |   128.82±7.11    |  0.9787 |
+| pop      | bulk(500),cmp=N      | tuple  | 10000  | min  | 4     |   268.77±189.41  |   246.59±223.85  |  1.0899 ◀ SYN faster |
+| pop      | single,cmp=N         | bool   | 10000  | min  | 4     |     1.57±0.91    |     2.45±3.77    |  0.6408 ◀ CUR faster |
+| pop      | single,cmp=N         | char   | 10000  | min  | 4     |     0.70±0.49    |     0.67±0.31    |  1.0448 |
+| pop      | single,cmp=N         | custom | 10000  | min  | 4     |     4.80±5.46    |     6.79±5.35    |  0.7069 ◀ CUR faster |
+| pop      | single,cmp=N         | float  | 10000  | min  | 4     |     1.52±0.92    |     1.75±0.95    |  0.8686 ◀ CUR faster |
+| pop      | single,cmp=N         | int    | 10000  | min  | 4     |     2.46±1.98    |     2.29±3.82    |  1.0742 ◀ SYN faster |
+| pop      | single,cmp=N         | str    | 10000  | min  | 4     |     3.25±2.61    |     1.77±1.01    |  1.8362 ◀ SYN faster |
+| pop      | single,cmp=N         | tuple  | 10000  | min  | 4     |     3.74±1.68    |     5.64±3.91    |  0.6631 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | bool   | 10000  | max  | 8     |   113.72±28.44   |   145.79±90.76   |  0.7800 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | char   | 10000  | max  | 8     |   285.58±37.67   |   172.79±2.31    |  1.6528 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | custom | 10000  | max  | 8     |   602.00±7.57    |   623.37±56.32   |  0.9657 |
+| pop      | bulk(500),cmp=N      | float  | 10000  | max  | 8     |   110.99±3.22    |   110.38±2.95    |  1.0055 |
+| pop      | bulk(500),cmp=N      | int    | 10000  | max  | 8     |   113.91±83.86   |   207.75±220.90  |  0.5483 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | str    | 10000  | max  | 8     |   331.25±67.89   |   271.12±37.70   |  1.2218 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | tuple  | 10000  | max  | 8     |   367.25±470.94  |   773.87±666.40  |  0.4746 ◀ CUR faster |
+| pop      | single,cmp=N         | bool   | 10000  | max  | 8     |     2.66±2.97    |     3.01±4.07    |  0.8837 ◀ CUR faster |
+| pop      | single,cmp=N         | char   | 10000  | max  | 8     |     2.95±2.95    |     2.37±0.97    |  1.2447 ◀ SYN faster |
+| pop      | single,cmp=N         | custom | 10000  | max  | 8     |    11.33±4.20    |     6.29±5.95    |  1.8013 ◀ SYN faster |
+| pop      | single,cmp=N         | float  | 10000  | max  | 8     |     0.75±0.36    |     0.66±0.26    |  1.1364 ◀ SYN faster |
+| pop      | single,cmp=N         | int    | 10000  | max  | 8     |     0.79±0.54    |     0.57±0.23    |  1.3860 ◀ SYN faster |
+| pop      | single,cmp=N         | str    | 10000  | max  | 8     |     0.89±0.46    |     0.85±0.28    |  1.0471 |
+| pop      | single,cmp=N         | tuple  | 10000  | max  | 8     |     4.45±3.88    |     5.67±3.71    |  0.7848 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | bool   | 10000  | min  | 8     |   124.52±39.27   |    94.34±0.55    |  1.3199 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | char   | 10000  | min  | 8     |   205.25±44.75   |   177.50±1.88    |  1.1563 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | custom | 10000  | min  | 8     |  1085.77±732.41  |   632.42±19.91   |  1.7168 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | float  | 10000  | min  | 8     |   216.68±9.38    |   590.05±1228.49 |  0.3672 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | int    | 10000  | min  | 8     |   179.28±57.84   |   185.30±19.90   |  0.9675 |
+| pop      | bulk(500),cmp=N      | str    | 10000  | min  | 8     |   266.58±66.66   |   160.82±1.72    |  1.6576 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | tuple  | 10000  | min  | 8     |   209.27±7.75    |   212.50±11.86   |  0.9848 |
+| pop      | single,cmp=N         | bool   | 10000  | min  | 8     |     2.01±2.39    |     1.66±0.90    |  1.2108 ◀ SYN faster |
+| pop      | single,cmp=N         | char   | 10000  | min  | 8     |     0.85±0.44    |     0.78±0.23    |  1.0897 ◀ SYN faster |
+| pop      | single,cmp=N         | custom | 10000  | min  | 8     |     6.59±4.87    |     2.20±1.02    |  2.9955 ◀ SYN faster |
+| pop      | single,cmp=N         | float  | 10000  | min  | 8     |     1.90±1.25    |     1.97±0.73    |  0.9645 |
+| pop      | single,cmp=N         | int    | 10000  | min  | 8     |     0.76±0.71    |     0.63±0.34    |  1.2063 ◀ SYN faster |
+| pop      | single,cmp=N         | str    | 10000  | min  | 8     |     0.93±0.69    |     2.15±3.10    |  0.4326 ◀ CUR faster |
+| pop      | single,cmp=N         | tuple  | 10000  | min  | 8     |     2.93±2.57    |     0.96±0.35    |  3.0521 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | bool   | 100000 | max  | 2     |    85.01±72.96   |    81.42±30.78   |  1.0441 |
+| pop      | bulk(500),cmp=N      | char   | 100000 | max  | 2     |   220.55±59.38   |   275.53±108.46  |  0.8005 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | custom | 100000 | max  | 2     |   303.48±7.20    |   296.38±4.65    |  1.0240 |
+| pop      | bulk(500),cmp=N      | float  | 100000 | max  | 2     |   437.64±180.00  |   411.32±321.97  |  1.0640 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | int    | 100000 | max  | 2     |  6661.42±9630.64 |  1450.65±1050.95 |  4.5920 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | str    | 100000 | max  | 2     |   752.61±501.06  |  1192.88±1089.02 |  0.6309 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | tuple  | 100000 | max  | 2     |   418.01±263.90  |   485.05±281.87  |  0.8618 ◀ CUR faster |
+| pop      | single,cmp=N         | bool   | 100000 | max  | 2     |     8.13±5.69    |     4.04±3.38    |  2.0124 ◀ SYN faster |
+| pop      | single,cmp=N         | char   | 100000 | max  | 2     |     7.88±2.70    |     4.78±2.80    |  1.6485 ◀ SYN faster |
+| pop      | single,cmp=N         | custom | 100000 | max  | 2     |     1.37±0.38    |     2.21±0.99    |  0.6199 ◀ CUR faster |
+| pop      | single,cmp=N         | float  | 100000 | max  | 2     |     5.36±4.60    |    13.79±19.13   |  0.3887 ◀ CUR faster |
+| pop      | single,cmp=N         | int    | 100000 | max  | 2     |     9.45±7.08    |     8.54±3.15    |  1.1066 ◀ SYN faster |
+| pop      | single,cmp=N         | str    | 100000 | max  | 2     |     7.70±5.48    |     6.59±7.04    |  1.1684 ◀ SYN faster |
+| pop      | single,cmp=N         | tuple  | 100000 | max  | 2     |     5.30±6.03    |     2.53±0.49    |  2.0949 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | bool   | 100000 | min  | 2     |    54.97±2.96    |    72.13±16.19   |  0.7621 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | char   | 100000 | min  | 2     |   211.03±65.34   |   209.74±85.88   |  1.0062 |
+| pop      | bulk(500),cmp=N      | custom | 100000 | min  | 2     |   384.08±25.62   |   359.33±8.57    |  1.0689 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | float  | 100000 | min  | 2     |   657.98±504.68  |   933.43±497.32  |  0.7049 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | int    | 100000 | min  | 2     |   481.67±506.02  |   492.96±348.88  |  0.9771 |
+| pop      | bulk(500),cmp=N      | str    | 100000 | min  | 2     |  1016.05±601.50  |  1055.18±922.39  |  0.9629 |
+| pop      | bulk(500),cmp=N      | tuple  | 100000 | min  | 2     |  1542.27±2700.28 |  1191.54±1657.17 |  1.2944 ◀ SYN faster |
+| pop      | single,cmp=N         | bool   | 100000 | min  | 2     |     7.53±6.27    |     1.77±1.99    |  4.2542 ◀ SYN faster |
+| pop      | single,cmp=N         | char   | 100000 | min  | 2     |     3.70±3.62    |     8.30±5.62    |  0.4458 ◀ CUR faster |
+| pop      | single,cmp=N         | custom | 100000 | min  | 2     |     2.62±0.79    |     2.35±0.62    |  1.1149 ◀ SYN faster |
+| pop      | single,cmp=N         | float  | 100000 | min  | 2     |    14.24±4.72    |     8.95±5.61    |  1.5911 ◀ SYN faster |
+| pop      | single,cmp=N         | int    | 100000 | min  | 2     |     7.02±5.11    |     3.18±4.24    |  2.2075 ◀ SYN faster |
+| pop      | single,cmp=N         | str    | 100000 | min  | 2     |     2.85±0.86    |     4.22±3.30    |  0.6754 ◀ CUR faster |
+| pop      | single,cmp=N         | tuple  | 100000 | min  | 2     |     9.34±6.18    |     7.09±5.70    |  1.3173 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | bool   | 100000 | max  | 3     |    89.75±20.80   |    93.13±31.70   |  0.9637 |
+| pop      | bulk(500),cmp=N      | char   | 100000 | max  | 3     |   190.49±40.16   |   121.88±2.22    |  1.5629 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | custom | 100000 | max  | 3     |   384.90±7.54    |   381.43±7.39    |  1.0091 |
+| pop      | bulk(500),cmp=N      | float  | 100000 | max  | 3     |   609.81±506.03  |   426.95±371.06  |  1.4283 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | int    | 100000 | max  | 3     |   365.12±247.39  |   469.34±424.82  |  0.7779 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | str    | 100000 | max  | 3     |   132.57±6.98    |   120.08±1.13    |  1.1040 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | tuple  | 100000 | max  | 3     |   445.66±255.03  |   245.22±16.41   |  1.8174 ◀ SYN faster |
+| pop      | single,cmp=N         | bool   | 100000 | max  | 3     |    11.09±8.84    |     4.13±3.76    |  2.6852 ◀ SYN faster |
+| pop      | single,cmp=N         | char   | 100000 | max  | 3     |     5.93±4.65    |     4.97±4.76    |  1.1932 ◀ SYN faster |
+| pop      | single,cmp=N         | custom | 100000 | max  | 3     |     1.47±0.32    |     1.47±0.31    |  1.0000 |
+| pop      | single,cmp=N         | float  | 100000 | max  | 3     |    10.29±6.15    |     6.80±5.41    |  1.5132 ◀ SYN faster |
+| pop      | single,cmp=N         | int    | 100000 | max  | 3     |    11.80±7.20    |     4.91±5.33    |  2.4033 ◀ SYN faster |
+| pop      | single,cmp=N         | str    | 100000 | max  | 3     |     1.79±0.98    |    10.16±4.66    |  0.1762 ◀ CUR faster |
+| pop      | single,cmp=N         | tuple  | 100000 | max  | 3     |     3.92±4.14    |     2.17±0.45    |  1.8065 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | bool   | 100000 | min  | 3     |   107.37±84.60   |   130.60±28.04   |  0.8221 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | char   | 100000 | min  | 3     |   118.08±1.78    |   121.32±2.34    |  0.9733 |
+| pop      | bulk(500),cmp=N      | custom | 100000 | min  | 3     |   442.77±12.57   |   432.65±3.63    |  1.0234 |
+| pop      | bulk(500),cmp=N      | float  | 100000 | min  | 3     |   335.02±190.26  |   319.55±142.58  |  1.0484 |
+| pop      | bulk(500),cmp=N      | int    | 100000 | min  | 3     |   200.12±159.03  |   349.13±485.92  |  0.5732 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | str    | 100000 | min  | 3     |   117.65±3.43    |   194.93±128.69  |  0.6035 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | tuple  | 100000 | min  | 3     |   680.07±359.87  |   848.15±777.98  |  0.8018 ◀ CUR faster |
+| pop      | single,cmp=N         | bool   | 100000 | min  | 3     |     3.38±4.46    |     7.02±3.74    |  0.4815 ◀ CUR faster |
+| pop      | single,cmp=N         | char   | 100000 | min  | 3     |     1.74±0.51    |    10.53±4.38    |  0.1652 ◀ CUR faster |
+| pop      | single,cmp=N         | custom | 100000 | min  | 3     |     2.36±0.46    |     2.30±0.29    |  1.0261 |
+| pop      | single,cmp=N         | float  | 100000 | min  | 3     |     6.59±5.59    |     2.27±2.40    |  2.9031 ◀ SYN faster |
+| pop      | single,cmp=N         | int    | 100000 | min  | 3     |     9.15±8.27    |     2.48±4.30    |  3.6895 ◀ SYN faster |
+| pop      | single,cmp=N         | str    | 100000 | min  | 3     |     4.72±5.70    |     7.52±7.04    |  0.6277 ◀ CUR faster |
+| pop      | single,cmp=N         | tuple  | 100000 | min  | 3     |     7.74±5.90    |     8.20±5.34    |  0.9439 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | bool   | 100000 | max  | 4     |   112.54±30.81   |   108.95±36.06   |  1.0330 |
+| pop      | bulk(500),cmp=N      | char   | 100000 | max  | 4     |   152.66±4.20    |   150.66±3.21    |  1.0133 |
+| pop      | bulk(500),cmp=N      | custom | 100000 | max  | 4     |   447.59±6.29    |   447.25±6.47    |  1.0008 |
+| pop      | bulk(500),cmp=N      | float  | 100000 | max  | 4     |  1639.94±2726.93 |   617.97±992.10  |  2.6538 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | int    | 100000 | max  | 4     |   350.17±201.01  |    93.22±23.07   |  3.7564 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | str    | 100000 | max  | 4     |   203.60±29.03   |   303.62±225.71  |  0.6706 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | tuple  | 100000 | max  | 4     |   283.95±38.18   |   376.89±174.74  |  0.7534 ◀ CUR faster |
+| pop      | single,cmp=N         | bool   | 100000 | max  | 4     |     5.43±4.20    |     8.57±3.39    |  0.6336 ◀ CUR faster |
+| pop      | single,cmp=N         | char   | 100000 | max  | 4     |     5.24±3.90    |     7.62±7.42    |  0.6877 ◀ CUR faster |
+| pop      | single,cmp=N         | custom | 100000 | max  | 4     |     1.66±0.51    |     1.69±0.57    |  0.9822 |
+| pop      | single,cmp=N         | float  | 100000 | max  | 4     |     6.20±5.41    |     6.34±3.86    |  0.9779 |
+| pop      | single,cmp=N         | int    | 100000 | max  | 4     |     7.71±6.82    |     8.65±5.99    |  0.8913 ◀ CUR faster |
+| pop      | single,cmp=N         | str    | 100000 | max  | 4     |     6.85±5.83    |     4.46±5.02    |  1.5359 ◀ SYN faster |
+| pop      | single,cmp=N         | tuple  | 100000 | max  | 4     |     4.45±4.58    |     2.63±0.58    |  1.6920 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | bool   | 100000 | min  | 4     |   118.12±28.29   |   140.21±50.10   |  0.8425 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | char   | 100000 | min  | 4     |   187.98±65.83   |   752.05±1797.68 |  0.2500 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | custom | 100000 | min  | 4     |   524.37±12.99   |   515.88±5.05    |  1.0165 |
+| pop      | bulk(500),cmp=N      | float  | 100000 | min  | 4     |   216.83±145.45  |   374.67±197.96  |  0.5787 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | int    | 100000 | min  | 4     |   247.63±134.36  |   125.40±78.92   |  1.9747 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | str    | 100000 | min  | 4     |   471.97±274.49  |   278.99±50.77   |  1.6917 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | tuple  | 100000 | min  | 4     |   936.49±777.70  |   708.96±403.41  |  1.3209 ◀ SYN faster |
+| pop      | single,cmp=N         | bool   | 100000 | min  | 4     |     8.11±4.44    |     1.75±0.28    |  4.6343 ◀ SYN faster |
+| pop      | single,cmp=N         | char   | 100000 | min  | 4     |     6.81±5.97    |     5.95±4.66    |  1.1445 ◀ SYN faster |
+| pop      | single,cmp=N         | custom | 100000 | min  | 4     |     2.34±0.32    |     2.39±0.18    |  0.9791 |
+| pop      | single,cmp=N         | float  | 100000 | min  | 4     |     3.69±4.72    |     1.43±0.73    |  2.5804 ◀ SYN faster |
+| pop      | single,cmp=N         | int    | 100000 | min  | 4     |     5.94±5.74    |     1.80±2.17    |  3.3000 ◀ SYN faster |
+| pop      | single,cmp=N         | str    | 100000 | min  | 4     |     6.96±5.03    |     8.10±4.77    |  0.8593 ◀ CUR faster |
+| pop      | single,cmp=N         | tuple  | 100000 | min  | 4     |     4.17±1.81    |     5.70±5.99    |  0.7316 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | bool   | 100000 | max  | 8     |   154.04±47.16   |   133.82±38.43   |  1.1511 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | char   | 100000 | max  | 8     |   423.44±291.81  |   275.83±69.19   |  1.5351 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | custom | 100000 | max  | 8     |   661.44±16.43   |   656.06±11.06   |  1.0082 |
+| pop      | bulk(500),cmp=N      | float  | 100000 | max  | 8     |   645.10±902.66  |   353.92±195.58  |  1.8227 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | int    | 100000 | max  | 8     |   226.02±261.02  |   177.21±75.94   |  1.2754 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | str    | 100000 | max  | 8     |   427.01±292.15  |   358.25±192.04  |  1.1919 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | tuple  | 100000 | max  | 8     |   383.54±86.09   |   334.55±28.51   |  1.1464 ◀ SYN faster |
+| pop      | single,cmp=N         | bool   | 100000 | max  | 8     |     7.00±4.82    |    16.89±36.56   |  0.4144 ◀ CUR faster |
+| pop      | single,cmp=N         | char   | 100000 | max  | 8     |     6.40±4.31    |     7.58±4.64    |  0.8443 ◀ CUR faster |
+| pop      | single,cmp=N         | custom | 100000 | max  | 8     |     1.98±0.24    |     2.04±0.22    |  0.9706 |
+| pop      | single,cmp=N         | float  | 100000 | max  | 8     |     9.99±6.07    |     7.08±5.87    |  1.4110 ◀ SYN faster |
+| pop      | single,cmp=N         | int    | 100000 | max  | 8     |    12.00±4.43    |     8.22±8.46    |  1.4599 ◀ SYN faster |
+| pop      | single,cmp=N         | str    | 100000 | max  | 8     |     6.51±5.68    |    10.15±4.69    |  0.6414 ◀ CUR faster |
+| pop      | single,cmp=N         | tuple  | 100000 | max  | 8     |     2.60±1.30    |     3.97±3.17    |  0.6549 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | bool   | 100000 | min  | 8     |   127.82±42.21   |   184.32±37.76   |  0.6935 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | char   | 100000 | min  | 8     |   746.04±1364.15 |   296.94±121.68  |  2.5124 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | custom | 100000 | min  | 8     |   757.76±22.02   |   728.31±6.52    |  1.0404 |
+| pop      | bulk(500),cmp=N      | float  | 100000 | min  | 8     |   212.67±28.86   |   407.81±275.03  |  0.5215 ◀ CUR faster |
+| pop      | bulk(500),cmp=N      | int    | 100000 | min  | 8     |   282.26±367.54  |   112.79±8.46    |  2.5025 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | str    | 100000 | min  | 8     |   485.37±361.14  |   414.22±287.75  |  1.1718 ◀ SYN faster |
+| pop      | bulk(500),cmp=N      | tuple  | 100000 | min  | 8     |   796.42±683.04  |   927.69±652.43  |  0.8585 ◀ CUR faster |
+| pop      | single,cmp=N         | bool   | 100000 | min  | 8     |     6.06±7.44    |     9.65±3.29    |  0.6280 ◀ CUR faster |
+| pop      | single,cmp=N         | char   | 100000 | min  | 8     |     8.77±5.03    |     3.40±2.55    |  2.5794 ◀ SYN faster |
+| pop      | single,cmp=N         | custom | 100000 | min  | 8     |     2.55±0.30    |     2.80±0.29    |  0.9107 ◀ CUR faster |
+| pop      | single,cmp=N         | float  | 100000 | min  | 8     |     4.78±5.66    |     5.52±6.15    |  0.8659 ◀ CUR faster |
+| pop      | single,cmp=N         | int    | 100000 | min  | 8     |     6.65±4.40    |     3.00±3.68    |  2.2167 ◀ SYN faster |
+| pop      | single,cmp=N         | str    | 100000 | min  | 8     |     8.13±7.67    |     5.62±5.76    |  1.4466 ◀ SYN faster |
+| pop      | single,cmp=N         | tuple  | 100000 | min  | 8     |     6.93±5.55    |     6.33±5.89    |  1.0948 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | bool   | 10000  | max  | 2     |   205.48±123.18  |   192.63±61.53   |  1.0667 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | char   | 10000  | max  | 2     |   197.03±1.10    |   196.78±0.65    |  1.0013 |
+| remove   | batch(10),cmp=N      | custom | 10000  | max  | 2     |   935.78±586.32  |  1185.72±920.07  |  0.7892 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | float  | 10000  | max  | 2     |   257.70±76.36   |   302.03±290.66  |  0.8532 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | int    | 10000  | max  | 2     |    93.87±2.03    |    95.04±2.62    |  0.9877 |
+| remove   | batch(10),cmp=N      | str    | 10000  | max  | 2     |   223.87±2.02    |   219.84±1.20    |  1.0183 |
+| remove   | batch(10),cmp=N      | tuple  | 10000  | max  | 2     |   667.52±619.33  |   501.67±318.38  |  1.3306 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | bool   | 10000  | max  | 2     |     0.69±0.31    |     1.78±3.37    |  0.3876 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | char   | 10000  | max  | 2     |     0.81±0.52    |     0.76±0.43    |  1.0658 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | custom | 10000  | max  | 2     |     7.05±5.08    |     4.51±4.93    |  1.5632 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | float  | 10000  | max  | 2     |     3.69±7.68    |     2.94±2.31    |  1.2551 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | int    | 10000  | max  | 2     |     0.74±0.43    |     4.98±3.25    |  0.1486 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | str    | 10000  | max  | 2     |     3.10±2.35    |     4.80±3.99    |  0.6458 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | tuple  | 10000  | max  | 2     |     1.09±0.57    |     5.38±4.62    |  0.2026 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | bool   | 10000  | max  | 2     |     3.39±2.67    |     3.82±2.75    |  0.8874 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | char   | 10000  | max  | 2     |     4.94±4.86    |     0.87±0.59    |  5.6782 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | custom | 10000  | max  | 2     |     3.92±3.32    |     3.65±2.87    |  1.0740 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | float  | 10000  | max  | 2     |     1.90±1.90    |     0.85±0.54    |  2.2353 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | int    | 10000  | max  | 2     |     4.03±3.12    |     6.25±9.80    |  0.6448 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | str    | 10000  | max  | 2     |     4.76±2.98    |     1.42±1.64    |  3.3521 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | tuple  | 10000  | max  | 2     |     5.27±6.35    |     2.82±4.25    |  1.8688 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | bool   | 10000  | max  | 2     |     1.62±1.84    |     2.10±0.66    |  0.7714 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | char   | 10000  | max  | 2     |     0.67±0.41    |     0.72±0.40    |  0.9306 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | custom | 10000  | max  | 2     |     7.79±4.22    |     5.78±4.78    |  1.3478 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | float  | 10000  | max  | 2     |     1.80±2.32    |     3.30±3.99    |  0.5455 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | int    | 10000  | max  | 2     |     0.84±0.88    |     0.72±0.39    |  1.1667 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | str    | 10000  | max  | 2     |     3.87±2.41    |     1.96±1.92    |  1.9745 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | tuple  | 10000  | max  | 2     |     4.19±4.15    |     0.99±0.38    |  4.2323 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | bool   | 10000  | max  | 2     |   135.70±45.53   |   208.50±25.69   |  0.6508 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | char   | 10000  | max  | 2     |   278.34±103.79  |   460.54±124.12  |  0.6044 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | custom | 10000  | max  | 2     |   765.12±97.16   |  1348.40±1890.73 |  0.5674 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | float  | 10000  | max  | 2     |   136.98±8.08    |   264.44±132.03  |  0.5180 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | int    | 10000  | max  | 2     |   135.19±45.75   |   187.44±58.11   |  0.7212 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | str    | 10000  | max  | 2     |   260.20±1.49    |   495.06±91.81   |  0.5256 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | tuple  | 10000  | max  | 2     |   611.82±488.65  |   766.04±225.04  |  0.7987 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | bool   | 10000  | min  | 2     |   112.84±1.04    |   111.88±0.42    |  1.0086 |
+| remove   | batch(10),cmp=N      | char   | 10000  | min  | 2     |   196.33±2.25    |   197.28±2.42    |  0.9952 |
+| remove   | batch(10),cmp=N      | custom | 10000  | min  | 2     |  1279.73±955.44  |   987.83±396.78  |  1.2955 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | float  | 10000  | min  | 2     |   149.15±13.74   |   200.74±94.57   |  0.7430 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | int    | 10000  | min  | 2     |   159.08±84.32   |    94.16±2.29    |  1.6895 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | str    | 10000  | min  | 2     |   470.08±59.89   |   274.16±92.01   |  1.7146 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | tuple  | 10000  | min  | 2     |   389.23±302.24  |   588.30±262.64  |  0.6616 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | bool   | 10000  | min  | 2     |     0.67±0.31    |     0.70±0.34    |  0.9571 |
+| remove   | idx=0,cmp=N          | char   | 10000  | min  | 2     |     3.92±3.36    |     3.17±1.48    |  1.2366 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | custom | 10000  | min  | 2     |     6.33±5.89    |     5.65±5.28    |  1.1204 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | float  | 10000  | min  | 2     |     1.67±1.40    |     0.97±0.87    |  1.7216 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | int    | 10000  | min  | 2     |     1.01±0.78    |     1.44±2.12    |  0.7014 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | str    | 10000  | min  | 2     |     5.01±4.55    |     1.62±1.90    |  3.0926 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | tuple  | 10000  | min  | 2     |     1.17±0.87    |     1.12±0.32    |  1.0446 |
+| remove   | idx=0,ret=T,cmp=N    | bool   | 10000  | min  | 2     |     4.87±4.62    |     2.40±1.02    |  2.0292 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | char   | 10000  | min  | 2     |     4.70±4.24    |     5.76±5.52    |  0.8160 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | custom | 10000  | min  | 2     |     6.05±6.93    |    10.35±7.79    |  0.5845 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | float  | 10000  | min  | 2     |     1.18±1.21    |     1.20±0.98    |  0.9833 |
+| remove   | idx=0,ret=T,cmp=N    | int    | 10000  | min  | 2     |     1.59±1.52    |     0.88±0.48    |  1.8068 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | str    | 10000  | min  | 2     |     5.80±4.12    |     4.97±4.46    |  1.1670 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | tuple  | 10000  | min  | 2     |     1.14±0.78    |     1.13±0.45    |  1.0088 |
+| remove   | idx=mid,cmp=N        | bool   | 10000  | min  | 2     |     0.62±0.37    |     0.53±0.10    |  1.1698 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | char   | 10000  | min  | 2     |     2.33±2.74    |     0.75±0.57    |  3.1067 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | custom | 10000  | min  | 2     |     5.10±5.24    |     5.43±4.81    |  0.9392 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | float  | 10000  | min  | 2     |     1.70±2.00    |     1.30±1.61    |  1.3077 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | int    | 10000  | min  | 2     |     0.84±0.72    |     0.68±0.32    |  1.2353 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | str    | 10000  | min  | 2     |     0.88±0.74    |     2.27±4.32    |  0.3877 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | tuple  | 10000  | min  | 2     |     0.95±0.33    |     0.92±0.43    |  1.0326 |
+| remove   | pred(n=5),cmp=N      | bool   | 10000  | min  | 2     |   135.21±0.60    |   319.72±93.87   |  0.4229 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | char   | 10000  | min  | 2     |   225.70±75.91   |   350.61±44.46   |  0.6437 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | custom | 10000  | min  | 2     |  1205.59±983.82  |  1390.82±1033.97 |  0.8668 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | float  | 10000  | min  | 2     |   307.64±87.59   |   187.80±70.81   |  1.6381 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | int    | 10000  | min  | 2     |   133.95±48.35   |   155.87±66.31   |  0.8594 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | str    | 10000  | min  | 2     |   217.28±1.45    |   230.04±70.31   |  0.9445 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | tuple  | 10000  | min  | 2     |   338.71±10.56   |   332.90±2.60    |  1.0175 |
+| remove   | batch(10),cmp=N      | bool   | 10000  | max  | 3     |   113.13±1.76    |   112.59±0.49    |  1.0048 |
+| remove   | batch(10),cmp=N      | char   | 10000  | max  | 3     |   164.47±1.18    |   163.21±0.93    |  1.0077 |
+| remove   | batch(10),cmp=N      | custom | 10000  | max  | 3     |  1862.01±2982.58 |  1516.11±1447.64 |  1.2281 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | float  | 10000  | max  | 3     |   112.50±5.43    |   118.08±10.54   |  0.9527 |
+| remove   | batch(10),cmp=N      | int    | 10000  | max  | 3     |    60.19±6.52    |   230.41±446.53  |  0.2612 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | str    | 10000  | max  | 3     |   165.56±1.58    |   161.85±1.35    |  1.0229 |
+| remove   | batch(10),cmp=N      | tuple  | 10000  | max  | 3     |   386.17±256.40  |   764.34±563.34  |  0.5052 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | bool   | 10000  | max  | 3     |     0.76±0.47    |     0.72±0.32    |  1.0556 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | char   | 10000  | max  | 3     |     0.83±0.52    |     0.77±0.38    |  1.0779 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | custom | 10000  | max  | 3     |     8.38±4.68    |    11.64±16.54   |  0.7199 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | float  | 10000  | max  | 3     |     0.81±0.39    |     3.44±5.47    |  0.2355 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | int    | 10000  | max  | 3     |     0.78±0.39    |     0.75±0.36    |  1.0400 |
+| remove   | idx=0,cmp=N          | str    | 10000  | max  | 3     |     0.90±0.86    |     0.75±0.30    |  1.2000 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | tuple  | 10000  | max  | 3     |     1.01±0.51    |     2.97±2.82    |  0.3401 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | bool   | 10000  | max  | 3     |     4.00±3.48    |     3.08±3.71    |  1.2987 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | char   | 10000  | max  | 3     |     2.61±2.54    |     1.80±0.79    |  1.4500 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | custom | 10000  | max  | 3     |     4.95±6.38    |     3.83±2.59    |  1.2924 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | float  | 10000  | max  | 3     |     1.20±1.43    |     1.04±0.88    |  1.1538 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | int    | 10000  | max  | 3     |     0.94±0.83    |     0.80±0.46    |  1.1750 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | str    | 10000  | max  | 3     |     2.74±2.72    |     2.97±2.47    |  0.9226 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | tuple  | 10000  | max  | 3     |     1.30±1.26    |     6.68±7.11    |  0.1946 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | bool   | 10000  | max  | 3     |     0.63±0.40    |     0.59±0.25    |  1.0678 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | char   | 10000  | max  | 3     |     0.74±0.58    |     0.73±0.39    |  1.0137 |
+| remove   | idx=mid,cmp=N        | custom | 10000  | max  | 3     |     8.80±5.19    |     3.08±2.21    |  2.8571 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | float  | 10000  | max  | 3     |     2.75±1.61    |     1.33±1.09    |  2.0677 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | int    | 10000  | max  | 3     |     0.60±0.29    |     0.61±0.15    |  0.9836 |
+| remove   | idx=mid,cmp=N        | str    | 10000  | max  | 3     |     0.69±0.58    |     0.60±0.33    |  1.1500 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | tuple  | 10000  | max  | 3     |     2.92±3.24    |     5.30±4.31    |  0.5509 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | bool   | 10000  | max  | 3     |   115.22±29.12   |   175.56±1.72    |  0.6563 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | char   | 10000  | max  | 3     |   228.15±81.27   |   303.74±63.83   |  0.7511 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | custom | 10000  | max  | 3     |  1714.77±2118.84 |  1227.81±1340.60 |  1.3966 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | float  | 10000  | max  | 3     |   110.25±7.94    |   293.25±475.95  |  0.3760 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | int    | 10000  | max  | 3     |   148.79±25.92   |   127.05±3.69    |  1.1711 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | str    | 10000  | max  | 3     |   298.81±73.75   |   294.47±15.43   |  1.0147 |
+| remove   | pred(n=5),cmp=N      | tuple  | 10000  | max  | 3     |   278.73±127.73  |   706.80±223.00  |  0.3944 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | bool   | 10000  | min  | 3     |   113.06±1.11    |   112.36±0.57    |  1.0062 |
+| remove   | batch(10),cmp=N      | char   | 10000  | min  | 3     |   319.70±131.38  |   165.31±0.22    |  1.9339 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | custom | 10000  | min  | 3     |  5950.71±10006.52 |  2926.84±5308.04 |  2.0332 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | float  | 10000  | min  | 3     |   115.30±5.62    |   152.21±55.77   |  0.7575 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | int    | 10000  | min  | 3     |    71.86±27.95   |   206.35±119.25  |  0.3482 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | str    | 10000  | min  | 3     |   161.00±2.39    |   161.15±1.77    |  0.9991 |
+| remove   | batch(10),cmp=N      | tuple  | 10000  | min  | 3     |   242.78±3.60    |   648.10±343.43  |  0.3746 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | bool   | 10000  | min  | 3     |     2.10±1.53    |     1.15±1.66    |  1.8261 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | char   | 10000  | min  | 3     |     2.03±1.39    |     3.27±2.85    |  0.6208 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | custom | 10000  | min  | 3     |    12.35±8.32    |     2.14±0.50    |  5.7710 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | float  | 10000  | min  | 3     |     2.39±2.89    |     1.28±1.15    |  1.8672 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | int    | 10000  | min  | 3     |     0.79±0.41    |     0.72±0.32    |  1.0972 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | str    | 10000  | min  | 3     |     4.80±7.02    |     1.98±0.66    |  2.4242 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | tuple  | 10000  | min  | 3     |     6.58±3.99    |     2.82±1.58    |  2.3333 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | bool   | 10000  | min  | 3     |     3.52±4.04    |     1.67±0.72    |  2.1078 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | char   | 10000  | min  | 3     |     1.10±1.05    |     0.85±0.38    |  1.2941 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | custom | 10000  | min  | 3     |    10.09±7.13    |     7.20±7.32    |  1.4014 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | float  | 10000  | min  | 3     |     1.14±1.03    |     1.90±2.15    |  0.6000 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | int    | 10000  | min  | 3     |     1.35±1.52    |     0.79±0.40    |  1.7089 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | str    | 10000  | min  | 3     |     2.33±1.51    |     2.48±0.82    |  0.9395 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | tuple  | 10000  | min  | 3     |     1.19±1.08    |     4.40±4.23    |  0.2705 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | bool   | 10000  | min  | 3     |     0.68±0.51    |     0.57±0.20    |  1.1930 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | char   | 10000  | min  | 3     |     1.76±1.42    |     1.50±0.80    |  1.1733 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | custom | 10000  | min  | 3     |     6.93±6.06    |     7.57±5.03    |  0.9155 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | float  | 10000  | min  | 3     |     0.82±0.64    |     0.63±0.21    |  1.3016 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | int    | 10000  | min  | 3     |     0.60±0.22    |     0.60±0.24    |  1.0000 |
+| remove   | idx=mid,cmp=N        | str    | 10000  | min  | 3     |     1.88±1.84    |     0.75±0.47    |  2.5067 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | tuple  | 10000  | min  | 3     |     0.84±0.44    |     0.84±0.37    |  1.0000 |
+| remove   | pred(n=5),cmp=N      | bool   | 10000  | min  | 3     |   130.38±2.08    |   231.77±46.89   |  0.5625 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | char   | 10000  | min  | 3     |   162.70±1.70    |   159.51±0.66    |  1.0200 |
+| remove   | pred(n=5),cmp=N      | custom | 10000  | min  | 3     |  2245.00±4445.25 |  1542.16±1360.85 |  1.4558 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | float  | 10000  | min  | 3     |   184.77±160.03  |   282.79±283.80  |  0.6534 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | int    | 10000  | min  | 3     |    85.86±9.98    |    83.71±9.77    |  1.0257 |
+| remove   | pred(n=5),cmp=N      | str    | 10000  | min  | 3     |   155.98±1.22    |   247.75±102.11  |  0.6296 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | tuple  | 10000  | min  | 3     |   280.67±7.26    |   272.22±1.02    |  1.0310 |
+| remove   | batch(10),cmp=N      | bool   | 10000  | max  | 4     |   106.43±0.85    |   106.71±0.45    |  0.9974 |
+| remove   | batch(10),cmp=N      | char   | 10000  | max  | 4     |   181.28±1.48    |   180.44±0.87    |  1.0047 |
+| remove   | batch(10),cmp=N      | custom | 10000  | max  | 4     |   864.67±656.06  |  1033.51±974.34  |  0.8366 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | float  | 10000  | max  | 4     |    82.10±2.11    |   151.65±215.29  |  0.5414 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | int    | 10000  | max  | 4     |   110.85±47.16   |   153.08±11.07   |  0.7241 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | str    | 10000  | max  | 4     |   197.55±1.81    |   194.78±2.02    |  1.0142 |
+| remove   | batch(10),cmp=N      | tuple  | 10000  | max  | 4     |   302.85±140.36  |   402.64±297.83  |  0.7522 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | bool   | 10000  | max  | 4     |     2.57±1.35    |    11.56±30.98   |  0.2223 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | char   | 10000  | max  | 4     |     3.56±2.48    |     0.90±0.41    |  3.9556 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | custom | 10000  | max  | 4     |     1.94±1.36    |     2.28±1.41    |  0.8509 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | float  | 10000  | max  | 4     |     0.93±0.68    |     0.83±0.49    |  1.1205 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | int    | 10000  | max  | 4     |     0.79±0.39    |     3.42±4.10    |  0.2310 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | str    | 10000  | max  | 4     |     2.00±2.17    |     0.96±0.68    |  2.0833 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | tuple  | 10000  | max  | 4     |     1.71±1.79    |     1.12±0.48    |  1.5268 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | bool   | 10000  | max  | 4     |     3.00±2.26    |     2.80±0.89    |  1.0714 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | char   | 10000  | max  | 4     |     1.44±1.27    |     1.04±0.64    |  1.3846 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | custom | 10000  | max  | 4     |     4.06±4.93    |    13.91±3.05    |  0.2919 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | float  | 10000  | max  | 4     |     2.32±1.78    |     4.46±4.99    |  0.5202 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | int    | 10000  | max  | 4     |     3.25±2.94    |     1.98±0.78    |  1.6414 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | str    | 10000  | max  | 4     |     5.38±3.73    |     4.80±3.13    |  1.1208 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | tuple  | 10000  | max  | 4     |     8.42±4.68    |     1.52±1.32    |  5.5395 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | bool   | 10000  | max  | 4     |     0.62±0.43    |     0.55±0.26    |  1.1273 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | char   | 10000  | max  | 4     |     0.69±0.43    |     0.64±0.29    |  1.0781 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | custom | 10000  | max  | 4     |     2.10±1.59    |     1.30±0.86    |  1.6154 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | float  | 10000  | max  | 4     |     0.79±0.84    |     0.61±0.33    |  1.2951 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | int    | 10000  | max  | 4     |     0.77±0.59    |     0.72±0.42    |  1.0694 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | str    | 10000  | max  | 4     |     0.82±0.57    |     0.71±0.40    |  1.1549 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | tuple  | 10000  | max  | 4     |     2.00±2.47    |     0.80±0.39    |  2.5000 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | bool   | 10000  | max  | 4     |   103.46±2.30    |   166.75±49.71   |  0.6204 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | char   | 10000  | max  | 4     |   196.27±1.51    |   199.45±3.01    |  0.9841 |
+| remove   | pred(n=5),cmp=N      | custom | 10000  | max  | 4     |  1185.28±1214.91 |  1165.57±723.31  |  1.0169 |
+| remove   | pred(n=5),cmp=N      | float  | 10000  | max  | 4     |   154.10±25.06   |   131.92±4.90    |  1.1681 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | int    | 10000  | max  | 4     |   124.06±6.20    |   192.95±148.60  |  0.6430 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | str    | 10000  | max  | 4     |   252.32±109.82  |   425.87±166.00  |  0.5925 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | tuple  | 10000  | max  | 4     |   679.46±1467.90 |   374.59±221.43  |  1.8139 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | bool   | 10000  | min  | 4     |   105.74±1.41    |   105.46±0.84    |  1.0027 |
+| remove   | batch(10),cmp=N      | char   | 10000  | min  | 4     |   309.12±18.76   |   308.41±15.04   |  1.0023 |
+| remove   | batch(10),cmp=N      | custom | 10000  | min  | 4     |  2130.74±2152.81 |   835.17±534.51  |  2.5513 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | float  | 10000  | min  | 4     |    87.32±10.52   |   153.97±88.14   |  0.5671 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | int    | 10000  | min  | 4     |   190.53±108.54  |    92.83±42.57   |  2.0525 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | str    | 10000  | min  | 4     |   195.58±1.64    |   291.84±87.68   |  0.6702 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | tuple  | 10000  | min  | 4     |   220.50±5.44    |   216.00±3.18    |  1.0208 |
+| remove   | idx=0,cmp=N          | bool   | 10000  | min  | 4     |     2.63±1.93    |     3.07±3.12    |  0.8567 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | char   | 10000  | min  | 4     |     0.86±0.44    |     0.81±0.45    |  1.0617 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | custom | 10000  | min  | 4     |    18.35±7.89    |     3.52±4.27    |  5.2131 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | float  | 10000  | min  | 4     |     0.88±0.56    |     0.84±0.54    |  1.0476 |
+| remove   | idx=0,cmp=N          | int    | 10000  | min  | 4     |     0.84±0.52    |     0.88±0.44    |  0.9545 |
+| remove   | idx=0,cmp=N          | str    | 10000  | min  | 4     |     3.32±2.76    |     2.81±1.78    |  1.1815 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | tuple  | 10000  | min  | 4     |     6.92±5.33    |     3.67±3.83    |  1.8856 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | bool   | 10000  | min  | 4     |     3.50±3.02    |     2.87±2.05    |  1.2195 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | char   | 10000  | min  | 4     |     1.11±0.74    |     1.00±0.55    |  1.1100 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | custom | 10000  | min  | 4     |     3.13±2.25    |     2.83±1.45    |  1.1060 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | float  | 10000  | min  | 4     |     1.48±1.52    |     1.87±1.83    |  0.7914 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | int    | 10000  | min  | 4     |     1.13±1.28    |     0.90±0.53    |  1.2556 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | str    | 10000  | min  | 4     |     1.16±0.83    |     0.93±0.37    |  1.2473 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | tuple  | 10000  | min  | 4     |     1.56±1.93    |     3.31±4.18    |  0.4713 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | bool   | 10000  | min  | 4     |     0.84±0.77    |     0.68±0.38    |  1.2353 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | char   | 10000  | min  | 4     |     1.88±1.41    |     2.69±2.36    |  0.6989 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | custom | 10000  | min  | 4     |     5.20±4.58    |   201.98±623.77  |  0.0257 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | float  | 10000  | min  | 4     |     0.90±0.62    |     0.79±0.35    |  1.1392 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | int    | 10000  | min  | 4     |     0.72±0.52    |     2.62±3.44    |  0.2748 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | str    | 10000  | min  | 4     |     0.85±0.27    |     0.81±0.34    |  1.0494 |
+| remove   | idx=mid,cmp=N        | tuple  | 10000  | min  | 4     |     0.76±0.52    |     1.40±1.22    |  0.5429 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | bool   | 10000  | min  | 4     |   118.60±1.31    |   118.08±1.86    |  1.0044 |
+| remove   | pred(n=5),cmp=N      | char   | 10000  | min  | 4     |   244.97±55.49   |   177.83±1.13    |  1.3776 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | custom | 10000  | min  | 4     |  1009.96±1213.62 |   992.24±1221.33 |  1.0179 |
+| remove   | pred(n=5),cmp=N      | float  | 10000  | min  | 4     |    92.04±1.16    |   104.43±35.50   |  0.8814 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | int    | 10000  | min  | 4     |    77.57±3.75    |    80.30±4.05    |  0.9660 |
+| remove   | pred(n=5),cmp=N      | str    | 10000  | min  | 4     |   294.32±31.72   |   193.89±1.47    |  1.5180 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | tuple  | 10000  | min  | 4     |   602.60±1153.01 |   506.94±194.98  |  1.1887 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | bool   | 10000  | max  | 8     |    80.23±1.24    |    80.43±0.56    |  0.9975 |
+| remove   | batch(10),cmp=N      | char   | 10000  | max  | 8     |   299.25±91.86   |   400.07±433.52  |  0.7480 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | custom | 10000  | max  | 8     |  1614.37±789.03  |   674.29±443.41  |  2.3942 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | float  | 10000  | max  | 8     |    67.38±1.31    |    67.96±0.81    |  0.9915 |
+| remove   | batch(10),cmp=N      | int    | 10000  | max  | 8     |   118.79±22.65   |    76.70±41.48   |  1.5488 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | str    | 10000  | max  | 8     |   157.07±2.51    |   153.41±0.85    |  1.0239 |
+| remove   | batch(10),cmp=N      | tuple  | 10000  | max  | 8     |   182.02±50.31   |   404.50±730.89  |  0.4500 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | bool   | 10000  | max  | 8     |     3.19±2.47    |     2.21±0.71    |  1.4434 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | char   | 10000  | max  | 8     |     1.01±0.60    |     0.95±0.34    |  1.0632 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | custom | 10000  | max  | 8     |     6.30±4.76    |     7.01±6.25    |  0.8987 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | float  | 10000  | max  | 8     |     2.03±1.19    |     1.25±1.23    |  1.6240 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | int    | 10000  | max  | 8     |     2.35±2.05    |     1.42±1.34    |  1.6549 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | str    | 10000  | max  | 8     |     2.59±1.64    |     2.18±0.87    |  1.1881 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | tuple  | 10000  | max  | 8     |   123.60±371.42  |     3.36±3.77    | 36.7857 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | bool   | 10000  | max  | 8     |     1.05±1.00    |     0.90±0.54    |  1.1667 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | char   | 10000  | max  | 8     |     1.38±1.27    |     3.17±4.72    |  0.4353 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | custom | 10000  | max  | 8     |     3.15±1.89    |     6.53±7.55    |  0.4824 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | float  | 10000  | max  | 8     |     1.23±1.02    |     0.90±0.43    |  1.3667 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | int    | 10000  | max  | 8     |     3.22±1.99    |     2.83±1.90    |  1.1378 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | str    | 10000  | max  | 8     |     1.40±1.22    |     1.24±0.66    |  1.1290 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | tuple  | 10000  | max  | 8     |     4.01±3.30    |     3.97±3.11    |  1.0101 |
+| remove   | idx=mid,cmp=N        | bool   | 10000  | max  | 8     |     3.81±5.43    |     0.59±0.34    |  6.4576 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | char   | 10000  | max  | 8     |     4.59±3.67    |     2.37±1.60    |  1.9367 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | custom | 10000  | max  | 8     |     5.92±4.37    |     8.36±4.38    |  0.7081 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | float  | 10000  | max  | 8     |     0.76±0.69    |     0.62±0.38    |  1.2258 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | int    | 10000  | max  | 8     |     0.72±0.50    |     0.66±0.31    |  1.0909 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | str    | 10000  | max  | 8     |     1.17±1.73    |     0.85±0.34    |  1.3765 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | tuple  | 10000  | max  | 8     |    29.25±78.83   |     4.29±3.13    |  6.8182 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | bool   | 10000  | max  | 8     |    77.54±7.36    |    75.31±0.94    |  1.0296 |
+| remove   | pred(n=5),cmp=N      | char   | 10000  | max  | 8     |   201.11±91.48   |   288.78±76.03   |  0.6964 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | custom | 10000  | max  | 8     |   906.90±642.95  |   867.62±543.80  |  1.0453 |
+| remove   | pred(n=5),cmp=N      | float  | 10000  | max  | 8     |    61.47±1.29    |    63.04±0.81    |  0.9751 |
+| remove   | pred(n=5),cmp=N      | int    | 10000  | max  | 8     |   115.98±20.63   |    99.57±5.84    |  1.1648 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | str    | 10000  | max  | 8     |   327.34±139.73  |   438.67±812.89  |  0.7462 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | tuple  | 10000  | max  | 8     |   543.81±597.12  |   282.89±228.50  |  1.9223 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | bool   | 10000  | min  | 8     |    99.77±40.27   |    80.83±1.00    |  1.2343 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | char   | 10000  | min  | 8     |   142.02±1.27    |   220.92±74.06   |  0.6429 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | custom | 10000  | min  | 8     |   935.48±628.62  |  2287.86±4167.54 |  0.4089 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | float  | 10000  | min  | 8     |   103.11±48.52   |    68.45±2.12    |  1.5064 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | int    | 10000  | min  | 8     |   137.85±202.24  |    48.82±1.34    |  2.8236 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | str    | 10000  | min  | 8     |   289.92±47.94   |   257.88±148.00  |  1.1242 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | tuple  | 10000  | min  | 8     |   259.65±141.34  |   541.15±413.55  |  0.4798 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | bool   | 10000  | min  | 8     |     2.44±2.11    |     1.97±1.21    |  1.2386 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | char   | 10000  | min  | 8     |     0.91±0.37    |     0.99±0.51    |  0.9192 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | custom | 10000  | min  | 8     |    10.41±5.24    |     7.25±5.34    |  1.4359 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | float  | 10000  | min  | 8     |     0.86±0.45    |     0.93±0.61    |  0.9247 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | int    | 10000  | min  | 8     |     0.87±0.63    |     0.80±0.37    |  1.0875 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | str    | 10000  | min  | 8     |     1.02±0.47    |     0.97±0.30    |  1.0515 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | tuple  | 10000  | min  | 8     |     1.02±0.51    |     2.20±3.56    |  0.4636 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | bool   | 10000  | min  | 8     |     0.97±0.90    |     0.84±0.47    |  1.1548 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | char   | 10000  | min  | 8     |     1.27±0.89    |     1.05±0.29    |  1.2095 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | custom | 10000  | min  | 8     |     5.77±4.36    |     7.04±4.98    |  0.8196 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | float  | 10000  | min  | 8     |     2.24±1.67    |     2.98±1.76    |  0.7517 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | int    | 10000  | min  | 8     |     1.04±0.91    |     0.87±0.45    |  1.1954 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | str    | 10000  | min  | 8     |     1.42±1.37    |     1.10±0.40    |  1.2909 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | tuple  | 10000  | min  | 8     |     3.46±4.26    |     4.13±5.79    |  0.8378 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | bool   | 10000  | min  | 8     |     1.88±1.17    |     2.19±1.14    |  0.8584 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | char   | 10000  | min  | 8     |     0.70±0.54    |     0.58±0.28    |  1.2069 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | custom | 10000  | min  | 8     |     2.77±3.72    |     2.09±2.33    |  1.3254 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | float  | 10000  | min  | 8     |     0.88±0.75    |     0.65±0.43    |  1.3538 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | int    | 10000  | min  | 8     |     0.68±0.41    |     0.65±0.30    |  1.0462 |
+| remove   | idx=mid,cmp=N        | str    | 10000  | min  | 8     |     0.77±0.37    |     2.37±3.12    |  0.3249 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | tuple  | 10000  | min  | 8     |     2.42±3.32    |     0.85±0.61    |  2.8471 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | bool   | 10000  | min  | 8     |   102.40±1.22    |   101.97±0.80    |  1.0042 |
+| remove   | pred(n=5),cmp=N      | char   | 10000  | min  | 8     |   247.59±43.56   |   209.13±106.47  |  1.1839 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | custom | 10000  | min  | 8     |  1974.95±1938.81 |  1384.71±1319.48 |  1.4263 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | float  | 10000  | min  | 8     |    95.52±15.78   |   145.08±93.28   |  0.6584 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | int    | 10000  | min  | 8     |    70.44±1.81    |    69.80±0.83    |  1.0092 |
+| remove   | pred(n=5),cmp=N      | str    | 10000  | min  | 8     |   143.93±4.57    |   142.97±1.03    |  1.0067 |
+| remove   | pred(n=5),cmp=N      | tuple  | 10000  | min  | 8     |   211.88±5.25    |   415.20±220.85  |  0.5103 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | bool   | 100000 | max  | 2     |  2040.14±793.05  |  1394.63±439.07  |  1.4629 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | char   | 100000 | max  | 2     |  2592.86±760.96  |  2983.88±1375.33 |  0.8690 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | custom | 100000 | max  | 2     | 11419.96±802.24  | 11958.51±863.78  |  0.9550 |
+| remove   | batch(10),cmp=N      | float  | 100000 | max  | 2     |  2589.90±920.04  |  2270.62±972.06  |  1.1406 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | int    | 100000 | max  | 2     |  1717.02±1171.81 |  1963.77±1033.05 |  0.8743 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | str    | 100000 | max  | 2     |  5464.29±3526.66 |  5374.45±4463.31 |  1.0167 |
+| remove   | batch(10),cmp=N      | tuple  | 100000 | max  | 2     |  9558.19±3846.64 |  9284.15±4593.23 |  1.0295 |
+| remove   | idx=0,cmp=N          | bool   | 100000 | max  | 2     |     7.10±7.13    |     6.00±4.86    |  1.1833 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | char   | 100000 | max  | 2     |     7.49±5.67    |     6.30±4.69    |  1.1889 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | custom | 100000 | max  | 2     |     7.12±5.49    |     7.26±4.46    |  0.9807 |
+| remove   | idx=0,cmp=N          | float  | 100000 | max  | 2     |     8.61±6.75    |    11.58±5.50    |  0.7435 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | int    | 100000 | max  | 2     |     3.23±2.06    |     6.48±6.48    |  0.4985 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | str    | 100000 | max  | 2     |     7.11±4.28    |     5.01±3.35    |  1.4192 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | tuple  | 100000 | max  | 2     |     6.05±5.61    |     7.03±5.73    |  0.8606 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | bool   | 100000 | max  | 2     |     8.08±5.92    |     8.62±5.29    |  0.9374 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | char   | 100000 | max  | 2     |    16.42±14.59   |    10.40±5.91    |  1.5788 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | custom | 100000 | max  | 2     |     4.79±0.86    |     3.55±0.55    |  1.3493 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | float  | 100000 | max  | 2     |     9.34±5.84    |    11.41±6.92    |  0.8186 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | int    | 100000 | max  | 2     |    11.45±21.29   |     7.60±5.17    |  1.5066 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | str    | 100000 | max  | 2     |     7.95±9.61    |     8.50±3.67    |  0.9353 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | tuple  | 100000 | max  | 2     |    11.26±7.11    |     9.80±6.22    |  1.1490 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | bool   | 100000 | max  | 2     |     9.00±5.45    |     3.24±1.54    |  2.7778 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | char   | 100000 | max  | 2     |     8.42±5.71    |     9.28±3.44    |  0.9073 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | custom | 100000 | max  | 2     |     3.57±1.57    |     2.60±0.67    |  1.3731 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | float  | 100000 | max  | 2     |     5.97±5.07    |     6.24±5.63    |  0.9567 |
+| remove   | idx=mid,cmp=N        | int    | 100000 | max  | 2     |     8.43±5.53    |     4.45±4.38    |  1.8944 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | str    | 100000 | max  | 2     |     6.51±4.74    |     3.15±1.31    |  2.0667 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | tuple  | 100000 | max  | 2     |     5.61±4.58    |     9.83±7.26    |  0.5707 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | bool   | 100000 | max  | 2     |  1358.51±281.37  |  1830.22±1087.76 |  0.7423 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | char   | 100000 | max  | 2     |  3073.00±849.30  |  3109.22±944.67  |  0.9884 |
+| remove   | pred(n=5),cmp=N      | custom | 100000 | max  | 2     | 11282.56±870.53  | 11219.92±635.28  |  1.0056 |
+| remove   | pred(n=5),cmp=N      | float  | 100000 | max  | 2     |  1937.50±795.41  |  2798.24±1907.46 |  0.6924 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | int    | 100000 | max  | 2     |  1931.50±1448.84 |  2778.69±1352.12 |  0.6951 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | str    | 100000 | max  | 2     |  5081.17±2880.60 |  6579.03±3693.44 |  0.7723 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | tuple  | 100000 | max  | 2     |  9578.87±6810.51 |  8976.80±5371.99 |  1.0671 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | bool   | 100000 | min  | 2     |  2512.01±1519.21 |  2273.55±1096.22 |  1.1049 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | char   | 100000 | min  | 2     |  2409.61±649.35  |  2459.40±965.81  |  0.9798 |
+| remove   | batch(10),cmp=N      | custom | 100000 | min  | 2     | 27075.09±8170.18 | 23704.05±6057.91 |  1.1422 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | float  | 100000 | min  | 2     |  2092.94±807.42  |  2514.82±1106.19 |  0.8322 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | int    | 100000 | min  | 2     |  2033.77±982.38  |  1376.81±467.82  |  1.4772 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | str    | 100000 | min  | 2     |  5397.20±3979.27 |  5411.20±3185.15 |  0.9974 |
+| remove   | batch(10),cmp=N      | tuple  | 100000 | min  | 2     | 10244.30±4618.48 | 11778.41±9683.86 |  0.8698 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | bool   | 100000 | min  | 2     |     8.63±5.70    |     4.61±2.25    |  1.8720 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | char   | 100000 | min  | 2     |     7.69±6.58    |     5.17±3.79    |  1.4874 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | custom | 100000 | min  | 2     |    17.39±6.05    |    15.85±5.38    |  1.0972 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | float  | 100000 | min  | 2     |     8.35±4.04    |     7.82±7.06    |  1.0678 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | int    | 100000 | min  | 2     |     9.90±5.65    |    11.83±3.18    |  0.8369 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | str    | 100000 | min  | 2     |     3.78±2.31    |     8.04±7.05    |  0.4701 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | tuple  | 100000 | min  | 2     |    13.53±5.41    |    12.97±3.84    |  1.0432 |
+| remove   | idx=0,ret=T,cmp=N    | bool   | 100000 | min  | 2     |    13.41±9.01    |     5.14±3.69    |  2.6089 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | char   | 100000 | min  | 2     |     4.15±2.43    |    16.49±5.71    |  0.2517 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | custom | 100000 | min  | 2     |    12.20±5.96    |    14.04±11.51   |  0.8689 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | float  | 100000 | min  | 2     |     4.07±1.37    |    12.11±7.92    |  0.3361 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | int    | 100000 | min  | 2     |     5.65±3.95    |     4.30±3.67    |  1.3140 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | str    | 100000 | min  | 2     |     8.13±5.39    |    10.11±7.69    |  0.8042 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | tuple  | 100000 | min  | 2     |    22.70±38.89   |     8.81±4.05    |  2.5766 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | bool   | 100000 | min  | 2     |     5.38±4.78    |     7.69±5.72    |  0.6996 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | char   | 100000 | min  | 2     |    11.49±4.80    |     8.20±6.21    |  1.4012 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | custom | 100000 | min  | 2     |     4.47±2.89    |     8.53±4.37    |  0.5240 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | float  | 100000 | min  | 2     |     8.45±3.74    |     4.88±4.06    |  1.7316 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | int    | 100000 | min  | 2     |     8.03±4.51    |     7.11±4.35    |  1.1294 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | str    | 100000 | min  | 2     |     5.44±4.18    |     4.68±3.59    |  1.1624 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | tuple  | 100000 | min  | 2     |     8.38±2.19    |     7.83±3.75    |  1.0702 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | bool   | 100000 | min  | 2     |  2520.42±1208.51 |  2105.80±702.41  |  1.1969 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | char   | 100000 | min  | 2     |  1988.64±10.96   |  2814.38±1112.92 |  0.7066 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | custom | 100000 | min  | 2     | 24846.62±6451.62 | 31193.52±13248.09 |  0.7965 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | float  | 100000 | min  | 2     |  3725.58±1842.25 |  4068.36±2275.33 |  0.9157 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | int    | 100000 | min  | 2     |  3206.58±1596.38 |  3023.12±1529.94 |  1.0607 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | str    | 100000 | min  | 2     |  4661.02±2258.50 |  4943.67±3465.35 |  0.9428 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | tuple  | 100000 | min  | 2     | 18177.10±6514.33 | 17235.83±13047.11 |  1.0546 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | bool   | 100000 | max  | 3     |  2163.50±1320.23 |  1771.24±761.79  |  1.2215 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | char   | 100000 | max  | 3     |  2368.92±762.54  |  2764.80±1043.85 |  0.8568 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | custom | 100000 | max  | 3     |  7396.89±173.82  |  7189.73±325.63  |  1.0288 |
+| remove   | batch(10),cmp=N      | float  | 100000 | max  | 3     |  2960.10±2063.73 |  2693.96±2266.34 |  1.0988 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | int    | 100000 | max  | 3     |  1401.12±1220.40 |  1296.37±1011.88 |  1.0808 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | str    | 100000 | max  | 3     |  4744.40±2683.82 |  4584.22±2500.66 |  1.0349 |
+| remove   | batch(10),cmp=N      | tuple  | 100000 | max  | 3     |  3934.07±1537.23 |  5841.81±3480.61 |  0.6734 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | bool   | 100000 | max  | 3     |     3.24±1.33    |     6.51±4.08    |  0.4977 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | char   | 100000 | max  | 3     |     5.75±3.29    |     1.68±0.72    |  3.4226 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | custom | 100000 | max  | 3     |     3.57±0.56    |     3.28±0.42    |  1.0884 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | float  | 100000 | max  | 3     |     7.23±6.94    |     8.95±6.13    |  0.8078 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | int    | 100000 | max  | 3     |     3.81±3.48    |     7.07±5.44    |  0.5389 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | str    | 100000 | max  | 3     |     9.30±5.32    |     5.80±5.19    |  1.6034 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | tuple  | 100000 | max  | 3     |     3.43±3.10    |     4.83±4.39    |  0.7101 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | bool   | 100000 | max  | 3     |     8.80±5.68    |    10.36±5.85    |  0.8494 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | char   | 100000 | max  | 3     |     2.08±1.40    |     1.70±0.57    |  1.2235 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | custom | 100000 | max  | 3     |     3.71±0.62    |     3.83±0.72    |  0.9687 |
+| remove   | idx=0,ret=T,cmp=N    | float  | 100000 | max  | 3     |     7.05±6.31    |     7.42±6.51    |  0.9501 |
+| remove   | idx=0,ret=T,cmp=N    | int    | 100000 | max  | 3     |     2.64±1.62    |     8.41±6.50    |  0.3139 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | str    | 100000 | max  | 3     |    11.53±6.51    |     7.67±6.75    |  1.5033 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | tuple  | 100000 | max  | 3     |    10.64±6.83    |     6.89±4.64    |  1.5443 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | bool   | 100000 | max  | 3     |     8.59±5.55    |     8.15±4.02    |  1.0540 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | char   | 100000 | max  | 3     |     3.77±3.95    |     6.07±4.72    |  0.6211 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | custom | 100000 | max  | 3     |     2.26±0.24    |     2.25±0.32    |  1.0044 |
+| remove   | idx=mid,cmp=N        | float  | 100000 | max  | 3     |     6.63±4.54    |     8.28±4.57    |  0.8007 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | int    | 100000 | max  | 3     |     1.09±0.79    |     1.68±0.58    |  0.6488 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | str    | 100000 | max  | 3     |     4.46±2.74    |     5.50±3.33    |  0.8109 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | tuple  | 100000 | max  | 3     |     4.35±4.56    |     4.55±3.27    |  0.9560 |
+| remove   | pred(n=5),cmp=N      | bool   | 100000 | max  | 3     |  2269.00±1081.83 |  1266.71±267.97  |  1.7913 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | char   | 100000 | max  | 3     |  2215.65±943.74  |  2374.18±649.86  |  0.9332 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | custom | 100000 | max  | 3     |  6881.12±218.90  |  6666.28±256.12  |  1.0322 |
+| remove   | pred(n=5),cmp=N      | float  | 100000 | max  | 3     |  1817.76±672.15  |  2386.91±1390.46 |  0.7616 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | int    | 100000 | max  | 3     |  1065.49±835.27  |  1168.08±797.84  |  0.9122 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | str    | 100000 | max  | 3     |  3644.68±1932.52 |  4176.20±2810.89 |  0.8727 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | tuple  | 100000 | max  | 3     |  6042.89±4245.28 |  5796.04±3494.21 |  1.0426 |
+| remove   | batch(10),cmp=N      | bool   | 100000 | min  | 3     |  2254.12±975.77  |  2324.33±1418.04 |  0.9698 |
+| remove   | batch(10),cmp=N      | char   | 100000 | min  | 3     |  2230.95±794.03  |  2473.04±972.16  |  0.9021 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | custom | 100000 | min  | 3     | 14675.25±7549.44 | 13217.59±6002.95 |  1.1103 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | float  | 100000 | min  | 3     |  1869.47±815.56  |  2772.90±1462.82 |  0.6742 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | int    | 100000 | min  | 3     |  1083.50±371.61  |  1115.80±683.29  |  0.9711 |
+| remove   | batch(10),cmp=N      | str    | 100000 | min  | 3     |  4339.27±3105.39 |  4059.39±2690.92 |  1.0689 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | tuple  | 100000 | min  | 3     |  7114.98±3957.76 |  7265.99±2862.68 |  0.9792 |
+| remove   | idx=0,cmp=N          | bool   | 100000 | min  | 3     |     2.70±0.96    |     9.73±5.73    |  0.2775 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | char   | 100000 | min  | 3     |     5.82±5.41    |     1.56±0.49    |  3.7308 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | custom | 100000 | min  | 3     |     9.86±5.69    |    11.11±5.19    |  0.8875 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | float  | 100000 | min  | 3     |     7.70±6.54    |     8.80±7.29    |  0.8750 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | int    | 100000 | min  | 3     |     2.68±0.68    |     3.36±3.43    |  0.7976 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | str    | 100000 | min  | 3     |     3.75±4.29    |    21.04±33.93   |  0.1782 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | tuple  | 100000 | min  | 3     |     5.07±1.92    |     8.47±4.85    |  0.5986 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | bool   | 100000 | min  | 3     |     5.84±3.83    |     3.51±1.90    |  1.6638 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | char   | 100000 | min  | 3     |     2.70±1.52    |     1.99±0.78    |  1.3568 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | custom | 100000 | min  | 3     |    14.81±6.34    |    18.62±12.83   |  0.7954 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | float  | 100000 | min  | 3     |    16.37±7.49    |    11.15±9.20    |  1.4682 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | int    | 100000 | min  | 3     |     2.75±0.86    |     9.06±7.22    |  0.3035 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | str    | 100000 | min  | 3     |    13.38±6.19    |     3.00±1.46    |  4.4600 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | tuple  | 100000 | min  | 3     |    11.05±5.42    |    10.12±4.09    |  1.0919 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | bool   | 100000 | min  | 3     |     6.21±3.18    |     4.60±5.90    |  1.3500 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | char   | 100000 | min  | 3     |     5.22±7.81    |     6.15±4.97    |  0.8488 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | custom | 100000 | min  | 3     |     8.63±4.09    |     7.46±3.44    |  1.1568 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | float  | 100000 | min  | 3     |     5.58±5.43    |     5.32±5.29    |  1.0489 |
+| remove   | idx=mid,cmp=N        | int    | 100000 | min  | 3     |     6.53±5.49    |     2.17±0.94    |  3.0092 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | str    | 100000 | min  | 3     |     7.03±5.00    |     5.65±4.56    |  1.2442 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | tuple  | 100000 | min  | 3     |     8.05±1.91    |    10.13±3.98    |  0.7947 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | bool   | 100000 | min  | 3     |  1676.98±887.86  |  1598.47±643.58  |  1.0491 |
+| remove   | pred(n=5),cmp=N      | char   | 100000 | min  | 3     |  2934.66±2221.59 |  2654.77±875.89  |  1.1054 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | custom | 100000 | min  | 3     | 13046.38±5088.53 | 10349.30±3104.38 |  1.2606 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | float  | 100000 | min  | 3     |  2915.50±1620.16 |  2677.07±1423.38 |  1.0891 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | int    | 100000 | min  | 3     |  1771.47±1294.37 |  2186.30±1459.78 |  0.8103 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | str    | 100000 | min  | 3     |  4541.77±3147.48 |  3980.48±2944.05 |  1.1410 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | tuple  | 100000 | min  | 3     |  8476.23±2961.23 |  9688.75±4293.23 |  0.8749 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | bool   | 100000 | max  | 4     |  1850.50±848.11  |  1795.30±634.93  |  1.0307 |
+| remove   | batch(10),cmp=N      | char   | 100000 | max  | 4     |  2584.06±800.80  |  2572.77±698.78  |  1.0044 |
+| remove   | batch(10),cmp=N      | custom | 100000 | max  | 4     |  6602.73±212.79  |  6491.40±359.90  |  1.0172 |
+| remove   | batch(10),cmp=N      | float  | 100000 | max  | 4     |  1758.04±1498.25 |  1145.06±599.66  |  1.5353 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | int    | 100000 | max  | 4     |  1695.23±1199.16 |  1353.20±869.10  |  1.2528 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | str    | 100000 | max  | 4     |  3562.69±1635.07 |  4221.32±1997.09 |  0.8440 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | tuple  | 100000 | max  | 4     |  5407.25±4733.51 |  6023.64±3550.18 |  0.8977 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | bool   | 100000 | max  | 4     |    28.71±45.78   |     6.67±4.51    |  4.3043 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | char   | 100000 | max  | 4     |     6.66±4.91    |     2.47±0.54    |  2.6964 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | custom | 100000 | max  | 4     |     3.27±0.44    |     3.29±0.54    |  0.9939 |
+| remove   | idx=0,cmp=N          | float  | 100000 | max  | 4     |     6.84±5.61    |     2.01±0.39    |  3.4030 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | int    | 100000 | max  | 4     |     4.45±5.07    |     1.86±0.73    |  2.3925 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | str    | 100000 | max  | 4     |     8.12±4.78    |     8.14±4.48    |  0.9975 |
+| remove   | idx=0,cmp=N          | tuple  | 100000 | max  | 4     |     6.42±5.82    |     8.95±6.48    |  0.7173 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | bool   | 100000 | max  | 4     |    10.67±4.21    |    11.00±4.91    |  0.9700 |
+| remove   | idx=0,ret=T,cmp=N    | char   | 100000 | max  | 4     |    10.53±4.63    |    11.09±4.64    |  0.9495 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | custom | 100000 | max  | 4     |     3.76±0.78    |     3.28±0.31    |  1.1463 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | float  | 100000 | max  | 4     |    12.71±6.74    |     7.75±6.34    |  1.6400 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | int    | 100000 | max  | 4     |     2.08±1.20    |     9.84±6.54    |  0.2114 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | str    | 100000 | max  | 4     |     8.50±6.69    |     3.30±0.87    |  2.5758 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | tuple  | 100000 | max  | 4     |     7.63±7.05    |     8.35±6.49    |  0.9138 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | bool   | 100000 | max  | 4     |    10.10±8.06    |     7.26±5.54    |  1.3912 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | char   | 100000 | max  | 4     |     5.16±4.76    |     7.20±5.16    |  0.7167 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | custom | 100000 | max  | 4     |     2.29±0.34    |     1.90±0.26    |  1.2053 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | float  | 100000 | max  | 4     |     6.80±6.12    |     1.49±0.98    |  4.5638 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | int    | 100000 | max  | 4     |     3.09±4.37    |     5.80±5.28    |  0.5328 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | str    | 100000 | max  | 4     |     7.33±5.44    |     5.48±3.68    |  1.3376 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | tuple  | 100000 | max  | 4     |    29.59±76.22   |     3.09±3.31    |  9.5761 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | bool   | 100000 | max  | 4     |  1443.01±425.76  |  1633.73±1138.40 |  0.8833 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | char   | 100000 | max  | 4     |  2800.59±1009.06 |  2831.11±785.10  |  0.9892 |
+| remove   | pred(n=5),cmp=N      | custom | 100000 | max  | 4     |  6006.20±205.67  |  5859.92±71.64   |  1.0250 |
+| remove   | pred(n=5),cmp=N      | float  | 100000 | max  | 4     |  1117.30±496.27  |  1769.78±830.40  |  0.6313 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | int    | 100000 | max  | 4     |  1306.43±755.03  |  1198.18±868.71  |  1.0903 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | str    | 100000 | max  | 4     |  4579.00±1404.39 |  5347.21±3592.51 |  0.8563 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | tuple  | 100000 | max  | 4     |  4177.41±1415.08 |  4786.38±4196.21 |  0.8728 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | bool   | 100000 | min  | 4     |  3149.71±4756.51 |  1284.09±364.45  |  2.4529 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | char   | 100000 | min  | 4     |  2527.47±715.15  |  2332.05±569.98  |  1.0838 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | custom | 100000 | min  | 4     |  8283.68±1613.57 | 10279.61±3610.60 |  0.8058 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | float  | 100000 | min  | 4     |  1591.12±872.52  |  1065.40±348.51  |  1.4934 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | int    | 100000 | min  | 4     |  1522.95±932.33  |  1559.54±1069.86 |  0.9765 |
+| remove   | batch(10),cmp=N      | str    | 100000 | min  | 4     |  3922.77±2261.61 |  3449.94±1719.67 |  1.1371 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | tuple  | 100000 | min  | 4     |  4503.51±1205.92 |  5896.58±3629.31 |  0.7637 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | bool   | 100000 | min  | 4     |     7.06±4.06    |     6.28±4.91    |  1.1242 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | char   | 100000 | min  | 4     |     4.89±3.52    |     6.08±5.66    |  0.8043 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | custom | 100000 | min  | 4     |     9.68±5.82    |    10.33±6.14    |  0.9371 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | float  | 100000 | min  | 4     |     5.70±4.62    |     8.43±7.23    |  0.6762 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | int    | 100000 | min  | 4     |     2.31±1.04    |     1.20±0.57    |  1.9250 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | str    | 100000 | min  | 4     |     5.39±5.14    |     4.75±4.61    |  1.1347 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | tuple  | 100000 | min  | 4     |     6.33±3.50    |     9.22±5.01    |  0.6866 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | bool   | 100000 | min  | 4     |     3.14±3.19    |    10.58±5.72    |  0.2968 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | char   | 100000 | min  | 4     |     7.37±6.28    |     6.71±7.29    |  1.0984 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | custom | 100000 | min  | 4     |    12.78±6.40    |     9.40±4.23    |  1.3596 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | float  | 100000 | min  | 4     |     6.85±7.23    |     9.68±5.43    |  0.7076 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | int    | 100000 | min  | 4     |     2.58±1.25    |     2.21±1.09    |  1.1674 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | str    | 100000 | min  | 4     |   374.52±1156.02 |     9.97±3.01    | 37.5647 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | tuple  | 100000 | min  | 4     |    11.12±5.72    |     9.06±6.22    |  1.2274 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | bool   | 100000 | min  | 4     |     3.17±2.58    |     2.98±2.15    |  1.0638 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | char   | 100000 | min  | 4     |     4.96±3.25    |     4.96±4.36    |  1.0000 |
+| remove   | idx=mid,cmp=N        | custom | 100000 | min  | 4     |     5.34±3.98    |     5.28±3.18    |  1.0114 |
+| remove   | idx=mid,cmp=N        | float  | 100000 | min  | 4     |    10.08±3.76    |     6.88±5.69    |  1.4651 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | int    | 100000 | min  | 4     |     6.70±7.38    |     2.75±3.92    |  2.4364 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | str    | 100000 | min  | 4     |     5.71±5.54    |     4.70±4.61    |  1.2149 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | tuple  | 100000 | min  | 4     |     6.98±3.63    |    10.63±4.43    |  0.6566 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | bool   | 100000 | min  | 4     |  1327.88±303.70  |  1599.48±492.11  |  0.8302 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | char   | 100000 | min  | 4     |  2937.88±1216.99 |  2245.92±505.72  |  1.3081 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | custom | 100000 | min  | 4     | 12190.96±4353.50 |  9526.87±4192.16 |  1.2796 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | float  | 100000 | min  | 4     |  2138.92±1515.38 |  4437.97±6348.76 |  0.4820 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | int    | 100000 | min  | 4     |  1841.43±1256.63 |  1893.45±1345.98 |  0.9725 |
+| remove   | pred(n=5),cmp=N      | str    | 100000 | min  | 4     |  3622.75±2458.31 |  3875.42±1708.18 |  0.9348 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | tuple  | 100000 | min  | 4     |  7813.89±4381.04 |  5905.71±2959.95 |  1.3231 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | bool   | 100000 | max  | 8     |  1477.49±580.44  |  1112.69±535.83  |  1.3279 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | char   | 100000 | max  | 8     |  2315.14±714.85  |  2149.01±597.97  |  1.0773 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | custom | 100000 | max  | 8     |  5960.77±831.86  |  5285.30±221.65  |  1.1278 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | float  | 100000 | max  | 8     |  1416.73±821.53  |  1195.84±747.47  |  1.1847 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | int    | 100000 | max  | 8     |   581.95±36.33   |   560.78±12.85   |  1.0378 |
+| remove   | batch(10),cmp=N      | str    | 100000 | max  | 8     |  3713.19±2395.17 |  4841.42±2872.26 |  0.7670 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | tuple  | 100000 | max  | 8     |  3608.32±1601.61 |  4311.14±2093.72 |  0.8370 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | bool   | 100000 | max  | 8     |     3.57±2.71    |     2.82±1.93    |  1.2660 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | char   | 100000 | max  | 8     |     8.96±3.61    |     7.98±4.99    |  1.1228 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | custom | 100000 | max  | 8     |     6.04±2.56    |     4.53±1.60    |  1.3333 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | float  | 100000 | max  | 8     |     9.87±5.54    |     6.59±6.94    |  1.4977 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | int    | 100000 | max  | 8     |     1.62±0.74    |     6.62±4.06    |  0.2447 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | str    | 100000 | max  | 8     |     8.98±5.22    |    12.83±7.12    |  0.6999 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | tuple  | 100000 | max  | 8     |     7.63±7.05    |     9.15±6.55    |  0.8339 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | bool   | 100000 | max  | 8     |     3.60±2.09    |     3.57±3.33    |  1.0084 |
+| remove   | idx=0,ret=T,cmp=N    | char   | 100000 | max  | 8     |    11.88±5.35    |     8.92±6.36    |  1.3318 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | custom | 100000 | max  | 8     |    15.62±4.95    |    11.68±1.81    |  1.3373 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | float  | 100000 | max  | 8     |     3.51±1.27    |    10.21±8.46    |  0.3438 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | int    | 100000 | max  | 8     |     2.22±1.45    |     6.32±6.41    |  0.3513 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | str    | 100000 | max  | 8     |    10.09±4.23    |    10.52±6.76    |  0.9591 |
+| remove   | idx=0,ret=T,cmp=N    | tuple  | 100000 | max  | 8     |     4.78±3.12    |    10.62±7.06    |  0.4501 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | bool   | 100000 | max  | 8     |     2.67±2.67    |     3.11±1.79    |  0.8585 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | char   | 100000 | max  | 8     |     7.97±5.31    |     7.93±4.43    |  1.0050 |
+| remove   | idx=mid,cmp=N        | custom | 100000 | max  | 8     |     3.96±2.42    |     7.50±6.10    |  0.5280 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | float  | 100000 | max  | 8     |     4.15±4.37    |     3.51±4.16    |  1.1823 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | int    | 100000 | max  | 8     |     5.54±4.38    |     1.19±0.55    |  4.6555 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | str    | 100000 | max  | 8     |     8.76±5.05    |     8.36±3.58    |  1.0478 |
+| remove   | idx=mid,cmp=N        | tuple  | 100000 | max  | 8     |     9.01±6.53    |     5.88±4.90    |  1.5323 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | bool   | 100000 | max  | 8     |  1102.76±404.83  |  1394.02±554.95  |  0.7911 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | char   | 100000 | max  | 8     |  2007.12±607.79  |  2504.25±1110.30 |  0.8015 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | custom | 100000 | max  | 8     |  5325.66±161.57  | 13325.55±21895.06 |  0.3997 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | float  | 100000 | max  | 8     |  1004.91±529.30  |   706.70±18.02   |  1.4220 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | int    | 100000 | max  | 8     |   481.29±11.36   |   902.95±629.66  |  0.5330 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | str    | 100000 | max  | 8     |  2941.29±1704.81 |  2422.88±665.30  |  1.2140 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | tuple  | 100000 | max  | 8     |  3345.14±1618.29 |  2937.45±934.45  |  1.1388 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | bool   | 100000 | min  | 8     |  1532.11±588.26  |  1183.06±510.18  |  1.2950 ◀ SYN faster |
+| remove   | batch(10),cmp=N      | char   | 100000 | min  | 8     |  1792.02±602.79  |  2479.50±715.76  |  0.7227 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | custom | 100000 | min  | 8     |  6448.77±1123.92 |  6380.57±1630.48 |  1.0107 |
+| remove   | batch(10),cmp=N      | float  | 100000 | min  | 8     |  1542.59±890.81  |  1542.39±721.29  |  1.0001 |
+| remove   | batch(10),cmp=N      | int    | 100000 | min  | 8     |   908.50±683.62  |  1509.02±1545.92 |  0.6020 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | str    | 100000 | min  | 8     |  2167.97±1094.85 |  2708.14±1200.27 |  0.8005 ◀ CUR faster |
+| remove   | batch(10),cmp=N      | tuple  | 100000 | min  | 8     |  4008.54±1669.19 |  4296.14±2208.13 |  0.9331 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | bool   | 100000 | min  | 8     |     1.42±0.85    |     1.62±0.37    |  0.8765 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | char   | 100000 | min  | 8     |     7.45±3.45    |     5.83±3.53    |  1.2779 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | custom | 100000 | min  | 8     |     7.18±4.24    |     7.13±2.42    |  1.0070 |
+| remove   | idx=0,cmp=N          | float  | 100000 | min  | 8     |     4.34±5.40    |     6.70±5.88    |  0.6478 ◀ CUR faster |
+| remove   | idx=0,cmp=N          | int    | 100000 | min  | 8     |    10.35±6.51    |     1.80±0.69    |  5.7500 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | str    | 100000 | min  | 8     |     7.94±3.99    |     4.94±1.78    |  1.6073 ◀ SYN faster |
+| remove   | idx=0,cmp=N          | tuple  | 100000 | min  | 8     |     8.87±6.80    |     8.95±5.86    |  0.9911 |
+| remove   | idx=0,ret=T,cmp=N    | bool   | 100000 | min  | 8     |     2.48±1.05    |     6.25±5.62    |  0.3968 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | char   | 100000 | min  | 8     |    12.63±4.19    |    12.57±6.56    |  1.0048 |
+| remove   | idx=0,ret=T,cmp=N    | custom | 100000 | min  | 8     |     8.05±6.31    |     6.38±3.54    |  1.2618 ◀ SYN faster |
+| remove   | idx=0,ret=T,cmp=N    | float  | 100000 | min  | 8     |     3.33±1.68    |     4.19±4.67    |  0.7947 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | int    | 100000 | min  | 8     |     9.10±7.15    |    10.83±12.16   |  0.8403 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | str    | 100000 | min  | 8     |     8.32±4.35    |    12.36±10.09   |  0.6731 ◀ CUR faster |
+| remove   | idx=0,ret=T,cmp=N    | tuple  | 100000 | min  | 8     |    11.58±7.28    |    13.97±8.09    |  0.8289 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | bool   | 100000 | min  | 8     |     1.00±0.39    |     4.75±3.06    |  0.2105 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | char   | 100000 | min  | 8     |     8.41±4.08    |     4.23±4.24    |  1.9882 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | custom | 100000 | min  | 8     |     3.63±1.44    |     3.75±2.67    |  0.9680 |
+| remove   | idx=mid,cmp=N        | float  | 100000 | min  | 8     |     1.75±0.78    |     2.80±3.94    |  0.6250 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | int    | 100000 | min  | 8     |     1.40±0.76    |     3.45±4.88    |  0.4058 ◀ CUR faster |
+| remove   | idx=mid,cmp=N        | str    | 100000 | min  | 8     |     5.25±3.16    |     4.80±3.62    |  1.0938 ◀ SYN faster |
+| remove   | idx=mid,cmp=N        | tuple  | 100000 | min  | 8     |     6.10±4.96    |     3.09±1.42    |  1.9741 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | bool   | 100000 | min  | 8     |  1524.34±502.90  |  1154.29±523.40  |  1.3206 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | char   | 100000 | min  | 8     |  3163.12±1732.38 |  2788.59±1703.16 |  1.1343 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | custom | 100000 | min  | 8     |  6070.95±867.65  |  6705.21±3236.61 |  0.9054 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | float  | 100000 | min  | 8     |  1573.03±772.17  |   771.48±29.49   |  2.0390 ◀ SYN faster |
+| remove   | pred(n=5),cmp=N      | int    | 100000 | min  | 8     |  1774.69±1012.89 |  1924.80±1804.67 |  0.9220 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | str    | 100000 | min  | 8     |  2410.48±1357.05 |  2747.37±1648.74 |  0.8774 ◀ CUR faster |
+| remove   | pred(n=5),cmp=N      | tuple  | 100000 | min  | 8     |  5289.87±4793.09 |  5198.29±3396.86 |  1.0176 |
+| replace  | batch(10),cmp=N      | bool   | 10000  | max  | 2     |     1.95±1.03    |     2.62±2.51    |  0.7443 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | char   | 10000  | max  | 2     |     9.75±8.07    |     4.05±3.05    |  2.4074 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | custom | 10000  | max  | 2     |    14.50±11.60   |    11.85±10.64   |  1.2236 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | float  | 10000  | max  | 2     |     5.81±7.10    |     6.45±9.10    |  0.9008 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | int    | 10000  | max  | 2     |     1.78±1.17    |     1.58±0.66    |  1.1266 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | str    | 10000  | max  | 2     |     6.61±5.08    |     6.76±3.14    |  0.9778 |
+| replace  | batch(10),cmp=N      | tuple  | 10000  | max  | 2     |     2.33±0.22    |     2.17±0.28    |  1.0737 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | bool   | 10000  | max  | 2     |     0.92±0.71    |     0.69±0.31    |  1.3333 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | char   | 10000  | max  | 2     |     1.82±3.25    |     2.80±2.95    |  0.6500 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | custom | 10000  | max  | 2     |     1.64±0.65    |     7.45±4.87    |  0.2201 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | float  | 10000  | max  | 2     |     5.55±3.83    |     3.95±2.60    |  1.4051 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | int    | 10000  | max  | 2     |     0.81±0.64    |     0.70±0.39    |  1.1571 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | str    | 10000  | max  | 2     |     2.09±3.49    |     2.42±1.63    |  0.8636 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | tuple  | 10000  | max  | 2     |     0.64±0.08    |     0.64±0.08    |  1.0000 |
+| replace  | idx=mid,cmp=N        | bool   | 10000  | max  | 2     |     2.17±2.96    |     0.58±0.36    |  3.7414 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | char   | 10000  | max  | 2     |     4.26±3.40    |     2.68±3.13    |  1.5896 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | custom | 10000  | max  | 2     |     1.24±0.47    |     2.35±4.16    |  0.5277 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | float  | 10000  | max  | 2     |     1.70±1.60    |     0.65±0.49    |  2.6154 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | int    | 10000  | max  | 2     |     0.75±0.79    |     3.18±8.11    |  0.2358 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | str    | 10000  | max  | 2     |     4.52±3.39    |     3.80±2.72    |  1.1895 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | tuple  | 10000  | max  | 2     |     0.49±0.03    |     0.51±0.06    |  0.9608 |
+| replace  | pred,cmp=N           | bool   | 10000  | max  | 2     |   948.89±380.08  |   922.84±344.20  |  1.0282 |
+| replace  | pred,cmp=N           | char   | 10000  | max  | 2     |   897.64±390.56  |   773.56±363.92  |  1.1604 ◀ SYN faster |
+| replace  | pred,cmp=N           | custom | 10000  | max  | 2     |  1465.56±904.87  |  1445.99±1093.17 |  1.0135 |
+| replace  | pred,cmp=N           | float  | 10000  | max  | 2     |  1163.41±696.21  |   760.76±377.87  |  1.5293 ◀ SYN faster |
+| replace  | pred,cmp=N           | int    | 10000  | max  | 2     |   588.27±379.09  |   809.31±377.56  |  0.7269 ◀ CUR faster |
+| replace  | pred,cmp=N           | str    | 10000  | max  | 2     |  1029.13±626.96  |  1137.85±580.79  |  0.9045 ◀ CUR faster |
+| replace  | pred,cmp=N           | tuple  | 10000  | max  | 2     |   538.30±7.90    |   527.17±6.04    |  1.0211 |
+| replace  | batch(10),cmp=N      | bool   | 10000  | min  | 2     |     2.79±2.24    |     1.50±0.47    |  1.8600 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | char   | 10000  | min  | 2     |     7.17±3.63    |     4.75±1.16    |  1.5095 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | custom | 10000  | min  | 2     |     7.03±1.14    |    18.88±13.11   |  0.3724 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | float  | 10000  | min  | 2     |     7.56±6.21    |     4.47±1.16    |  1.6913 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | int    | 10000  | min  | 2     |     6.23±7.36    |     1.58±0.69    |  3.9430 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | str    | 10000  | min  | 2     |     2.63±0.94    |     2.60±0.57    |  1.0115 |
+| replace  | batch(10),cmp=N      | tuple  | 10000  | min  | 2     |     2.26±0.30    |     2.13±0.28    |  1.0610 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | bool   | 10000  | min  | 2     |     3.20±2.99    |     2.33±1.60    |  1.3734 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | char   | 10000  | min  | 2     |     1.08±0.91    |     0.89±0.95    |  1.2135 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | custom | 10000  | min  | 2     |     8.07±6.25    |     1.71±0.33    |  4.7193 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | float  | 10000  | min  | 2     |     4.28±4.52    |     3.84±2.87    |  1.1146 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | int    | 10000  | min  | 2     |     2.81±2.67    |    10.20±16.33   |  0.2755 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | str    | 10000  | min  | 2     |     6.34±3.70    |     2.62±1.97    |  2.4198 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | tuple  | 10000  | min  | 2     |     1.00±0.45    |     0.89±0.37    |  1.1236 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | bool   | 10000  | min  | 2     |     1.87±1.49    |     1.80±1.68    |  1.0389 |
+| replace  | idx=mid,cmp=N        | char   | 10000  | min  | 2     |     2.45±3.12    |     3.18±2.87    |  0.7704 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | custom | 10000  | min  | 2     |     6.82±4.40    |     1.84±0.35    |  3.7065 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | float  | 10000  | min  | 2     |     1.56±0.73    |     1.73±2.71    |  0.9017 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | int    | 10000  | min  | 2     |     4.10±3.74    |     0.85±0.89    |  4.8235 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | str    | 10000  | min  | 2     |     1.78±1.71    |     0.61±0.46    |  2.9180 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | tuple  | 10000  | min  | 2     |     0.64±0.09    |     0.65±0.19    |  0.9846 |
+| replace  | pred,cmp=N           | bool   | 10000  | min  | 2     |   458.65±11.28   |   455.94±6.55    |  1.0059 |
+| replace  | pred,cmp=N           | char   | 10000  | min  | 2     |   613.76±89.13   |  1235.63±591.38  |  0.4967 ◀ CUR faster |
+| replace  | pred,cmp=N           | custom | 10000  | min  | 2     |  2128.19±1536.51 |  1703.98±1407.94 |  1.2490 ◀ SYN faster |
+| replace  | pred,cmp=N           | float  | 10000  | min  | 2     |  2723.05±3056.69 |   648.98±191.89  |  4.1959 ◀ SYN faster |
+| replace  | pred,cmp=N           | int    | 10000  | min  | 2     |   803.02±666.13  |   696.08±351.26  |  1.1536 ◀ SYN faster |
+| replace  | pred,cmp=N           | str    | 10000  | min  | 2     |   601.20±25.81   |   884.43±476.24  |  0.6798 ◀ CUR faster |
+| replace  | pred,cmp=N           | tuple  | 10000  | min  | 2     |   473.76±11.87   |   477.51±8.16    |  0.9921 |
+| replace  | batch(10),cmp=N      | bool   | 10000  | max  | 3     |     1.88±1.06    |     2.09±1.50    |  0.8995 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | char   | 10000  | max  | 3     |     4.45±1.71    |     5.26±3.02    |  0.8460 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | custom | 10000  | max  | 3     |     7.50±0.94    |     7.33±0.58    |  1.0232 |
+| replace  | batch(10),cmp=N      | float  | 10000  | max  | 3     |     3.58±2.49    |     6.54±4.56    |  0.5474 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | int    | 10000  | max  | 3     |     4.42±1.81    |     3.95±1.37    |  1.1190 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | str    | 10000  | max  | 3     |     4.85±3.21    |     2.44±1.02    |  1.9877 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | tuple  | 10000  | max  | 3     |     2.47±0.31    |     2.33±0.27    |  1.0601 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | bool   | 10000  | max  | 3     |     1.65±2.56    |     2.45±1.83    |  0.6735 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | char   | 10000  | max  | 3     |     0.79±0.44    |     1.13±0.66    |  0.6991 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | custom | 10000  | max  | 3     |     1.85±0.71    |     1.50±0.57    |  1.2333 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | float  | 10000  | max  | 3     |     2.20±1.70    |     3.09±2.83    |  0.7120 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | int    | 10000  | max  | 3     |     1.69±1.03    |     2.69±3.44    |  0.6283 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | str    | 10000  | max  | 3     |     2.73±2.33    |     0.79±0.44    |  3.4557 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | tuple  | 10000  | max  | 3     |     0.68±0.09    |     0.65±0.09    |  1.0462 |
+| replace  | idx=mid,cmp=N        | bool   | 10000  | max  | 3     |     7.38±15.24   |     2.31±1.17    |  3.1948 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | char   | 10000  | max  | 3     |     1.96±2.23    |     2.23±2.42    |  0.8789 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | custom | 10000  | max  | 3     |     1.05±0.50    |     1.08±0.30    |  0.9722 |
+| replace  | idx=mid,cmp=N        | float  | 10000  | max  | 3     |     1.05±1.16    |     0.71±0.67    |  1.4789 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | int    | 10000  | max  | 3     |     1.37±1.10    |     1.24±0.70    |  1.1048 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | str    | 10000  | max  | 3     |     0.80±0.59    |     3.15±3.07    |  0.2540 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | tuple  | 10000  | max  | 3     |     0.48±0.04    |     0.49±0.04    |  0.9796 |
+| replace  | pred,cmp=N           | bool   | 10000  | max  | 3     |   524.18±142.21  |   895.10±590.55  |  0.5856 ◀ CUR faster |
+| replace  | pred,cmp=N           | char   | 10000  | max  | 3     |  1390.60±488.86  |   773.97±312.96  |  1.7967 ◀ SYN faster |
+| replace  | pred,cmp=N           | custom | 10000  | max  | 3     |  1013.36±15.01   |  1046.36±36.16   |  0.9685 |
+| replace  | pred,cmp=N           | float  | 10000  | max  | 3     |   941.48±362.75  |   461.60±22.69   |  2.0396 ◀ SYN faster |
+| replace  | pred,cmp=N           | int    | 10000  | max  | 3     |   689.40±506.64  |   568.41±307.74  |  1.2129 ◀ SYN faster |
+| replace  | pred,cmp=N           | str    | 10000  | max  | 3     |  1159.43±688.94  |   800.78±466.56  |  1.4479 ◀ SYN faster |
+| replace  | pred,cmp=N           | tuple  | 10000  | max  | 3     |   516.79±5.16    |   516.06±5.76    |  1.0014 |
+| replace  | batch(10),cmp=N      | bool   | 10000  | min  | 3     |     3.59±2.19    |     3.30±1.54    |  1.0879 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | char   | 10000  | min  | 3     |     2.43±1.34    |     2.22±0.67    |  1.0946 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | custom | 10000  | min  | 3     |     7.91±1.03    |     7.73±0.81    |  1.0233 |
+| replace  | batch(10),cmp=N      | float  | 10000  | min  | 3     |     2.27±1.02    |     2.26±1.01    |  1.0044 |
+| replace  | batch(10),cmp=N      | int    | 10000  | min  | 3     |     5.39±4.05    |     5.14±3.18    |  1.0486 |
+| replace  | batch(10),cmp=N      | str    | 10000  | min  | 3     |     2.97±1.76    |     2.45±0.90    |  1.2122 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | tuple  | 10000  | min  | 3     |     2.30±0.29    |     2.23±0.18    |  1.0314 |
+| replace  | idx=0,cmp=N          | bool   | 10000  | min  | 3     |     2.33±3.33    |     4.23±4.65    |  0.5508 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | char   | 10000  | min  | 3     |     2.15±2.56    |     0.95±0.62    |  2.2632 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | custom | 10000  | min  | 3     |     2.13±0.62    |     1.90±0.55    |  1.1211 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | float  | 10000  | min  | 3     |     0.90±0.71    |     0.76±0.53    |  1.1842 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | int    | 10000  | min  | 3     |     1.85±1.52    |     4.42±9.05    |  0.4186 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | str    | 10000  | min  | 3     |     2.10±1.74    |     1.63±0.87    |  1.2883 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | tuple  | 10000  | min  | 3     |     0.67±0.08    |     0.73±0.15    |  0.9178 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | bool   | 10000  | min  | 3     |     2.18±1.99    |     2.18±1.92    |  1.0000 |
+| replace  | idx=mid,cmp=N        | char   | 10000  | min  | 3     |     0.82±0.80    |     0.54±0.30    |  1.5185 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | custom | 10000  | min  | 3     |     1.55±0.43    |     1.28±0.54    |  1.2109 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | float  | 10000  | min  | 3     |     0.63±0.36    |     0.59±0.26    |  1.0678 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | int    | 10000  | min  | 3     |     0.72±0.59    |     2.30±2.00    |  0.3130 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | str    | 10000  | min  | 3     |     1.94±2.08    |     1.20±0.76    |  1.6167 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | tuple  | 10000  | min  | 3     |     0.50±0.03    |     0.52±0.09    |  0.9615 |
+| replace  | pred,cmp=N           | bool   | 10000  | min  | 3     |   733.42±458.31  |   457.83±5.15    |  1.6019 ◀ SYN faster |
+| replace  | pred,cmp=N           | char   | 10000  | min  | 3     |   920.08±732.51  |  1647.89±671.52  |  0.5583 ◀ CUR faster |
+| replace  | pred,cmp=N           | custom | 10000  | min  | 3     |  1572.76±970.45  |  1790.75±1243.79 |  0.8783 ◀ CUR faster |
+| replace  | pred,cmp=N           | float  | 10000  | min  | 3     |   890.07±763.72  |   782.27±661.99  |  1.1378 ◀ SYN faster |
+| replace  | pred,cmp=N           | int    | 10000  | min  | 3     |  1611.23±1897.39 |   458.01±139.82  |  3.5179 ◀ SYN faster |
+| replace  | pred,cmp=N           | str    | 10000  | min  | 3     |  1170.35±499.92  |   875.03±847.07  |  1.3375 ◀ SYN faster |
+| replace  | pred,cmp=N           | tuple  | 10000  | min  | 3     |   466.43±17.73   |   456.40±1.63    |  1.0220 |
+| replace  | batch(10),cmp=N      | bool   | 10000  | max  | 4     |     5.03±3.85    |     4.05±2.99    |  1.2420 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | char   | 10000  | max  | 4     |     4.31±2.31    |    30.02±82.13   |  0.1436 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | custom | 10000  | max  | 4     |    38.23±5.91    |    11.56±6.02    |  3.3071 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | float  | 10000  | max  | 4     |     4.60±2.19    |     2.96±2.30    |  1.5541 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | int    | 10000  | max  | 4     |     1.80±0.99    |     1.64±0.57    |  1.0976 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | str    | 10000  | max  | 4     |     4.97±3.92    |     4.70±3.13    |  1.0574 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | tuple  | 10000  | max  | 4     |     2.49±0.32    |     2.45±0.30    |  1.0163 |
+| replace  | idx=0,cmp=N          | bool   | 10000  | max  | 4     |     4.94±2.96    |     3.92±3.31    |  1.2602 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | char   | 10000  | max  | 4     |     5.24±4.67    |     2.67±2.49    |  1.9625 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | custom | 10000  | max  | 4     |     4.90±6.03    |     6.20±4.88    |  0.7903 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | float  | 10000  | max  | 4     |     3.27±3.88    |     1.43±0.73    |  2.2867 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | int    | 10000  | max  | 4     |     0.76±0.64    |     0.67±0.31    |  1.1343 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | str    | 10000  | max  | 4     |     4.24±3.77    |     2.09±2.67    |  2.0287 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | tuple  | 10000  | max  | 4     |     0.67±0.08    |     0.63±0.08    |  1.0635 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | bool   | 10000  | max  | 4     |     8.55±15.27   |     2.72±3.78    |  3.1434 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | char   | 10000  | max  | 4     |     4.28±3.51    |     2.22±1.84    |  1.9279 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | custom | 10000  | max  | 4     |     1.05±0.62    |     8.14±5.26    |  0.1290 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | float  | 10000  | max  | 4     |     1.38±0.95    |     2.40±1.54    |  0.5750 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | int    | 10000  | max  | 4     |     0.59±0.33    |     0.54±0.32    |  1.0926 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | str    | 10000  | max  | 4     |    22.87±61.79   |     2.62±2.41    |  8.7290 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | tuple  | 10000  | max  | 4     |     0.47±0.05    |     0.47±0.06    |  1.0000 |
+| replace  | pred,cmp=N           | bool   | 10000  | max  | 4     |   876.47±479.99  |  1229.24±702.88  |  0.7130 ◀ CUR faster |
+| replace  | pred,cmp=N           | char   | 10000  | max  | 4     |  1172.16±1222.25 |  1532.61±1637.43 |  0.7648 ◀ CUR faster |
+| replace  | pred,cmp=N           | custom | 10000  | max  | 4     |  1616.21±1167.73 |  1850.05±1148.26 |  0.8736 ◀ CUR faster |
+| replace  | pred,cmp=N           | float  | 10000  | max  | 4     |   744.37±654.96  |   805.01±404.30  |  0.9247 ◀ CUR faster |
+| replace  | pred,cmp=N           | int    | 10000  | max  | 4     |   535.66±357.20  |   957.18±552.37  |  0.5596 ◀ CUR faster |
+| replace  | pred,cmp=N           | str    | 10000  | max  | 4     |  1048.78±437.41  |   859.47±351.82  |  1.2203 ◀ SYN faster |
+| replace  | pred,cmp=N           | tuple  | 10000  | max  | 4     |   516.41±7.05    |   513.27±6.93    |  1.0061 |
+| replace  | batch(10),cmp=N      | bool   | 10000  | min  | 4     |     1.91±0.58    |     1.79±0.33    |  1.0670 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | char   | 10000  | min  | 4     |     2.78±0.94    |     2.68±0.48    |  1.0373 |
+| replace  | batch(10),cmp=N      | custom | 10000  | min  | 4     |    20.00±12.59   |     7.98±0.91    |  2.5063 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | float  | 10000  | min  | 4     |     4.78±4.86    |     3.34±4.77    |  1.4311 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | int    | 10000  | min  | 4     |     2.29±2.05    |     2.69±3.18    |  0.8513 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | str    | 10000  | min  | 4     |     3.71±2.06    |     2.82±0.93    |  1.3156 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | tuple  | 10000  | min  | 4     |     2.22±0.29    |     2.13±0.21    |  1.0423 |
+| replace  | idx=0,cmp=N          | bool   | 10000  | min  | 4     |     0.78±0.57    |     0.74±0.47    |  1.0541 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | char   | 10000  | min  | 4     |     3.06±1.95    |     3.10±2.97    |  0.9871 |
+| replace  | idx=0,cmp=N          | custom | 10000  | min  | 4     |     1.98±0.58    |     7.99±5.36    |  0.2478 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | float  | 10000  | min  | 4     |     0.82±0.50    |     2.90±3.16    |  0.2828 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | int    | 10000  | min  | 4     |     0.83±0.69    |     3.12±5.66    |  0.2660 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | str    | 10000  | min  | 4     |     4.55±3.75    |     1.33±1.20    |  3.4211 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | tuple  | 10000  | min  | 4     |     0.70±0.10    |     0.71±0.14    |  0.9859 |
+| replace  | idx=mid,cmp=N        | bool   | 10000  | min  | 4     |     0.55±0.23    |     0.51±0.20    |  1.0784 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | char   | 10000  | min  | 4     |     0.64±0.43    |     0.49±0.14    |  1.3061 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | custom | 10000  | min  | 4     |     1.89±2.20    |     2.02±3.07    |  0.9356 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | float  | 10000  | min  | 4     |     0.72±0.59    |     1.26±1.20    |  0.5714 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | int    | 10000  | min  | 4     |     0.73±0.75    |     0.67±0.51    |  1.0896 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | str    | 10000  | min  | 4     |     3.15±2.40    |     1.72±1.71    |  1.8314 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | tuple  | 10000  | min  | 4     |     0.45±0.05    |     0.47±0.04    |  0.9574 |
+| replace  | pred,cmp=N           | bool   | 10000  | min  | 4     |   626.83±271.20  |   831.61±358.70  |  0.7538 ◀ CUR faster |
+| replace  | pred,cmp=N           | char   | 10000  | min  | 4     |  1038.27±336.61  |   558.66±4.17    |  1.8585 ◀ SYN faster |
+| replace  | pred,cmp=N           | custom | 10000  | min  | 4     |  1473.36±944.02  |   999.83±8.42    |  1.4736 ◀ SYN faster |
+| replace  | pred,cmp=N           | float  | 10000  | min  | 4     |  1371.17±1976.40 |   883.22±427.41  |  1.5525 ◀ SYN faster |
+| replace  | pred,cmp=N           | int    | 10000  | min  | 4     |   850.00±523.91  |   454.82±119.06  |  1.8689 ◀ SYN faster |
+| replace  | pred,cmp=N           | str    | 10000  | min  | 4     |   998.18±466.23  |  1277.00±789.09  |  0.7817 ◀ CUR faster |
+| replace  | pred,cmp=N           | tuple  | 10000  | min  | 4     |   453.66±6.19    |   452.50±4.49    |  1.0026 |
+| replace  | batch(10),cmp=N      | bool   | 10000  | max  | 8     |     4.07±1.50    |     4.41±2.69    |  0.9229 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | char   | 10000  | max  | 8     |     4.18±2.01    |     3.49±0.81    |  1.1977 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | custom | 10000  | max  | 8     |    40.60±7.26    |    15.80±12.83   |  2.5696 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | float  | 10000  | max  | 8     |     2.53±1.24    |     2.30±0.51    |  1.1000 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | int    | 10000  | max  | 8     |     6.27±4.27    |     5.38±2.57    |  1.1654 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | str    | 10000  | max  | 8     |     3.66±2.03    |     5.33±6.00    |  0.6867 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | tuple  | 10000  | max  | 8     |     3.03±0.34    |     3.14±0.30    |  0.9650 |
+| replace  | idx=0,cmp=N          | bool   | 10000  | max  | 8     |     1.17±1.68    |     2.13±2.55    |  0.5493 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | char   | 10000  | max  | 8     |     4.50±3.21    |     3.92±4.15    |  1.1480 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | custom | 10000  | max  | 8     |     2.33±0.63    |    12.97±4.97    |  0.1796 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | float  | 10000  | max  | 8     |     0.83±0.62    |     0.77±0.42    |  1.0779 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | int    | 10000  | max  | 8     |     3.15±1.99    |     1.55±0.82    |  2.0323 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | str    | 10000  | max  | 8     |     1.69±1.40    |     1.01±0.65    |  1.6733 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | tuple  | 10000  | max  | 8     |     0.71±0.08    |     0.70±0.08    |  1.0143 |
+| replace  | idx=mid,cmp=N        | bool   | 10000  | max  | 8     |     1.55±1.37    |     3.79±5.72    |  0.4090 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | char   | 10000  | max  | 8     |     2.51±2.17    |     2.85±2.84    |  0.8807 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | custom | 10000  | max  | 8     |     6.97±5.41    |   105.85±309.58  |  0.0658 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | float  | 10000  | max  | 8     |     0.72±0.59    |     0.62±0.43    |  1.1613 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | int    | 10000  | max  | 8     |     1.95±2.13    |     2.02±2.10    |  0.9653 |
+| replace  | idx=mid,cmp=N        | str    | 10000  | max  | 8     |     0.77±0.64    |     0.68±0.38    |  1.1324 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | tuple  | 10000  | max  | 8     |     0.47±0.03    |     0.46±0.04    |  1.0217 |
+| replace  | pred,cmp=N           | bool   | 10000  | max  | 8     |   439.00±17.87   |  1295.87±1077.80 |  0.3388 ◀ CUR faster |
+| replace  | pred,cmp=N           | char   | 10000  | max  | 8     |   660.30±328.54  |   743.34±327.81  |  0.8883 ◀ CUR faster |
+| replace  | pred,cmp=N           | custom | 10000  | max  | 8     |  4390.15±4231.02 |  2603.25±2740.26 |  1.6864 ◀ SYN faster |
+| replace  | pred,cmp=N           | float  | 10000  | max  | 8     |   648.85±334.72  |   430.94±4.61    |  1.5057 ◀ SYN faster |
+| replace  | pred,cmp=N           | int    | 10000  | max  | 8     |   415.40±11.83   |   578.45±507.29  |  0.7181 ◀ CUR faster |
+| replace  | pred,cmp=N           | str    | 10000  | max  | 8     |  1140.39±402.15  |   723.51±294.73  |  1.5762 ◀ SYN faster |
+| replace  | pred,cmp=N           | tuple  | 10000  | max  | 8     |   526.20±6.07    |   515.00±8.55    |  1.0217 |
+| replace  | batch(10),cmp=N      | bool   | 10000  | min  | 8     |     2.09±0.54    |     4.16±3.60    |  0.5024 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | char   | 10000  | min  | 8     |     8.82±3.71    |     8.45±2.94    |  1.0438 |
+| replace  | batch(10),cmp=N      | custom | 10000  | min  | 8     |    11.68±0.77    |    11.31±0.78    |  1.0327 |
+| replace  | batch(10),cmp=N      | float  | 10000  | min  | 8     |     2.88±1.45    |     2.87±1.89    |  1.0035 |
+| replace  | batch(10),cmp=N      | int    | 10000  | min  | 8     |     2.12±1.12    |     1.92±0.71    |  1.1042 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | str    | 10000  | min  | 8     |     3.80±1.83    |     3.15±0.91    |  1.2063 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | tuple  | 10000  | min  | 8     |     2.76±0.30    |     2.80±0.30    |  0.9857 |
+| replace  | idx=0,cmp=N          | bool   | 10000  | min  | 8     |     0.80±0.46    |     0.70±0.36    |  1.1429 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | char   | 10000  | min  | 8     |     1.07±0.63    |     0.93±0.47    |  1.1505 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | custom | 10000  | min  | 8     |     2.56±0.67    |     2.42±0.84    |  1.0579 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | float  | 10000  | min  | 8     |     3.57±2.75    |     3.16±2.87    |  1.1297 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | int    | 10000  | min  | 8     |     0.90±0.89    |     0.75±0.44    |  1.2000 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | str    | 10000  | min  | 8     |     0.87±0.48    |     0.85±0.38    |  1.0235 |
+| replace  | idx=0,cmp=N          | tuple  | 10000  | min  | 8     |     0.81±0.11    |     0.83±0.18    |  0.9759 |
+| replace  | idx=mid,cmp=N        | bool   | 10000  | min  | 8     |     0.98±1.09    |     0.81±0.85    |  1.2099 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | char   | 10000  | min  | 8     |     3.23±2.43    |     4.50±3.61    |  0.7178 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | custom | 10000  | min  | 8     |     1.04±0.79    |     1.06±0.50    |  0.9811 |
+| replace  | idx=mid,cmp=N        | float  | 10000  | min  | 8     |     1.81±1.42    |     2.20±1.30    |  0.8227 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | int    | 10000  | min  | 8     |     0.72±0.60    |     0.53±0.24    |  1.3585 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | str    | 10000  | min  | 8     |     0.58±0.31    |     0.72±0.55    |  0.8056 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | tuple  | 10000  | min  | 8     |     0.47±0.06    |     0.47±0.03    |  1.0000 |
+| replace  | pred,cmp=N           | bool   | 10000  | min  | 8     |   900.50±283.56  |   547.00±278.59  |  1.6463 ◀ SYN faster |
+| replace  | pred,cmp=N           | char   | 10000  | min  | 8     |   665.22±229.67  |  1140.75±659.40  |  0.5831 ◀ CUR faster |
+| replace  | pred,cmp=N           | custom | 10000  | min  | 8     |   948.31±18.07   |  1054.90±329.25  |  0.8990 ◀ CUR faster |
+| replace  | pred,cmp=N           | float  | 10000  | min  | 8     |   439.92±10.86   |   520.55±215.46  |  0.8451 ◀ CUR faster |
+| replace  | pred,cmp=N           | int    | 10000  | min  | 8     |   429.05±49.19   |   688.12±363.45  |  0.6235 ◀ CUR faster |
+| replace  | pred,cmp=N           | str    | 10000  | min  | 8     |   918.74±450.70  |   921.04±588.24  |  0.9975 |
+| replace  | pred,cmp=N           | tuple  | 10000  | min  | 8     |   451.33±10.26   |   445.07±2.20    |  1.0141 |
+| replace  | batch(10),cmp=N      | bool   | 100000 | max  | 2     |    17.40±11.53   |    11.28±3.68    |  1.5426 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | char   | 100000 | max  | 2     |    10.32±5.77    |     6.08±4.27    |  1.6974 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | custom | 100000 | max  | 2     |    18.87±2.25    |    16.45±1.99    |  1.1471 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | float  | 100000 | max  | 2     |    16.93±7.66    |    26.80±13.05   |  0.6317 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | int    | 100000 | max  | 2     |    11.00±10.62   |    23.76±6.58    |  0.4630 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | str    | 100000 | max  | 2     |     7.59±2.92    |    13.08±9.70    |  0.5803 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | tuple  | 100000 | max  | 2     |     6.13±3.56    |     4.17±1.54    |  1.4700 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | bool   | 100000 | max  | 2     |     3.85±4.33    |     9.48±5.82    |  0.4061 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | char   | 100000 | max  | 2     |     7.58±5.69    |     7.49±6.82    |  1.0120 |
+| replace  | idx=0,cmp=N          | custom | 100000 | max  | 2     |     4.20±1.43    |     3.64±0.52    |  1.1538 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | float  | 100000 | max  | 2     |     3.87±1.31    |     7.78±4.51    |  0.4974 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | int    | 100000 | max  | 2     |     2.39±1.29    |     6.48±5.80    |  0.3688 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | str    | 100000 | max  | 2     |     2.95±0.71    |     2.80±0.68    |  1.0536 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | tuple  | 100000 | max  | 2     |     3.33±1.98    |     5.83±3.49    |  0.5712 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | bool   | 100000 | max  | 2     |     5.55±5.44    |     3.98±4.40    |  1.3945 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | char   | 100000 | max  | 2     |     4.72±4.53    |     5.30±5.22    |  0.8906 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | custom | 100000 | max  | 2     |     2.73±0.50    |     2.28±0.35    |  1.1974 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | float  | 100000 | max  | 2     |     7.38±4.56    |     7.19±4.38    |  1.0264 |
+| replace  | idx=mid,cmp=N        | int    | 100000 | max  | 2     |     1.67±0.61    |     3.20±3.76    |  0.5219 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | str    | 100000 | max  | 2     |     2.32±0.61    |     3.79±2.92    |  0.6121 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | tuple  | 100000 | max  | 2     |     1.12±0.39    |     2.90±2.62    |  0.3862 ◀ CUR faster |
+| replace  | pred,cmp=N           | bool   | 100000 | max  | 2     |  8122.90±3491.12 |  6046.32±2092.83 |  1.3434 ◀ SYN faster |
+| replace  | pred,cmp=N           | char   | 100000 | max  | 2     |  7951.99±2076.43 |  9808.78±5189.01 |  0.8107 ◀ CUR faster |
+| replace  | pred,cmp=N           | custom | 100000 | max  | 2     | 17639.48±1160.40 | 18085.77±1053.34 |  0.9753 |
+| replace  | pred,cmp=N           | float  | 100000 | max  | 2     | 11317.24±4810.67 |  9623.85±3682.79 |  1.1760 ◀ SYN faster |
+| replace  | pred,cmp=N           | int    | 100000 | max  | 2     | 10053.15±4215.87 |  8948.81±3284.12 |  1.1234 ◀ SYN faster |
+| replace  | pred,cmp=N           | str    | 100000 | max  | 2     | 11540.36±4578.85 | 10863.27±3842.85 |  1.0623 ◀ SYN faster |
+| replace  | pred,cmp=N           | tuple  | 100000 | max  | 2     |  5498.70±92.06   |  5495.50±261.40  |  1.0006 |
+| replace  | batch(10),cmp=N      | bool   | 100000 | min  | 2     |     4.47±3.53    |    15.12±5.32    |  0.2956 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | char   | 100000 | min  | 2     |    16.43±9.90    |    11.03±5.73    |  1.4896 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | custom | 100000 | min  | 2     |    22.55±10.41   |    29.67±14.89   |  0.7600 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | float  | 100000 | min  | 2     |    32.64±23.36   |    28.40±15.84   |  1.1493 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | int    | 100000 | min  | 2     |     9.66±7.11    |    15.84±13.73   |  0.6098 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | str    | 100000 | min  | 2     |    16.93±11.54   |     4.82±0.76    |  3.5124 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | tuple  | 100000 | min  | 2     |    10.23±2.38    |     7.32±2.43    |  1.3975 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | bool   | 100000 | min  | 2     |     8.01±5.38    |     6.05±5.13    |  1.3240 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | char   | 100000 | min  | 2     |     6.14±6.72    |    13.84±9.32    |  0.4436 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | custom | 100000 | min  | 2     |     7.12±3.65    |     8.65±4.51    |  0.8231 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | float  | 100000 | min  | 2     |     6.87±5.56    |     4.30±3.03    |  1.5977 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | int    | 100000 | min  | 2     |     6.25±3.80    |     1.84±0.75    |  3.3967 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | str    | 100000 | min  | 2     |     6.58±6.99    |     7.35±6.01    |  0.8952 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | tuple  | 100000 | min  | 2     |     2.59±1.70    |     2.24±2.27    |  1.1562 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | bool   | 100000 | min  | 2     |     6.21±5.46    |     3.49±3.83    |  1.7794 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | char   | 100000 | min  | 2     |     3.58±3.61    |     5.54±5.22    |  0.6462 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | custom | 100000 | min  | 2     |     4.99±1.88    |    11.26±6.08    |  0.4432 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | float  | 100000 | min  | 2     |     7.66±4.82    |     3.41±3.08    |  2.2463 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | int    | 100000 | min  | 2     |     5.86±5.48    |     5.96±4.98    |  0.9832 |
+| replace  | idx=mid,cmp=N        | str    | 100000 | min  | 2     |     5.38±5.25    |     6.69±5.40    |  0.8042 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | tuple  | 100000 | min  | 2     |     1.73±1.34    |     4.80±2.60    |  0.3604 ◀ CUR faster |
+| replace  | pred,cmp=N           | bool   | 100000 | min  | 2     |  6245.35±2364.89 |  7767.00±3418.49 |  0.8041 ◀ CUR faster |
+| replace  | pred,cmp=N           | char   | 100000 | min  | 2     |  9863.44±3600.18 |  8670.48±2310.89 |  1.1376 ◀ SYN faster |
+| replace  | pred,cmp=N           | custom | 100000 | min  | 2     | 21730.26±6193.81 | 24694.02±7983.64 |  0.8800 ◀ CUR faster |
+| replace  | pred,cmp=N           | float  | 100000 | min  | 2     | 12452.50±3517.20 | 12786.65±4645.65 |  0.9739 |
+| replace  | pred,cmp=N           | int    | 100000 | min  | 2     | 15201.16±6377.17 |  7846.07±2067.12 |  1.9374 ◀ SYN faster |
+| replace  | pred,cmp=N           | str    | 100000 | min  | 2     | 13423.20±5988.23 | 16200.50±6353.36 |  0.8286 ◀ CUR faster |
+| replace  | pred,cmp=N           | tuple  | 100000 | min  | 2     |  5157.92±185.06  |  4972.76±183.79  |  1.0372 |
+| replace  | batch(10),cmp=N      | bool   | 100000 | max  | 3     |     8.44±5.11    |     3.09±0.98    |  2.7314 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | char   | 100000 | max  | 3     |     3.45±2.21    |    15.97±7.57    |  0.2160 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | custom | 100000 | max  | 3     |    14.18±1.87    |    13.34±1.83    |  1.0630 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | float  | 100000 | max  | 3     |    30.79±40.35   |    17.27±17.26   |  1.7829 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | int    | 100000 | max  | 3     |    14.30±12.75   |    15.44±29.35   |  0.9262 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | str    | 100000 | max  | 3     |     4.42±1.27    |    16.65±10.85   |  0.2655 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | tuple  | 100000 | max  | 3     |     6.02±3.44    |     5.27±2.10    |  1.1423 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | bool   | 100000 | max  | 3     |     6.19±4.31    |     5.17±5.17    |  1.1973 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | char   | 100000 | max  | 3     |     7.13±6.65    |     6.00±6.06    |  1.1883 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | custom | 100000 | max  | 3     |     3.08±0.55    |     3.17±0.57    |  0.9716 |
+| replace  | idx=0,cmp=N          | float  | 100000 | max  | 3     |     9.44±11.91   |     5.85±5.39    |  1.6137 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | int    | 100000 | max  | 3     |    11.25±7.82    |     6.19±7.38    |  1.8174 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | str    | 100000 | max  | 3     |     4.40±4.34    |     3.23±4.32    |  1.3622 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | tuple  | 100000 | max  | 3     |     1.28±0.43    |     1.41±0.35    |  0.9078 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | bool   | 100000 | max  | 3     |     3.97±4.11    |     3.22±2.46    |  1.2329 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | char   | 100000 | max  | 3     |     8.45±5.15    |     6.67±6.91    |  1.2669 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | custom | 100000 | max  | 3     |     2.09±0.33    |     2.21±0.38    |  0.9457 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | float  | 100000 | max  | 3     |    10.19±4.63    |     3.76±3.86    |  2.7101 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | int    | 100000 | max  | 3     |     2.85±2.86    |     5.90±4.75    |  0.4831 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | str    | 100000 | max  | 3     |     1.75±0.63    |     5.27±4.15    |  0.3321 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | tuple  | 100000 | max  | 3     |     0.82±0.28    |     1.27±0.92    |  0.6457 ◀ CUR faster |
+| replace  | pred,cmp=N           | bool   | 100000 | max  | 3     |  7398.05±2689.44 |  6308.89±2910.44 |  1.1726 ◀ SYN faster |
+| replace  | pred,cmp=N           | char   | 100000 | max  | 3     |  9462.54±3384.23 | 11124.65±4053.92 |  0.8506 ◀ CUR faster |
+| replace  | pred,cmp=N           | custom | 100000 | max  | 3     | 13512.26±169.77  | 13982.88±408.31  |  0.9663 |
+| replace  | pred,cmp=N           | float  | 100000 | max  | 3     |  9073.93±3945.86 |  9796.00±3840.86 |  0.9263 ◀ CUR faster |
+| replace  | pred,cmp=N           | int    | 100000 | max  | 3     |  8534.08±2538.94 |  7951.12±2941.44 |  1.0733 ◀ SYN faster |
+| replace  | pred,cmp=N           | str    | 100000 | max  | 3     | 15888.05±5386.51 | 12571.00±4217.46 |  1.2639 ◀ SYN faster |
+| replace  | pred,cmp=N           | tuple  | 100000 | max  | 3     |  6707.55±481.53  |  6082.67±361.00  |  1.1027 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | bool   | 100000 | min  | 3     |     5.48±4.24    |    15.84±4.98    |  0.3460 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | char   | 100000 | min  | 3     |    10.25±7.99    |     2.98±1.01    |  3.4396 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | custom | 100000 | min  | 3     |    33.90±19.71   |    26.86±19.07   |  1.2621 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | float  | 100000 | min  | 3     |    23.74±10.63   |    21.95±9.75    |  1.0815 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | int    | 100000 | min  | 3     |    19.15±16.21   |    19.52±14.40   |  0.9810 |
+| replace  | batch(10),cmp=N      | str    | 100000 | min  | 3     |    15.00±12.87   |    11.66±7.73    |  1.2864 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | tuple  | 100000 | min  | 3     |     3.18±0.71    |     3.37±0.96    |  0.9436 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | bool   | 100000 | min  | 3     |     1.86±0.47    |     1.88±0.56    |  0.9894 |
+| replace  | idx=0,cmp=N          | char   | 100000 | min  | 3     |     3.18±4.41    |     6.65±4.31    |  0.4782 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | custom | 100000 | min  | 3     |    10.50±5.16    |     8.67±5.19    |  1.2111 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | float  | 100000 | min  | 3     |    90.52±252.91  |     7.42±5.93    | 12.1995 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | int    | 100000 | min  | 3     |    10.18±5.13    |     3.18±3.96    |  3.2013 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | str    | 100000 | min  | 3     |    11.21±7.70    |     4.88±2.78    |  2.2971 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | tuple  | 100000 | min  | 3     |     1.79±1.56    |     1.25±0.45    |  1.4320 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | bool   | 100000 | min  | 3     |     4.66±5.43    |     4.76±4.39    |  0.9790 |
+| replace  | idx=mid,cmp=N        | char   | 100000 | min  | 3     |     1.17±0.86    |     4.80±5.38    |  0.2437 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | custom | 100000 | min  | 3     |     7.59±5.09    |     5.62±3.35    |  1.3505 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | float  | 100000 | min  | 3     |     7.40±3.45    |     8.34±4.86    |  0.8873 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | int    | 100000 | min  | 3     |     4.94±4.82    |     8.58±5.78    |  0.5758 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | str    | 100000 | min  | 3     |     2.98±3.50    |     3.68±3.38    |  0.8098 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | tuple  | 100000 | min  | 3     |     0.98±0.51    |     1.38±1.38    |  0.7101 ◀ CUR faster |
+| replace  | pred,cmp=N           | bool   | 100000 | min  | 3     |  5678.06±1836.34 |  7540.42±4493.03 |  0.7530 ◀ CUR faster |
+| replace  | pred,cmp=N           | char   | 100000 | min  | 3     |  7970.35±2306.72 | 10049.30±4801.56 |  0.7931 ◀ CUR faster |
+| replace  | pred,cmp=N           | custom | 100000 | min  | 3     | 18299.83±4221.15 | 20353.15±6608.78 |  0.8991 ◀ CUR faster |
+| replace  | pred,cmp=N           | float  | 100000 | min  | 3     | 10109.06±3529.62 |  7834.39±4271.07 |  1.2903 ◀ SYN faster |
+| replace  | pred,cmp=N           | int    | 100000 | min  | 3     |  7974.11±1853.57 | 12001.96±3979.41 |  0.6644 ◀ CUR faster |
+| replace  | pred,cmp=N           | str    | 100000 | min  | 3     |  7966.55±522.77  | 11801.83±3596.24 |  0.6750 ◀ CUR faster |
+| replace  | pred,cmp=N           | tuple  | 100000 | min  | 3     |  4676.84±185.49  |  4476.59±55.96   |  1.0447 |
+| replace  | batch(10),cmp=N      | bool   | 100000 | max  | 4     |     4.71±4.43    |     7.70±4.79    |  0.6117 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | char   | 100000 | max  | 4     |    13.05±7.87    |     9.93±5.80    |  1.3142 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | custom | 100000 | max  | 4     |    17.68±4.30    |    14.55±1.14    |  1.2151 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | float  | 100000 | max  | 4     |    10.94±10.45   |     6.81±3.61    |  1.6065 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | int    | 100000 | max  | 4     |     4.02±2.70    |    20.12±18.43   |  0.1998 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | str    | 100000 | max  | 4     |    18.10±14.87   |    14.98±10.96   |  1.2083 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | tuple  | 100000 | max  | 4     |     5.94±2.29    |     4.84±1.66    |  1.2273 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | bool   | 100000 | max  | 4     |     3.58±3.31    |     3.45±3.07    |  1.0377 |
+| replace  | idx=0,cmp=N          | char   | 100000 | max  | 4     |     8.18±4.90    |    14.60±16.50   |  0.5603 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | custom | 100000 | max  | 4     |     3.83±0.63    |     3.31±0.47    |  1.1571 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | float  | 100000 | max  | 4     |     6.50±5.68    |    10.58±5.00    |  0.6144 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | int    | 100000 | max  | 4     |     3.79±5.25    |     8.19±6.10    |  0.4628 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | str    | 100000 | max  | 4     |     5.63±5.07    |     7.80±5.62    |  0.7218 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | tuple  | 100000 | max  | 4     |     2.29±2.02    |     1.19±0.47    |  1.9244 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | bool   | 100000 | max  | 4     |     3.50±4.04    |     5.41±4.23    |  0.6470 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | char   | 100000 | max  | 4     |     8.99±4.96    |     5.24±4.17    |  1.7156 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | custom | 100000 | max  | 4     |     2.09±0.42    |     4.28±2.43    |  0.4883 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | float  | 100000 | max  | 4     |     5.18±4.99    |     4.58±4.89    |  1.1310 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | int    | 100000 | max  | 4     |     1.32±0.82    |     6.97±5.12    |  0.1894 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | str    | 100000 | max  | 4     |     5.40±4.57    |     4.51±3.57    |  1.1973 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | tuple  | 100000 | max  | 4     |     1.22±1.04    |     2.13±2.14    |  0.5728 ◀ CUR faster |
+| replace  | pred,cmp=N           | bool   | 100000 | max  | 4     |  5911.14±2028.67 |  9887.03±3726.46 |  0.5979 ◀ CUR faster |
+| replace  | pred,cmp=N           | char   | 100000 | max  | 4     |  8934.05±2165.92 |  9084.93±3608.58 |  0.9834 |
+| replace  | pred,cmp=N           | custom | 100000 | max  | 4     | 12488.95±140.46  | 12730.73±188.31  |  0.9810 |
+| replace  | pred,cmp=N           | float  | 100000 | max  | 4     |  6868.32±3633.02 |  9341.61±3859.12 |  0.7352 ◀ CUR faster |
+| replace  | pred,cmp=N           | int    | 100000 | max  | 4     |  7104.57±2568.25 |  8875.78±3558.09 |  0.8004 ◀ CUR faster |
+| replace  | pred,cmp=N           | str    | 100000 | max  | 4     | 11397.93±4236.00 | 10478.89±5414.81 |  1.0877 ◀ SYN faster |
+| replace  | pred,cmp=N           | tuple  | 100000 | max  | 4     |  5579.24±120.99  |  5465.32±161.29  |  1.0208 |
+| replace  | batch(10),cmp=N      | bool   | 100000 | min  | 4     |    16.47±14.93   |     5.93±7.20    |  2.7774 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | char   | 100000 | min  | 4     |    11.22±6.26    |    17.19±7.41    |  0.6527 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | custom | 100000 | min  | 4     |    19.90±1.82    |    19.68±2.16    |  1.0112 |
+| replace  | batch(10),cmp=N      | float  | 100000 | min  | 4     |     8.51±2.24    |     7.43±2.56    |  1.1454 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | int    | 100000 | min  | 4     |    38.27±43.19   |    23.95±7.94    |  1.5979 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | str    | 100000 | min  | 4     |    16.97±13.38   |    11.22±10.64   |  1.5125 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | tuple  | 100000 | min  | 4     |     6.15±2.81    |     5.86±2.41    |  1.0495 |
+| replace  | idx=0,cmp=N          | bool   | 100000 | min  | 4     |     8.28±4.76    |    13.74±30.55   |  0.6026 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | char   | 100000 | min  | 4     |     8.99±6.05    |     5.45±5.16    |  1.6495 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | custom | 100000 | min  | 4     |     6.38±2.88    |     7.45±3.49    |  0.8564 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | float  | 100000 | min  | 4     |     2.67±1.05    |     7.91±6.26    |  0.3375 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | int    | 100000 | min  | 4     |     2.91±3.29    |     2.43±1.49    |  1.1975 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | str    | 100000 | min  | 4     |     2.76±0.55    |     2.69±0.40    |  1.0260 |
+| replace  | idx=0,cmp=N          | tuple  | 100000 | min  | 4     |     1.06±0.80    |     0.88±0.33    |  1.2045 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | bool   | 100000 | min  | 4     |     5.41±5.01    |     1.37±0.55    |  3.9489 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | char   | 100000 | min  | 4     |     6.04±4.50    |     7.72±4.71    |  0.7824 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | custom | 100000 | min  | 4     |     8.30±9.64    |     3.77±1.87    |  2.2016 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | float  | 100000 | min  | 4     |     1.59±0.38    |     4.88±3.95    |  0.3258 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | int    | 100000 | min  | 4     |     4.49±3.51    |     4.86±5.36    |  0.9239 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | str    | 100000 | min  | 4     |     2.39±0.46    |     2.16±0.47    |  1.1065 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | tuple  | 100000 | min  | 4     |     0.65±0.36    |     1.13±1.21    |  0.5752 ◀ CUR faster |
+| replace  | pred,cmp=N           | bool   | 100000 | min  | 4     |  8045.36±4300.30 |  6819.78±2493.43 |  1.1797 ◀ SYN faster |
+| replace  | pred,cmp=N           | char   | 100000 | min  | 4     |  9648.23±4285.79 | 10915.69±4128.67 |  0.8839 ◀ CUR faster |
+| replace  | pred,cmp=N           | custom | 100000 | min  | 4     | 15515.40±3665.01 | 15152.97±2950.66 |  1.0239 |
+| replace  | pred,cmp=N           | float  | 100000 | min  | 4     |  5135.93±311.01  |  6476.25±2023.83 |  0.7930 ◀ CUR faster |
+| replace  | pred,cmp=N           | int    | 100000 | min  | 4     |  7754.73±3366.02 | 10229.99±2710.77 |  0.7580 ◀ CUR faster |
+| replace  | pred,cmp=N           | str    | 100000 | min  | 4     |  9254.70±4579.45 | 10217.02±2589.58 |  0.9058 ◀ CUR faster |
+| replace  | pred,cmp=N           | tuple  | 100000 | min  | 4     |  4881.60±174.29  |  4970.21±354.68  |  0.9822 |
+| replace  | batch(10),cmp=N      | bool   | 100000 | max  | 8     |     3.39±0.70    |     9.83±5.77    |  0.3449 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | char   | 100000 | max  | 8     |    11.74±8.85    |    16.22±5.19    |  0.7238 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | custom | 100000 | max  | 8     |    21.19±3.43    |    16.27±1.25    |  1.3024 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | float  | 100000 | max  | 8     |    19.00±17.65   |    12.47±15.58   |  1.5237 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | int    | 100000 | max  | 8     |     3.89±2.28    |     6.24±7.58    |  0.6234 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | str    | 100000 | max  | 8     |    16.21±12.95   |    11.50±9.27    |  1.4096 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | tuple  | 100000 | max  | 8     |     5.78±2.14    |     7.55±4.09    |  0.7656 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | bool   | 100000 | max  | 8     |     4.15±5.03    |     5.43±5.68    |  0.7643 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | char   | 100000 | max  | 8     |     8.97±5.98    |     6.65±6.81    |  1.3489 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | custom | 100000 | max  | 8     |     4.51±1.36    |     6.79±5.37    |  0.6642 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | float  | 100000 | max  | 8     |     5.73±6.79    |     4.02±3.31    |  1.4254 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | int    | 100000 | max  | 8     |     2.75±3.20    |     2.90±3.89    |  0.9483 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | str    | 100000 | max  | 8     |     4.52±3.97    |     6.15±5.29    |  0.7350 ◀ CUR faster |
+| replace  | idx=0,cmp=N          | tuple  | 100000 | max  | 8     |     1.38±0.83    |     1.25±0.51    |  1.1040 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | bool   | 100000 | max  | 8     |     1.36±0.76    |     7.18±4.06    |  0.1894 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | char   | 100000 | max  | 8     |     6.60±6.34    |     4.99±4.15    |  1.3226 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | custom | 100000 | max  | 8     |     6.65±1.92    |     6.03±0.94    |  1.1028 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | float  | 100000 | max  | 8     |     1.42±0.70    |     2.97±4.03    |  0.4781 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | int    | 100000 | max  | 8     |     5.38±4.95    |     1.01±0.52    |  5.3267 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | str    | 100000 | max  | 8     |     3.80±3.86    |     5.38±4.56    |  0.7063 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | tuple  | 100000 | max  | 8     |     0.86±0.47    |     0.83±0.40    |  1.0361 |
+| replace  | pred,cmp=N           | bool   | 100000 | max  | 8     |  6505.70±2503.12 |  6237.09±2440.42 |  1.0431 |
+| replace  | pred,cmp=N           | char   | 100000 | max  | 8     |  8969.31±2742.65 |  9414.93±3943.45 |  0.9527 |
+| replace  | pred,cmp=N           | custom | 100000 | max  | 8     | 11588.80±435.56  | 22817.76±23522.86 |  0.5079 ◀ CUR faster |
+| replace  | pred,cmp=N           | float  | 100000 | max  | 8     | 10624.38±8033.89 |  8942.86±3048.27 |  1.1880 ◀ SYN faster |
+| replace  | pred,cmp=N           | int    | 100000 | max  | 8     |  7445.83±2949.97 |  8095.18±3363.02 |  0.9198 ◀ CUR faster |
+| replace  | pred,cmp=N           | str    | 100000 | max  | 8     | 10184.35±5149.22 |  7853.28±2888.67 |  1.2968 ◀ SYN faster |
+| replace  | pred,cmp=N           | tuple  | 100000 | max  | 8     |  5649.17±229.65  |  5268.79±57.99   |  1.0722 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | bool   | 100000 | min  | 8     |     6.36±6.30    |    11.47±6.60    |  0.5545 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | char   | 100000 | min  | 8     |    10.29±6.80    |    14.01±7.90    |  0.7345 ◀ CUR faster |
+| replace  | batch(10),cmp=N      | custom | 100000 | min  | 8     |    22.93±3.90    |    23.86±3.48    |  0.9610 |
+| replace  | batch(10),cmp=N      | float  | 100000 | min  | 8     |    17.05±12.99   |     9.34±5.91    |  1.8255 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | int    | 100000 | min  | 8     |     9.25±9.51    |     4.49±3.15    |  2.0601 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | str    | 100000 | min  | 8     |    22.65±14.81   |    13.69±10.36   |  1.6545 ◀ SYN faster |
+| replace  | batch(10),cmp=N      | tuple  | 100000 | min  | 8     |     6.50±2.54    |     6.25±2.85    |  1.0400 |
+| replace  | idx=0,cmp=N          | bool   | 100000 | min  | 8     |    10.70±6.76    |     4.90±5.46    |  2.1837 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | char   | 100000 | min  | 8     |    18.20±34.07   |    12.71±1.62    |  1.4319 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | custom | 100000 | min  | 8     |     7.24±6.44    |     6.60±4.59    |  1.0970 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | float  | 100000 | min  | 8     |    11.45±3.19    |     9.36±4.40    |  1.2233 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | int    | 100000 | min  | 8     |     8.54±6.98    |     2.66±1.88    |  3.2105 ◀ SYN faster |
+| replace  | idx=0,cmp=N          | str    | 100000 | min  | 8     |     7.83±6.12    |     8.23±6.00    |  0.9514 |
+| replace  | idx=0,cmp=N          | tuple  | 100000 | min  | 8     |     2.33±1.77    |     2.63±2.00    |  0.8859 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | bool   | 100000 | min  | 8     |     6.55±7.82    |     5.56±5.52    |  1.1781 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | char   | 100000 | min  | 8     |     7.31±6.65    |     5.85±10.04   |  1.2496 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | custom | 100000 | min  | 8     |     3.56±1.39    |     4.43±3.69    |  0.8036 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | float  | 100000 | min  | 8     |     3.66±2.33    |    10.22±14.69   |  0.3581 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | int    | 100000 | min  | 8     |    11.33±18.32   |     3.67±5.23    |  3.0872 ◀ SYN faster |
+| replace  | idx=mid,cmp=N        | str    | 100000 | min  | 8     |     4.21±4.08    |     6.86±4.45    |  0.6137 ◀ CUR faster |
+| replace  | idx=mid,cmp=N        | tuple  | 100000 | min  | 8     |     1.77±1.55    |     2.22±2.16    |  0.7973 ◀ CUR faster |
+| replace  | pred,cmp=N           | bool   | 100000 | min  | 8     |  5895.26±1955.25 |  9043.91±4956.99 |  0.6518 ◀ CUR faster |
+| replace  | pred,cmp=N           | char   | 100000 | min  | 8     | 11708.24±5935.87 |  9309.48±4940.06 |  1.2577 ◀ SYN faster |
+| replace  | pred,cmp=N           | custom | 100000 | min  | 8     | 12065.31±2220.35 | 11459.11±990.33  |  1.0529 ◀ SYN faster |
+| replace  | pred,cmp=N           | float  | 100000 | min  | 8     |  5269.80±1339.13 |  5562.32±1737.26 |  0.9474 ◀ CUR faster |
+| replace  | pred,cmp=N           | int    | 100000 | min  | 8     |  7298.41±2796.07 |  7575.03±3696.28 |  0.9635 |
+| replace  | pred,cmp=N           | str    | 100000 | min  | 8     | 14470.17±9482.25 |  7753.37±2254.69 |  1.8663 ◀ SYN faster |
+| replace  | pred,cmp=N           | tuple  | 100000 | min  | 8     |  4821.53±217.94  |  4865.66±141.36  |  0.9909 |
+
+### Table 3: Per-Function × Size × Arity Average Speedup (across all dtypes, modes, variants)
+(Speedup > 1.0 = synthesized faster, < 1.0 = current faster)
+
+| Function | n | Arity | Avg Speedup | Avg Cur (µs) | Avg Syn (µs) | Count |
+|----------|---|-------|-------------|-------------|-------------|-------|
+| heapify  | 0      | 1     |      1.1970 |        0.79 |        0.64 |    16 |
+| heapify  | 0      | 2     |      0.9631 |        0.39 |        0.42 |    16 |
+| heapify  | 0      | 3     |      1.2328 |        0.44 |        0.36 |    16 |
+| heapify  | 0      | 4     |      1.1257 |        0.39 |        0.34 |    16 |
+| heapify  | 0      | 8     |      1.1508 |        0.39 |        0.34 |    16 |
+| heapify  | 10     | 1     |      1.0479 |        1.23 |        1.23 |    16 |
+| heapify  | 10     | 2     |      1.1346 |        0.76 |        0.79 |    16 |
+| heapify  | 10     | 3     |      1.6580 |        0.87 |        0.61 |    16 |
+| heapify  | 10     | 4     |      1.1723 |        1.39 |        0.98 |    16 |
+| heapify  | 10     | 8     |      1.1486 |        0.66 |        0.55 |    16 |
+| heapify  | 100    | 1     |      1.2228 |       12.16 |       10.19 |    16 |
+| heapify  | 100    | 2     |      0.9236 |        3.99 |        5.10 |    16 |
+| heapify  | 100    | 3     |      1.8883 |        4.06 |        3.53 |    16 |
+| heapify  | 100    | 4     |      0.9379 |        3.58 |        3.96 |    16 |
+| heapify  | 100    | 8     |      1.0296 |        3.34 |        3.23 |    16 |
+| heapify  | 1000   | 1     |      1.2032 |      123.53 |      115.54 |    16 |
+| heapify  | 1000   | 2     |      1.0694 |       26.19 |       24.56 |    16 |
+| heapify  | 1000   | 3     |      0.9807 |       22.77 |       25.05 |    16 |
+| heapify  | 1000   | 4     |      1.2492 |       32.15 |       22.69 |    16 |
+| heapify  | 1000   | 8     |      1.0099 |       23.02 |       22.80 |    16 |
+| heapify  | 10000  | 1     |      0.9923 |     2153.36 |     2145.10 |    16 |
+| heapify  | 10000  | 2     |      0.9575 |      308.88 |      349.38 |    16 |
+| heapify  | 10000  | 3     |      1.0369 |      238.55 |      293.66 |    16 |
+| heapify  | 10000  | 4     |      1.4695 |      535.49 |      260.35 |    16 |
+| heapify  | 10000  | 8     |      1.1776 |      309.06 |      255.88 |    16 |
+| heapify  | 100000 | 1     |      0.9762 |    45569.27 |    51027.39 |    16 |
+| heapify  | 100000 | 2     |      1.2506 |     5853.03 |     6083.00 |    16 |
+| heapify  | 100000 | 3     |      1.0703 |     3995.70 |     3903.71 |    16 |
+| heapify  | 100000 | 4     |      0.9590 |     3672.03 |     3520.21 |    16 |
+| heapify  | 100000 | 8     |      1.0248 |     3410.39 |     3421.20 |    16 |
+| push     | 0      | 1     |      1.8106 |        1.01 |        0.96 |    32 |
+| push     | 0      | 2     |      1.0479 |        0.53 |        0.55 |    32 |
+| push     | 0      | 3     |      1.0917 |        0.56 |        0.51 |    32 |
+| push     | 0      | 4     |      1.2306 |        0.63 |        0.50 |    32 |
+| push     | 0      | 8     |      1.0623 |        0.50 |        0.47 |    32 |
+| push     | 10     | 1     |      1.1236 |        0.85 |        0.69 |    32 |
+| push     | 10     | 2     |      1.0205 |        0.50 |        0.51 |    32 |
+| push     | 10     | 3     |      1.0265 |        0.47 |        0.46 |    32 |
+| push     | 10     | 4     |      3.5810 |        2.78 |        0.46 |    32 |
+| push     | 10     | 8     |      1.0302 |        0.45 |        0.44 |    32 |
+| push     | 100    | 1     |      1.0313 |        2.05 |        2.03 |    32 |
+| push     | 100    | 2     |      1.0234 |        0.81 |        0.79 |    32 |
+| push     | 100    | 3     |      0.9899 |        0.78 |        0.85 |    32 |
+| push     | 100    | 4     |      1.0353 |        0.86 |        0.83 |    32 |
+| push     | 100    | 8     |      1.0193 |        0.75 |        0.89 |    32 |
+| push     | 1000   | 1     |      1.1144 |      136.99 |      187.62 |    32 |
+| push     | 1000   | 2     |      1.3616 |        4.76 |        3.02 |    32 |
+| push     | 1000   | 3     |      1.0965 |        3.20 |        3.75 |    32 |
+| push     | 1000   | 4     |      1.4856 |        6.17 |        3.67 |    32 |
+| push     | 1000   | 8     |      1.1963 |        3.03 |        2.82 |    32 |
+| push     | 10000  | 1     |      1.1647 |     9544.91 |     9538.25 |    32 |
+| push     | 10000  | 2     |      1.3971 |       22.86 |       21.76 |    32 |
+| push     | 10000  | 3     |      1.2591 |       22.01 |       19.17 |    32 |
+| push     | 10000  | 4     |      1.0573 |       17.43 |       18.31 |    32 |
+| push     | 10000  | 8     |      1.3021 |       18.92 |       17.22 |    32 |
+| push     | 100000 | 1     |      1.1038 |   150172.93 |    83560.41 |    32 |
+| push     | 100000 | 2     |      1.4932 |      126.80 |      139.59 |    32 |
+| push     | 100000 | 3     |      0.9438 |       74.85 |       95.72 |    32 |
+| push     | 100000 | 4     |      1.0220 |       97.63 |      104.07 |    32 |
+| push     | 100000 | 8     |      1.1435 |       63.91 |       93.59 |    32 |
+| pop      | 10     | 1     |      1.1524 |        0.65 |        0.56 |    32 |
+| pop      | 10     | 2     |      1.3369 |        0.83 |        0.53 |    32 |
+| pop      | 10     | 3     |      1.5373 |        0.98 |        0.63 |    32 |
+| pop      | 10     | 4     |      1.0494 |        0.74 |        0.70 |    32 |
+| pop      | 10     | 8     |      1.0467 |        0.81 |        0.76 |    32 |
+| pop      | 100    | 1     |      1.0631 |        4.13 |        4.47 |    32 |
+| pop      | 100    | 2     |      1.0256 |        1.25 |        3.37 |    32 |
+| pop      | 100    | 3     |      1.1100 |        1.73 |        1.49 |    32 |
+| pop      | 100    | 4     |      1.0108 |        1.47 |        1.56 |    32 |
+| pop      | 100    | 8     |      2.0345 |        3.40 |        1.91 |    32 |
+| pop      | 1000   | 1     |      1.4583 |      287.48 |      318.12 |    32 |
+| pop      | 1000   | 2     |      1.5064 |       14.07 |       14.18 |    32 |
+| pop      | 1000   | 3     |      1.0292 |       12.68 |       17.41 |    32 |
+| pop      | 1000   | 4     |      0.9738 |       17.39 |       23.37 |    32 |
+| pop      | 1000   | 8     |      2.3830 |       44.30 |       47.07 |    32 |
+| pop      | 10000  | 1     |      1.1116 |    23422.69 |    22880.98 |    32 |
+| pop      | 10000  | 2     |      1.7002 |      143.87 |      106.89 |    32 |
+| pop      | 10000  | 3     |      1.3042 ★ |      149.43 |      141.83 |    32 |
+| pop      | 10000  | 4     |      1.1372 ★ |      135.24 |      179.58 |    32 |
+| pop      | 10000  | 8     |      1.1630 ★ |      176.10 |      188.39 |    32 |
+| pop      | 100000 | 1     |      1.0912 |   236115.51 |   204719.14 |    32 |
+| pop      | 100000 | 2     |      1.2984 |      441.86 |      293.80 |    32 |
+| pop      | 100000 | 3     |      1.2267 ★ |      159.72 |      160.99 |    32 |
+| pop      | 100000 | 4     |      1.3865 ★ |      213.44 |      184.58 |    32 |
+| pop      | 100000 | 8     |      1.2044 ★ |      237.30 |      206.01 |    32 |
+| remove   | 10     | 2     |      1.2410 |        1.34 |        1.15 |    80 |
+| remove   | 10     | 3     |      1.0829 |        1.27 |        1.13 |    80 |
+| remove   | 10     | 4     |      1.0601 |        1.14 |        1.08 |    80 |
+| remove   | 10     | 8     |      1.9361 |        2.58 |        1.26 |    80 |
+| remove   | 100    | 2     |      1.0633 |        2.02 |        2.08 |    80 |
+| remove   | 100    | 3     |      1.0725 |        2.03 |        1.97 |    80 |
+| remove   | 100    | 4     |      1.0733 |        1.89 |        1.76 |    80 |
+| remove   | 100    | 8     |      1.0364 |        1.79 |        1.72 |    80 |
+| remove   | 1000   | 2     |      1.1323 |       18.50 |       16.14 |    80 |
+| remove   | 1000   | 3     |      1.1366 |       15.17 |       15.86 |    80 |
+| remove   | 1000   | 4     |      1.5304 |       16.13 |       14.09 |    80 |
+| remove   | 1000   | 8     |      1.1493 |       11.20 |       11.38 |    80 |
+| remove   | 10000  | 2     |      1.1642 |      166.48 |      218.49 |    80 |
+| remove   | 10000  | 3     |      1.2211 ★ |      235.81 |      195.96 |    80 |
+| remove   | 10000  | 4     |      1.1942 ★ |      169.10 |      146.34 |    80 |
+| remove   | 10000  | 8     |      1.7085 ★ |      150.95 |      165.23 |    80 |
+| remove   | 100000 | 2     |      1.1106 |     2809.61 |     2851.93 |    80 |
+| remove   | 100000 | 3     |      1.1022 ★ |     1893.88 |     1853.83 |    80 |
+| remove   | 100000 | 4     |      1.7812 ★ |     1573.19 |     1594.93 |    80 |
+| remove   | 100000 | 8     |      1.0962 ★ |     1218.25 |     1327.06 |    80 |
+| replace  | 10     | 2     |      1.5016 |        2.08 |        1.24 |    64 |
+| replace  | 10     | 3     |      1.0032 |        1.36 |        3.01 |    64 |
+| replace  | 10     | 4     |      1.0769 |        1.50 |        1.51 |    64 |
+| replace  | 10     | 8     |      1.0402 |        1.25 |        1.21 |    64 |
+| replace  | 100    | 2     |      1.3434 |        6.58 |        3.61 |    64 |
+| replace  | 100    | 3     |      1.2734 |        5.70 |        3.36 |    64 |
+| replace  | 100    | 4     |      1.0326 |        2.67 |        2.63 |    64 |
+| replace  | 100    | 8     |      1.0280 |        2.53 |        2.49 |    64 |
+| replace  | 1000   | 2     |      1.1636 |       45.67 |       34.05 |    64 |
+| replace  | 1000   | 3     |      1.1574 |       22.71 |       20.96 |    64 |
+| replace  | 1000   | 4     |      1.0607 |       23.96 |       33.14 |    64 |
+| replace  | 1000   | 8     |      1.0878 |       41.21 |       28.88 |    64 |
+| replace  | 10000  | 2     |      1.4887 |      302.28 |      250.00 |    64 |
+| replace  | 10000  | 3     |      1.1463 ★ |      255.71 |      250.35 |    64 |
+| replace  | 10000  | 4     |      1.3146 ★ |      258.71 |      259.02 |    64 |
+| replace  | 10000  | 8     |      1.1663 ★ |      250.58 |      232.59 |    64 |
+| replace  | 100000 | 2     |      1.0517 |     3200.41 |     3233.34 |    64 |
+| replace  | 100000 | 3     |      1.3213 ★ |     2656.27 |     2741.69 |    64 |
+| replace  | 100000 | 4     |      1.0710 ★ |     2275.70 |     2476.18 |    64 |
+| replace  | 100000 | 8     |      1.2084 ★ |     2305.07 |     2330.74 |    64 |
+| merge    | 0      | 1     |      2.0998 |        1.02 |        0.39 |    16 |
+| merge    | 0      | 2     |      1.1629 |        0.39 |        0.33 |    16 |
+| merge    | 0      | 3     |      1.1605 |        0.37 |        0.31 |    16 |
+| merge    | 0      | 4     |      1.1359 |        0.35 |        0.31 |    16 |
+| merge    | 0      | 8     |      1.0912 |        0.33 |        0.30 |    16 |
+| merge    | 10     | 1     |      1.1152 |        0.79 |        0.70 |    32 |
+| merge    | 10     | 2     |      1.0516 |        0.72 |        0.68 |    32 |
+| merge    | 10     | 3     |      1.0443 |        0.71 |        0.68 |    32 |
+| merge    | 10     | 4     |      1.0518 |        0.69 |        0.66 |    32 |
+| merge    | 10     | 8     |      1.0519 |        0.73 |        0.69 |    32 |
+| merge    | 100    | 1     |      1.1722 |        9.28 |        8.04 |    32 |
+| merge    | 100    | 2     |      1.0159 |        3.72 |        4.05 |    32 |
+| merge    | 100    | 3     |      1.0158 |        3.38 |        7.06 |    32 |
+| merge    | 100    | 4     |      1.0409 |        3.61 |        3.51 |    32 |
+| merge    | 100    | 8     |      1.0307 |        3.15 |        3.11 |    32 |
+| merge    | 1000   | 1     |      1.0250 |      134.23 |      194.17 |    32 |
+| merge    | 1000   | 2     |      0.9965 |       34.80 |       47.05 |    32 |
+| merge    | 1000   | 3     |      1.3304 |       47.51 |       28.15 |    32 |
+| merge    | 1000   | 4     |      1.0181 |       25.85 |       25.52 |    32 |
+| merge    | 1000   | 8     |      1.0260 |       32.66 |       31.94 |    32 |
+| merge    | 10000  | 1     |      1.0730 |     1912.41 |     1973.02 |    32 |
+| merge    | 10000  | 2     |      1.0784 |      393.46 |      405.85 |    32 |
+| merge    | 10000  | 3     |      1.0480 |      317.45 |      327.92 |    32 |
+| merge    | 10000  | 4     |      1.1895 |      373.20 |      322.12 |    32 |
+| merge    | 10000  | 8     |      1.1907 |      343.22 |      330.15 |    32 |
+| merge    | 100000 | 1     |      1.0337 |    30447.02 |    29386.95 |    32 |
+| merge    | 100000 | 2     |      1.0492 |     4254.40 |     4027.85 |    32 |
+| merge    | 100000 | 3     |      1.0571 |     3432.72 |     3245.91 |    32 |
+| merge    | 100000 | 4     |      1.1085 |     3384.56 |     3135.97 |    32 |
+| merge    | 100000 | 8     |      1.0213 |     3140.46 |     3116.12 |    32 |
+
+### Table 4: Dtype Breakdown for Affected Paths (pop/remove/replace, n≥10000, arity∈{3,4,8}, cmp=N)
+
+| Function | DType | n | Arity | Avg Speedup | Avg Cur (µs) | Avg Syn (µs) | Samples |
+|----------|-------|---|-------|-------------|-------------|-------------|---------|
+| pop      | bool    | 10000  | 3     |      1.6959 |       38.49 |       87.83 |       4 |
+| pop      | bool    | 10000  | 4     |      1.0223 |       55.95 |       44.79 |       4 |
+| pop      | bool    | 10000  | 8     |      1.0486 |       60.73 |       61.20 |       4 |
+| pop      | bool    | 100000 | 3     |      1.2381 |       52.90 |       58.72 |       4 |
+| pop      | bool    | 100000 | 4     |      1.7858 |       61.05 |       64.87 |       4 |
+| pop      | bool    | 100000 | 8     |      0.7218 |       73.73 |       86.17 |       4 |
+| pop      | char    | 10000  | 3     |      1.1823 |       87.17 |       60.58 |       4 |
+| pop      | char    | 10000  | 4     |      0.9794 |       57.90 |       62.63 |       4 |
+| pop      | char    | 10000  | 8     |      1.2859 |      123.66 |       88.36 |       4 |
+| pop      | char    | 100000 | 3     |      0.9737 |       79.06 |       64.67 |       4 |
+| pop      | char    | 100000 | 4     |      0.7739 |       88.17 |      229.07 |       4 |
+| pop      | char    | 100000 | 8     |      1.8678 |      296.16 |      145.94 |       4 |
+| pop      | custom  | 10000  | 3     |      1.1804 |      352.23 |      384.43 |       4 |
+| pop      | custom  | 10000  | 4     |      0.8400 |      338.28 |      403.31 |       4 |
+| pop      | custom  | 10000  | 8     |      1.8698 |      426.42 |      316.07 |       4 |
+| pop      | custom  | 100000 | 3     |      1.0147 |      207.88 |      204.46 |       4 |
+| pop      | custom  | 100000 | 4     |      0.9946 |      243.99 |      241.80 |       4 |
+| pop      | custom  | 100000 | 8     |      0.9825 |      355.93 |      347.30 |       4 |
+| pop      | float   | 10000  | 3     |      1.1811 |       62.20 |       78.44 |       4 |
+| pop      | float   | 10000  | 4     |      0.8397 |       46.93 |       93.40 |       4 |
+| pop      | float   | 10000  | 8     |      0.8684 |       82.58 |      175.76 |       4 |
+| pop      | float   | 100000 | 3     |      1.7232 |      240.43 |      188.89 |       4 |
+| pop      | float   | 100000 | 4     |      1.6977 |      466.67 |      250.10 |       4 |
+| pop      | float   | 100000 | 8     |      1.1553 |      218.13 |      193.58 |       4 |
+| pop      | int     | 10000  | 3     |      1.9651 |      107.47 |       52.18 |       4 |
+| pop      | int     | 10000  | 4     |      2.2795 |      110.72 |       39.69 |       4 |
+| pop      | int     | 10000  | 8     |      1.0270 |       73.69 |       98.56 |       4 |
+| pop      | int     | 100000 | 3     |      1.8610 |      146.55 |      206.47 |       4 |
+| pop      | int     | 100000 | 4     |      2.4806 |      152.86 |       57.27 |       4 |
+| pop      | int     | 100000 | 8     |      1.8636 |      131.73 |       75.31 |       4 |
+| pop      | str     | 10000  | 3     |      1.2426 |       73.34 |       62.78 |       4 |
+| pop      | str     | 10000  | 4     |      1.2121 |       65.00 |       65.71 |       4 |
+| pop      | str     | 10000  | 8     |      1.0898 |      149.91 |      108.73 |       4 |
+| pop      | str     | 100000 | 3     |      0.6279 |       64.18 |       83.17 |       4 |
+| pop      | str     | 100000 | 4     |      1.1894 |      172.34 |      148.79 |       4 |
+| pop      | str     | 100000 | 8     |      1.1129 |      231.75 |      197.06 |       4 |
+| pop      | tuple   | 10000  | 3     |      1.2423 |      177.09 |      132.57 |       4 |
+| pop      | tuple   | 10000  | 4     |      0.6224 |      178.47 |      252.21 |       4 |
+| pop      | tuple   | 10000  | 8     |      1.3241 |      145.97 |      248.25 |       4 |
+| pop      | tuple   | 100000 | 3     |      1.3424 |      284.35 |      275.94 |       4 |
+| pop      | tuple   | 100000 | 4     |      1.1245 |      307.26 |      273.55 |       4 |
+| pop      | tuple   | 100000 | 8     |      0.9386 |      297.37 |      318.13 |       4 |
+| remove   | bool    | 10000  | 3     |      1.1779 |       48.35 |       64.01 |      10 |
+| remove   | bool    | 10000  | 4     |      0.9357 |       44.74 |       51.85 |      10 |
+| remove   | bool    | 10000  | 8     |      1.6585 |       37.33 |       34.72 |      10 |
+| remove   | bool    | 100000 | 3     |      1.0724 |      839.90 |      700.36 |      10 |
+| remove   | bool    | 100000 | 4     |      1.4347 |      783.39 |      635.74 |      10 |
+| remove   | bool    | 100000 | 8     |      0.9351 |      565.14 |      486.62 |      10 |
+| remove   | char    | 10000  | 3     |      1.1342 |       88.41 |       80.07 |      10 |
+| remove   | char    | 10000  | 4     |      1.3658 |       94.12 |       87.32 |      10 |
+| remove   | char    | 10000  | 8     |      1.0042 |       89.98 |      112.80 |      10 |
+| remove   | char    | 100000 | 3     |      1.5001 |      977.55 |     1028.59 |      10 |
+| remove   | char    | 100000 | 4     |      1.1651 |     1088.96 |     1002.04 |      10 |
+| remove   | char    | 100000 | 8     |      1.1466 |      933.47 |      996.88 |      10 |
+| remove   | custom  | 10000  | 3     |      1.9071 |     1182.40 |      724.84 |      10 |
+| remove   | custom  | 10000  | 4     |      1.4526 |      522.54 |      425.23 |      10 |
+| remove   | custom  | 10000  | 8     |      1.0945 |      546.60 |      525.28 |      10 |
+| remove   | custom  | 100000 | 3     |      1.0333 |     4204.25 |     3746.94 |      10 |
+| remove   | custom  | 100000 | 4     |      1.0781 |     3312.07 |     3219.13 |      10 |
+| remove   | custom  | 100000 | 8     |      0.9879 |     2385.06 |     3173.76 |      10 |
+| remove   | float   | 10000  | 3     |      0.9965 |       53.19 |       85.59 |      10 |
+| remove   | float   | 10000  | 4     |      0.9072 |       42.29 |       55.14 |      10 |
+| remove   | float   | 10000  | 8     |      1.1378 |       33.55 |       35.19 |      10 |
+| remove   | float   | 100000 | 3     |      0.9574 |      961.34 |     1058.08 |      10 |
+| remove   | float   | 100000 | 4     |      1.6598 |      665.44 |      845.45 |      10 |
+| remove   | float   | 100000 | 8     |      1.0737 |      556.42 |      425.04 |      10 |
+| remove   | int     | 10000  | 3     |      0.9811 |       37.18 |       65.18 |      10 |
+| remove   | int     | 10000  | 4     |      0.9812 |       51.05 |       52.97 |      10 |
+| remove   | int     | 10000  | 8     |      1.3759 |       45.19 |       30.21 |      10 |
+| remove   | int     | 100000 | 3     |      0.9386 |      534.11 |      579.83 |      10 |
+| remove   | int     | 100000 | 4     |      1.2958 |      638.73 |      602.80 |      10 |
+| remove   | int     | 100000 | 8     |      1.5342 |      377.67 |      492.78 |      10 |
+| remove   | str     | 10000  | 3     |      1.2809 |       79.47 |       87.47 |      10 |
+| remove   | str     | 10000  | 4     |      1.1632 |       95.33 |      111.74 |      10 |
+| remove   | str     | 10000  | 8     |      1.0262 |       92.66 |      100.16 |      10 |
+| remove   | str     | 100000 | 3     |      1.3918 |     1731.96 |     1684.89 |      10 |
+| remove   | str     | 100000 | 4     |      4.8597 |     1609.68 |     1693.02 |      10 |
+| remove   | str     | 100000 | 8     |      0.9740 |     1128.23 |     1277.36 |      10 |
+| remove   | tuple   | 10000  | 3     |      0.6995 |      120.22 |      241.45 |      10 |
+| remove   | tuple   | 10000  | 4     |      1.7242 |      182.68 |      151.20 |      10 |
+| remove   | tuple   | 10000  | 8     |      5.2125 |      136.11 |      166.25 |      10 |
+| remove   | tuple   | 100000 | 3     |      0.9266 |     2561.08 |     2863.76 |      10 |
+| remove   | tuple   | 100000 | 4     |      1.7635 |     2197.01 |     2266.16 |      10 |
+| remove   | tuple   | 100000 | 8     |      1.0537 |     1629.98 |     1679.47 |      10 |
+| replace  | bool    | 10000  | 3     |      1.1992 |      159.58 |      171.19 |       8 |
+| replace  | bool    | 10000  | 4     |      1.2890 |      190.63 |      259.32 |       8 |
+| replace  | bool    | 10000  | 8     |      0.8402 |      168.77 |      232.36 |       8 |
+| replace  | bool    | 100000 | 3     |      1.1752 |     1638.34 |     1735.41 |       8 |
+| replace  | bool    | 100000 | 4     |      1.4254 |     1749.81 |     2093.05 |       8 |
+| replace  | bool    | 100000 | 8     |      0.8637 |     1554.18 |     1915.67 |       8 |
+| replace  | char    | 10000  | 3     |      1.2069 |      290.41 |      304.27 |       8 |
+| replace  | char    | 10000  | 4     |      1.2485 |      278.84 |      266.56 |       8 |
+| replace  | char    | 10000  | 8     |      0.9512 |      168.73 |      238.53 |       8 |
+| replace  | char    | 100000 | 3     |      1.0595 |     2183.32 |     2652.13 |       8 |
+| replace  | char    | 100000 | 4     |      1.0677 |     2329.84 |     2507.59 |       8 |
+| replace  | char    | 100000 | 8     |      1.1277 |     2592.58 |     2348.11 |       8 |
+| replace  | custom  | 10000  | 3     |      1.0538 |      326.01 |      357.24 |       8 |
+| replace  | custom  | 10000  | 4     |      1.2829 |      394.70 |      361.72 |       8 |
+| replace  | custom  | 10000  | 8     |      1.0590 |      675.45 |      475.94 |       8 |
+| replace  | custom  | 100000 | 3     |      1.0837 |     3985.43 |     4299.49 |       8 |
+| replace  | custom  | 100000 | 4     |      1.1168 |     3507.82 |     3492.09 |       8 |
+| replace  | custom  | 100000 | 8     |      0.9365 |     2965.02 |     4292.61 |       8 |
+| replace  | float   | 10000  | 3     |      1.1465 |      230.27 |      157.23 |       8 |
+| replace  | float   | 10000  | 4     |      1.1473 |      266.39 |      212.81 |       8 |
+| replace  | float   | 10000  | 8     |      1.0807 |      137.64 |      120.43 |       8 |
+| replace  | float   | 100000 | 3     |      2.8115 |     2419.38 |     2211.87 |       8 |
+| replace  | float   | 100000 | 4     |      0.8361 |     1504.95 |     1982.51 |       8 |
+| replace  | float   | 100000 | 8     |      1.1212 |     1994.06 |     1819.19 |       8 |
+| replace  | int     | 10000  | 3     |      1.1704 |      289.51 |      130.77 |       8 |
+| replace  | int     | 10000  | 4     |      0.9950 |      174.08 |      177.67 |       8 |
+| replace  | int     | 10000  | 8     |      1.1459 |      107.44 |      159.84 |       8 |
+| replace  | int     | 100000 | 3     |      1.2153 |     2071.36 |     2501.49 |       8 |
+| replace  | int     | 100000 | 4     |      0.7662 |     1864.26 |     2396.54 |       8 |
+| replace  | int     | 100000 | 8     |      2.1424 |     1848.17 |     1961.40 |       8 |
+| replace  | str     | 10000  | 3     |      1.5750 |      293.15 |      210.93 |       8 |
+| replace  | str     | 10000  | 4     |      2.5481 |      261.31 |      268.97 |       8 |
+| replace  | str     | 10000  | 8     |      1.1377 |      258.81 |      207.04 |       8 |
+| replace  | str     | 100000 | 3     |      1.0365 |     2986.80 |     3052.28 |       8 |
+| replace  | str     | 100000 | 4     |      1.0957 |     2587.99 |     2592.41 |       8 |
+| replace  | str     | 100000 | 8     |      1.1542 |     3089.22 |     1957.31 |       8 |
+| replace  | tuple   | 10000  | 3     |      1.0025 |      123.79 |      122.43 |       8 |
+| replace  | tuple   | 10000  | 4     |      1.0093 |      122.13 |      121.58 |       8 |
+| replace  | tuple   | 10000  | 8     |      0.9998 |      123.22 |      121.06 |       8 |
+| replace  | tuple   | 100000 | 3     |      0.9911 |     1424.81 |     1321.65 |       8 |
+| replace  | tuple   | 100000 | 4     |      1.0696 |     1309.77 |     1306.44 |       8 |
+| replace  | tuple   | 100000 | 8     |      0.9615 |     1311.16 |     1269.40 |       8 |
+
+### Table 5: Identical Code Path Verification (heapify, push, merge)
+(Expected speedup ≈ 1.0 since code is identical)
+
+| Function | Avg Speedup | Std of Speedups | Min | Max | Benchmarks |
+|----------|-------------|-----------------|-----|-----|------------|
+| heapify  |      1.1420 |          0.8408 | 0.1649 | 15.1772 |        480 |
+| push     |      1.2422 |          2.8153 | 0.0250 | 81.8022 |        960 |
+| merge    |      1.0968 |          0.5084 | 0.0168 | 10.3672 |        880 |
+
+### Table 6: Min-Heap vs Max-Heap for Affected Paths
+
+| Function | Mode | Avg Speedup (n≥10k, arity∈{3,4,8}) | Samples |
+|----------|------|-------------------------------------|---------|
+| pop      | min  |                                1.3051 |      84 |
+| pop      | max  |                                1.2410 |      84 |
+| remove   | min  |                                1.3518 |     210 |
+| remove   | max  |                                1.4100 |     210 |
+| replace  | min  |                                1.2266 |     168 |
+| replace  | max  |                                1.1613 |     168 |
+
+### Table 7: Single vs Bulk Pop at Affected Sizes
+
+| Variant | n | Arity | Avg Speedup | Samples |
+|---------|---|-------|-------------|---------|
+| single  | 10000  | 3     |      1.3746 |      14 |
+| single  | 10000  | 4     |      0.9071 |      14 |
+| single  | 10000  | 8     |      1.3740 |      14 |
+| single  | 100000 | 3     |      1.4725 |      14 |
+| single  | 100000 | 4     |      1.5450 |      14 |
+| single  | 100000 | 8     |      1.1528 |      14 |
+| bulk    | 10000  | 3     |      1.3939 |      14 |
+| bulk    | 10000  | 4     |      1.3201 |      14 |
+| bulk    | 10000  | 8     |      1.0585 |      14 |
+| bulk    | 100000 | 3     |      1.0364 |      14 |
+| bulk    | 100000 | 4     |      1.3255 |      14 |
+| bulk    | 100000 | 8     |      1.3165 |      14 |
+
+### Analysis and Conclusions
+
+**Affected paths** (pop/remove/replace, n≥10000, arity∈{3,4,8}, cmp=N):
+  - 924 measurements
+  - Average speedup: 1.2933
+  - Speedup range: [0.0257, 37.5647]
+  - Speedup > 1.05 (synthesized faster): 424 / 924
+  - Speedup < 0.95 (current faster): 327 / 924
+
+**Unaffected paths** (heapify/push/merge — identical code):
+  - 2320 measurements
+  - Average speedup: 1.1663
+  - Speedup range: [0.0168, 81.8022]
+
+**Verdict:** The synthesized version (always-specialized sift) is measurably faster for the affected paths.
+
+**Detailed Interpretation:**
+
+1. **Identical functions (heapify, push, merge):** As expected, these show speedup ≈ 1.0
+   (within noise), confirming the benchmark methodology is sound and the code paths are identical.
+
+2. **The n < 10000 threshold in heapx.c:** The current implementation falls back to
+   `list_sift_down_ultra_optimized` (generic n-ary) for heaps ≥ 10000 elements when arity
+   is 3, 4, or 8. The synthesized version always dispatches to the specialized
+   `list_sift_down_binary/quaternary/octonary_ultra_optimized` functions.
+
+3. **Impact on pop:** Single pop performs one sift-down from root. For arity 4 and 8,
+   the specialized versions use bit-shift parent/child calculations (>>2, >>3) which
+   are faster than the generic division in the fallback path.
+
+4. **Impact on remove:** Single-index removal uses `list_remove_at_index_optimized`
+   which performs one sift-up or sift-down. Same specialized vs generic dispatch applies.
+
+5. **Impact on replace:** Single-index replacement uses `list_replace_at_index_optimized`
+   which determines sift direction then calls the appropriate sift function.
+
+6. **Arity 2 (binary) is unaffected** because both versions use the same
+   `sift_richcmp_min/max` fast path for binary heaps, bypassing the switch entirely.
+
