@@ -51,13 +51,21 @@ The implementation delivers its performance through five concrete mechanisms:
 
 ## Installation
 
+**PyPI (pip):**
+
 ```bash
 pip install heapx
 ```
 
-**Requirements:** Python ≥ 3.9, C compiler (GCC, Clang, or MSVC).
+**Anaconda / conda-forge:**
 
-When installed via `pip`, the extension compiles with `-O3 -march=native -mtune=native -flto -fno-math-errno -fno-signed-zeros` (GCC/Clang) or `/O2 /Ot /GL /fp:precise` (MSVC), enabling full native CPU optimization. Conda builds use portable baselines (`-march=x86-64-v2` on x86-64, no arch flags on ARM64).
+```bash
+conda install -c conda-forge heapx
+```
+
+**Requirements:** Python ≥ 3.9. A C compiler (GCC, Clang, or MSVC) is required when installing from source via `pip`; conda packages ship pre-built binaries and need no compiler.
+
+When installed via `pip`, the extension compiles with `-O3 -march=native -mtune=native -flto -fno-math-errno -fno-signed-zeros` (GCC/Clang) or `/O2 /Ot /GL /fp:precise` (MSVC), enabling full native CPU optimization. Conda builds use portable baselines (`-march=x86-64-v2` on x86-64, no arch flags on ARM64) for binary compatibility across machines.
 
 ---
 
