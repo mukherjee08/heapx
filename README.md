@@ -4,7 +4,7 @@
 [![Python Support](https://img.shields.io/pypi/pyversions/heapx.svg)](https://pypi.org/project/heapx/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-`heapx` is a single-file C extension for Python (9,451 lines) that implements heap operations with explicit, performance-driven design choices at every level of the implementation. The module provides six public API functions — `heapify`, `push`, `pop`, `remove`, `replace`, and `merge` — each backed by a multi-tier dispatch system that selects the optimal algorithm at runtime based on data structure type, heap size, arity, key function presence, element type homogeneity, and GIL-release eligibility.
+`heapx` is a single-file C extension for Python that implements heap operations with explicit, performance-driven design choices at every level of the implementation. The module provides six public API functions — `heapify`, `push`, `pop`, `remove`, `replace`, and `merge` — each backed by a multi-tier dispatch system that selects the optimal algorithm at runtime based on data structure type, heap size, arity, key function presence, element type homogeneity, and GIL-release eligibility.
 
 The implementation delivers its performance through five concrete mechanisms:
 
