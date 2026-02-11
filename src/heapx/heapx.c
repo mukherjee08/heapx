@@ -4765,7 +4765,7 @@ PyInit__heapx(void)
   if (unlikely(!module)) return NULL;
 
   /* Add module-level constants */
-  if (unlikely(PyModule_AddStringConstant(module, "__version__", "0.9.0") < 0)) {
+  if (unlikely(PyModule_AddStringConstant(module, "__version__", "1.0.0") < 0)) {
     Py_DECREF(module);
     return NULL;
   }
@@ -9093,8 +9093,16 @@ py_merge(PyObject *self, PyObject *args, PyObject *kwargs) {
   Py_ssize_t arity = 2;
   PyObject *nogil_obj = Py_False;
 
-  /* Parse keyword arguments */
-  if (!PyArg_ParseTupleAndKeywords(PyTuple_New(0), kwargs, "|OOnO:merge", kwlist,
+  /* Parse keyword arguments using a static empty tuple to avoid per-call allocation.
+   * merge() receives positional heaps via *args and keywords separately, so we need
+   * an empty tuple for PyArg_ParseTupleAndKeywords to parse only the keyword args. */
+  static PyObject *empty_tuple = NULL;
+  if (unlikely(empty_tuple == NULL)) {
+    empty_tuple = PyTuple_New(0);
+    if (unlikely(empty_tuple == NULL)) return NULL;
+  }
+
+  if (!PyArg_ParseTupleAndKeywords(empty_tuple, kwargs, "|OOnO:merge", kwlist,
                                    &max_heap_obj, &cmp, &arity, &nogil_obj))
     return NULL;
 

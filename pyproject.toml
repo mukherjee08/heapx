@@ -9,10 +9,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "heapx"
-version = "0.9.0"
+version = "1.0.0"
 description = "Ultra-optimized heap operations with comprehensive functionality and superior performance"
 readme = {file = "README.md", content-type = "text/markdown"}
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 keywords = [
   "heap",
   "priority-queue", 
@@ -25,13 +25,12 @@ keywords = [
   "min-heap",
 ]
 classifiers = [
-  "Development Status :: 4 - Beta",
+  "Development Status :: 5 - Production/Stable",
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.8",
   "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
@@ -91,11 +90,11 @@ include = ["heapx*"]
 # write version into the src package so builds in an isolated environment succeed
 write_to = "src/heapx/_version.py"
 # fallback when no git metadata present (useful for local/offline tests)
-fallback_version = "0.9.0"
+fallback_version = "1.0.0"
 
 [tool.black]
 line-length = 100
-target-version = ['py38']
+target-version = ['py39']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -118,7 +117,7 @@ line_length = 100
 known_first_party = ["heapx"]
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

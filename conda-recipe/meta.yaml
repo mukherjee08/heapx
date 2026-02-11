@@ -1,5 +1,5 @@
 {% set name = "heapx" %}
-{% set version = "0.9.0" %}
+{% set version = "1.0.0" %}
 
 package:
   name: {{ name|lower }}
@@ -10,7 +10,7 @@ source:
 
 build:
   number: 0
-  skip: true  # [py<38]
+  skip: true  # [py<39]
   script: {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
 
 requirements:
@@ -30,7 +30,7 @@ test:
   imports:
     - heapx
   commands:
-    - python -c "import heapx; assert heapx.__version__.startswith('0.9')"
+    - python -c "import heapx; assert heapx.__version__.startswith('1.')"
     - python -c "import heapx; d=[5,2,8,1,9]; heapx.heapify(d); assert d[0]==1"
     - python -c "import heapx; d=[1,3,5]; heapx.push(d,2); assert 2 in d"
     - python -c "import heapx; d=[1,2,3,4,5]; heapx.heapify(d); assert heapx.pop(d)==1"
