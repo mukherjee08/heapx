@@ -46,8 +46,6 @@ The implementation delivers its performance through five concrete mechanisms:
 - [Memory Safety](#memory-safety)
 - [Platform Support](#platform-support)
 - [Advanced Usage](#advanced-usage)
-- [Contributing](#contributing)
-- [License](#license)
 
 ---
 
@@ -907,23 +905,3 @@ assert top100 == list(range(1, 101))
 ```
 
 ---
-
-## Contributing
-
-Contributions are welcome. Please ensure all changes maintain the existing test suite (1,439 tests) and follow the memory safety protocol described above.
-
-```bash
-# Development setup
-git clone https://github.com/ivan121500/heapx.git
-cd heapx
-pip install -e ".[dev]"
-pytest tests/ -x -q
-```
-
----
-
-## License
-
-MIT License. See [LICENSE](LICENSE) for details.
-
-Copyright (c) 2025 Aniruddha Mukherjee.
