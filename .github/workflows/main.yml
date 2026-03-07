@@ -18,5 +18,5 @@ jobs:
         env:
           DESTINATION_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
         run: |
-          git remote add public https://mukherjee08:$DESTINATION_TOKEN@github.com/mukherjee08/heapx.git
+          git remote add public https://x-access-token:${DESTINATION_TOKEN}@github.com/mukherjee08/heapx.git
           git push public main --force
