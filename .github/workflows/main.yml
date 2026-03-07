@@ -1,9 +1,45 @@
+# name: Sync to Public Repository
+
+# on:
+#   push:
+#     branches:
+#       - main
+
+# jobs:
+#   sync:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout private repository
+#         uses: actions/checkout@v4
+#         with:
+#           fetch-depth: 0
+
+      # - name: Push to public repository
+      #   env:
+      #     DESTINATION_TOKEN: ${{ secrets.HEAPX }}
+      #   run: |
+      #     git remote add public https://x-access-token:${DESTINATION_TOKEN}@github.com/mukherjee08/heapx.git
+      #     git push public main --force
+      # - name: Push to public repository
+      #   env:
+      #     DESTINATION_TOKEN: ${{ secrets.HEAPX }}
+      #   run: |
+      #     # 1. Clear any existing 'public' remote to avoid "remote already exists" errors
+      #     git remote remove public || true
+          
+      #     # 2. Add the remote using the explicit token format
+      #     git remote add public https://mukherjee08:${DESTINATION_TOKEN}@github.com/mukherjee08/heapx.git
+          
+      #     # 3. Force push the local 'main' branch to the remote 'main' branch
+      #     git push public main:main --force
+
 name: Sync to Public Repository
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   sync:
@@ -13,22 +49,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false # Important: Tells the bot not to save its own key
 
-      # - name: Push to public repository
-      #   env:
-      #     DESTINATION_TOKEN: ${{ secrets.HEAPX }}
-      #   run: |
-      #     git remote add public https://x-access-token:${DESTINATION_TOKEN}@github.com/mukherjee08/heapx.git
-      #     git push public main --force
       - name: Push to public repository
         env:
           DESTINATION_TOKEN: ${{ secrets.HEAPX }}
         run: |
-          # 1. Clear any existing 'public' remote to avoid "remote already exists" errors
-          git remote remove public || true
+          # 1. Remove the 'extraheader' that GitHub Actions sets up by default
+          # This is the "secret sauce" that stops the 403 error
+          git config --local --unset-all 'http.https://github.com/.extraheader' || true
           
-          # 2. Add the remote using the explicit token format
+          # 2. Set up the remote with your professional account token
           git remote add public https://mukherjee08:${DESTINATION_TOKEN}@github.com/mukherjee08/heapx.git
           
-          # 3. Force push the local 'main' branch to the remote 'main' branch
-          git push public main:main --force
+          # 3. Force push to the public repo
+          git push public main --force
