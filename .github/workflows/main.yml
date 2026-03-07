@@ -46,6 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout private repository
+        if: github.repository == 'ivan121500/heapx'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
