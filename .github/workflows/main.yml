@@ -14,21 +14,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      # - name: Push to public repository
-      #   env:
-      #     DESTINATION_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
-      #   run: |
-      #     git remote add public https://x-access-token:${DESTINATION_TOKEN}@github.com/mukherjee08/heapx.git
-      #     git push public main --force
       - name: Push to public repository
         env:
-          DESTINATION_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+          DESTINATION_TOKEN: ${{ secrets.HEAPX }}
         run: |
-          # 1. Clear any existing 'public' remote to avoid "remote already exists" errors
-          git remote remove public || true
+          git remote add public https://x-access-token:${DESTINATION_TOKEN}@github.com/mukherjee08/heapx.git
+          git push public main --force
+      # - name: Push to public repository
+      #   env:
+      #     DESTINATION_TOKEN: ${{ secrets.HEAPX }}
+      #   run: |
+      #     # 1. Clear any existing 'public' remote to avoid "remote already exists" errors
+      #     git remote remove public || true
           
-          # 2. Add the remote using the explicit token format
-          git remote add public https://mukherjee08:${DESTINATION_TOKEN}@github.com/mukherjee08/heapx.git
+      #     # 2. Add the remote using the explicit token format
+      #     git remote add public https://mukherjee08:${DESTINATION_TOKEN}@github.com/mukherjee08/heapx.git
           
-          # 3. Force push the local 'main' branch to the remote 'main' branch
-          git push public main:main --force
+      #     # 3. Force push the local 'main' branch to the remote 'main' branch
+      #     git push public main:main --force
