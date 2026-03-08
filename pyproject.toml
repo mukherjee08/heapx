@@ -65,11 +65,11 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ivan121500/heapx"
-Documentation = "https://github.com/ivan121500/heapx"
-Repository = "https://github.com/ivan121500/heapx"
-Changelog = "https://github.com/ivan121500/heapx"
-Issues = "https://github.com/ivan121500/heapx"
+Homepage = "https://mukherjee08.github.io/heapx"
+Documentation = "https://mukherjee08.github.io/heapx"
+Repository = "https://github.com/mukherjee08/heapx"
+Changelog = "https://github.com/mukherjee08/heapx"
+Issues = "https://github.com/mukherjee08/heapx/issues"
 
 [project.scripts]
 

@@ -40,7 +40,7 @@ test:
     - pytest >=6.0
 
 about:
-  home: https://github.com/ivan121500/heapx
+  home: https://mukherjee08.github.io/heapx
   license: MIT
   license_family: MIT
   license_file: LICENSE
@@ -62,9 +62,9 @@ about:
     - Floyd's bottom-up heapify algorithm for O(n) heap construction
     - 11-priority dispatch table for automatic algorithm selection
     - Small-heap specialization with insertion sort fallback for n <= 16
-  dev_url: https://github.com/ivan121500/heapx
-  doc_url: https://github.com/ivan121500/heapx
+  dev_url: https://github.com/mukherjee08/heapx
+  doc_url: https://mukherjee08.github.io/heapx
 
 extra:
   recipe-maintainers:
-    - ivan121500
+    - mukherjee08
