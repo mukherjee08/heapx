@@ -3,30 +3,342 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HeapX Papers</title>
+<title>heapx — Ultra-Optimized Heap Operations for Python</title>
+<meta name="description" content="heapx is a C extension for Python delivering ultra-optimized heap operations with SIMD acceleration, GIL-releasing computation, and multi-arity support.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
-  canvas#bg { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; }
-  #content { position: relative; z-index: 1; width: 100%; height: 100%; overflow-y: auto; }
+*{margin:0;padding:0;box-sizing:border-box}
+html{font-size:16px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+html,body{width:100%;height:100%;background:#000}
+body{font-family:'Inter',system-ui,-apple-system,sans-serif;color:rgba(255,255,255,.92);line-height:1.7}
+canvas#bg{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0}
+#content{position:relative;z-index:1;overflow-y:auto;height:100%}
+
+/* Scrollbar */
+#content::-webkit-scrollbar{width:6px}
+#content::-webkit-scrollbar-track{background:transparent}
+#content::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:3px}
+
+/* Nav */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;padding:0 48px;height:56px;display:flex;align-items:center;justify-content:space-between;backdrop-filter:blur(40px) saturate(1.8);-webkit-backdrop-filter:blur(40px) saturate(1.8);background:rgba(0,0,0,.55);border-bottom:1px solid rgba(255,255,255,.08);transition:background .3s}
+nav .logo{font-size:1.15rem;font-weight:600;letter-spacing:-.02em;color:#fff}
+nav .logo span{color:rgba(255,255,255,.4);font-weight:400}
+nav .links{display:flex;gap:32px;align-items:center}
+nav .links a{color:rgba(255,255,255,.6);text-decoration:none;font-size:.82rem;font-weight:500;letter-spacing:.01em;transition:color .2s}
+nav .links a:hover{color:#fff}
+nav .links a.cta{background:rgba(255,255,255,.12);padding:6px 18px;border-radius:20px;color:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.1);transition:all .2s}
+nav .links a.cta:hover{background:rgba(255,255,255,.2);color:#fff}
+
+/* Sections */
+section{padding:140px 48px 100px;max-width:1120px;margin:0 auto}
+.hero{min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding-top:0;padding-bottom:0}
+
+/* Hero */
+.hero .badge{display:inline-block;padding:6px 16px;border-radius:20px;font-size:.75rem;font-weight:500;letter-spacing:.04em;text-transform:uppercase;border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.55);margin-bottom:28px;backdrop-filter:blur(10px);background:rgba(255,255,255,.04)}
+.hero h1{font-size:clamp(3rem,7vw,5.5rem);font-weight:700;letter-spacing:-.04em;line-height:1.05;margin-bottom:24px;background:linear-gradient(135deg,#fff 0%,rgba(255,255,255,.7) 50%,rgba(200,180,255,.6) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero .sub{font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.5);max-width:640px;line-height:1.6;font-weight:300;margin-bottom:48px}
+.hero .actions{display:flex;gap:16px;flex-wrap:wrap;justify-content:center}
+.hero .actions .btn{padding:14px 32px;border-radius:12px;font-size:.95rem;font-weight:500;text-decoration:none;transition:all .25s;cursor:pointer;border:none}
+.btn-primary{background:rgba(255,255,255,.95);color:#000}
+.btn-primary:hover{background:#fff;transform:translateY(-1px);box-shadow:0 8px 30px rgba(255,255,255,.15)}
+.btn-secondary{background:rgba(255,255,255,.08);color:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.12)!important}
+.btn-secondary:hover{background:rgba(255,255,255,.14);color:#fff}
+
+/* Install bar */
+.install-bar{margin-top:56px;display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+.install-cmd{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px 20px;font-family:'JetBrains Mono',monospace;font-size:.85rem;color:rgba(255,255,255,.7);cursor:pointer;transition:all .2s;position:relative}
+.install-cmd:hover{background:rgba(255,255,255,.1);color:#fff}
+.install-cmd .copied{position:absolute;top:-30px;left:50%;transform:translateX(-50%);font-family:'Inter',sans-serif;font-size:.7rem;background:rgba(255,255,255,.15);padding:3px 10px;border-radius:6px;opacity:0;transition:opacity .2s;pointer-events:none}
+.install-cmd .copied.show{opacity:1}
+
+/* Section headers */
+.section-label{font-size:.72rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.35);margin-bottom:12px}
+.section-title{font-size:clamp(2rem,4vw,3rem);font-weight:700;letter-spacing:-.03em;line-height:1.15;margin-bottom:16px}
+.section-sub{font-size:1.05rem;color:rgba(255,255,255,.45);max-width:560px;line-height:1.6;font-weight:300;margin-bottom:56px}
+
+/* Feature grid */
+.features-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}
+.feature-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:32px;transition:all .3s}
+.feature-card:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.12);transform:translateY(-2px)}
+.feature-card .icon{font-size:1.6rem;margin-bottom:16px;display:block}
+.feature-card h3{font-size:1.05rem;font-weight:600;margin-bottom:8px;letter-spacing:-.01em}
+.feature-card p{font-size:.88rem;color:rgba(255,255,255,.45);line-height:1.6}
+
+/* API cards */
+.api-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px}
+.api-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:28px;transition:all .3s}
+.api-card:hover{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.12)}
+.api-card .fn-name{font-family:'JetBrains Mono',monospace;font-size:.95rem;font-weight:500;color:rgba(200,180,255,.8);margin-bottom:4px}
+.api-card .fn-sig{font-family:'JetBrains Mono',monospace;font-size:.75rem;color:rgba(255,255,255,.3);margin-bottom:12px;word-break:break-all}
+.api-card p{font-size:.85rem;color:rgba(255,255,255,.45);line-height:1.55}
+.api-card .complexity{display:inline-block;margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:.72rem;padding:3px 10px;border-radius:6px;background:rgba(255,255,255,.06);color:rgba(255,255,255,.4)}
+
+/* Code block */
+pre{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:24px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:.82rem;line-height:1.7;color:rgba(255,255,255,.7);margin:32px 0}
+pre .kw{color:rgba(200,180,255,.8)}
+pre .fn{color:rgba(130,200,255,.8)}
+pre .str{color:rgba(160,220,150,.8)}
+pre .cm{color:rgba(255,255,255,.25)}
+pre .num{color:rgba(255,190,130,.8)}
+
+/* Stats row */
+.stats{display:flex;gap:48px;flex-wrap:wrap;margin:48px 0}
+.stat{text-align:center}
+.stat .val{font-size:2.5rem;font-weight:700;letter-spacing:-.03em;background:linear-gradient(135deg,#fff,rgba(200,180,255,.7));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.stat .label{font-size:.78rem;color:rgba(255,255,255,.35);margin-top:4px;font-weight:400}
+
+/* Dispatch table */
+.dispatch-table{width:100%;border-collapse:collapse;margin:32px 0;font-size:.82rem}
+.dispatch-table th{text-align:left;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.4);font-weight:500;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase}
+.dispatch-table td{padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.05);color:rgba(255,255,255,.55)}
+.dispatch-table tr:hover td{background:rgba(255,255,255,.03)}
+.dispatch-table code{font-family:'JetBrains Mono',monospace;font-size:.78rem;color:rgba(200,180,255,.7)}
+
+/* Platform pills */
+.platforms{display:flex;gap:10px;flex-wrap:wrap;margin-top:24px}
+.pill{padding:8px 18px;border-radius:10px;font-size:.8rem;font-weight:500;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:rgba(255,255,255,.5)}
+
+/* Footer */
+footer{padding:48px;text-align:center;border-top:1px solid rgba(255,255,255,.06);margin-top:80px}
+footer p{font-size:.8rem;color:rgba(255,255,255,.25)}
+footer a{color:rgba(255,255,255,.4);text-decoration:none}
+footer a:hover{color:rgba(255,255,255,.7)}
+footer .footer-links{display:flex;gap:24px;justify-content:center;margin-bottom:16px}
+
+/* Responsive */
+@media(max-width:768px){
+  nav{padding:0 20px}
+  nav .links{gap:16px}
+  section{padding:100px 20px 60px}
+  .stats{gap:24px}
+  .hero .actions{flex-direction:column;align-items:center}
+  .install-bar{flex-direction:column;align-items:center}
+}
 </style>
 </head>
 <body>
-
 <canvas id="bg"></canvas>
+
+<nav>
+  <div class="logo">heapx<span>.py</span></div>
+  <div class="links">
+    <a href="#features">Features</a>
+    <a href="#api">API</a>
+    <a href="#performance">Performance</a>
+    <a href="#platforms">Platforms</a>
+    <a href="https://github.com/mukherjee08/heapx" class="cta" target="_blank">GitHub</a>
+  </div>
+</nav>
+
 <div id="content">
-  <!-- Add page content here — it layers on top of the background -->
-</div>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="badge">v1.0.0 · MIT License · Python ≥ 3.9</div>
+  <h1>Heap operations,<br>reimagined in C.</h1>
+  <p class="sub">A single-file C extension that delivers ultra-optimized heap operations through SIMD acceleration, GIL-releasing computation, and a multi-tier dispatch system that selects the optimal algorithm at runtime.</p>
+  <div class="actions">
+    <a href="https://pypi.org/project/heapx/" class="btn btn-primary" target="_blank">Get Started</a>
+    <a href="https://github.com/mukherjee08/heapx" class="btn btn-secondary" target="_blank">View Source</a>
+  </div>
+  <div class="install-bar">
+    <div class="install-cmd" onclick="copyCmd(this,'pip install heapx')"><span>$</span> pip install heapx<div class="copied">Copied!</div></div>
+    <div class="install-cmd" onclick="copyCmd(this,'conda install -c conda-forge heapx')"><span>$</span> conda install -c conda-forge heapx<div class="copied">Copied!</div></div>
+  </div>
+</section>
+
+<!-- Quick Start -->
+<section>
+  <div class="section-label">Quick Start</div>
+  <div class="section-title">Drop-in. Zero dependencies.</div>
+  <div class="section-sub">Six functions. One import. Immediate performance.</div>
+  <pre><span class="kw">import</span> <span class="fn">heapx</span>
+
+<span class="cm"># Min-heap — Floyd's bottom-up O(n) construction</span>
+data = [<span class="num">5</span>, <span class="num">2</span>, <span class="num">8</span>, <span class="num">1</span>, <span class="num">9</span>, <span class="num">3</span>, <span class="num">7</span>]
+<span class="fn">heapx</span>.heapify(data)
+
+<span class="cm"># Max-heap — native support, no negation hacks</span>
+<span class="fn">heapx</span>.heapify(data, max_heap=<span class="kw">True</span>)
+
+<span class="cm"># Push, pop, remove, replace, merge</span>
+<span class="fn">heapx</span>.push(data, <span class="num">6</span>, max_heap=<span class="kw">True</span>)
+largest = <span class="fn">heapx</span>.pop(data, max_heap=<span class="kw">True</span>)
+top3 = <span class="fn">heapx</span>.pop(data, n=<span class="num">3</span>, max_heap=<span class="kw">True</span>)
+
+<span class="cm"># GIL-releasing for multi-threaded workloads</span>
+floats = [<span class="fn">float</span>(x) <span class="kw">for</span> x <span class="kw">in</span> <span class="fn">range</span>(<span class="num">1_000_000</span>)]
+<span class="fn">heapx</span>.heapify(floats, nogil=<span class="kw">True</span>)
+
+<span class="cm"># Custom keys — computed once in O(n), not O(n log n)</span>
+tasks = [{<span class="str">"pri"</span>: <span class="num">10</span>}, {<span class="str">"pri"</span>: <span class="num">1</span>}, {<span class="str">"pri"</span>: <span class="num">5</span>}]
+<span class="fn">heapx</span>.heapify(tasks, cmp=<span class="kw">lambda</span> x: x[<span class="str">"pri"</span>])</pre>
+</section>
+
+<!-- Features -->
+<section id="features">
+  <div class="section-label">Architecture</div>
+  <div class="section-title">Five optimization layers.</div>
+  <div class="section-sub">Every code path is engineered for the specific data it encounters.</div>
+  <div class="features-grid">
+    <div class="feature-card">
+      <span class="icon">⚡</span>
+      <h3>Floyd's Bottom-Up Heapify</h3>
+      <p>Wegener 1993 variant descends to a leaf comparing only children, then bubbles up — reducing comparisons by ~25% versus standard sift-down.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🔑</span>
+      <h3>Precomputed Key Caching</h3>
+      <p>Keys computed in a single O(n) pass via vectorcall, eliminating 100,000 tuple allocations for n=100K elements.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🔬</span>
+      <h3>Homogeneous Type Detection</h3>
+      <p>SIMD-accelerated type pointer scanning (AVX2: 4 ptrs/cycle, NEON: 2 ptrs/cycle) routes to C-native comparison loops bypassing PyObject_RichCompareBool.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🧵</span>
+      <h3>GIL-Releasing Computation</h3>
+      <p>Extracts raw C values, releases the GIL, performs pure-C heapify, then rearranges Python objects via cycle-following permutation.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">📦</span>
+      <h3>Stack-First Allocation</h3>
+      <p>Key arrays ≤128 and value arrays ≤2,048 elements use stack buffers, avoiding malloc/free overhead for the common case.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🌳</span>
+      <h3>Multi-Arity Heaps</h3>
+      <p>Binary, ternary, quaternary, and octonary heaps with bit-shift parent/child calculations. Arity 1–64 supported.</p>
+    </div>
+  </div>
+</section>
+
+<!-- API -->
+<section id="api">
+  <div class="section-label">API Reference</div>
+  <div class="section-title">Six functions. Complete control.</div>
+  <div class="section-sub">Every function shares consistent parameters: max_heap, cmp, arity, nogil.</div>
+  <div class="api-grid">
+    <div class="api-card">
+      <div class="fn-name">heapify</div>
+      <div class="fn-sig">heapx.heapify(heap, max_heap=False, cmp=None, arity=2, nogil=False)</div>
+      <p>Transforms a mutable sequence into a valid heap in-place using Floyd's bottom-up algorithm. Two-phase dispatch: homogeneous type-specialized paths first, then generic arity-selected paths.</p>
+      <span class="complexity">O(n)</span>
+    </div>
+    <div class="api-card">
+      <div class="fn-name">push</div>
+      <div class="fn-sig">heapx.push(heap, items, max_heap=False, cmp=None, arity=2, nogil=False)</div>
+      <p>Inserts one or more items. Lists trigger batch mode. Zero-overhead fast path for single binary min-heap push saves ~20ns per call. Bulk push delegates to heapify when k ≥ n.</p>
+      <span class="complexity">O(log n) single · O(n+k) bulk</span>
+    </div>
+    <div class="api-card">
+      <div class="fn-name">pop</div>
+      <div class="fn-sig">heapx.pop(heap, n=1, max_heap=False, cmp=None, arity=2, nogil=False)</div>
+      <p>Removes and returns top element(s). n=1 returns single item, n&gt;1 returns list. Type-specialized sift-down for bulk pop with GIL-releasing path for homogeneous arrays.</p>
+      <span class="complexity">O(log n) single · O(k log n) bulk</span>
+    </div>
+    <div class="api-card">
+      <div class="fn-name">remove</div>
+      <div class="fn-sig">heapx.remove(heap, indices=None, object=None, predicate=None, ...)</div>
+      <p>Removes items by index, object identity, or predicate. Single-index hot path achieves O(log n) via inline sift-up/sift-down without full re-heapify.</p>
+      <span class="complexity">O(log n) single · O(k + n) batch</span>
+    </div>
+    <div class="api-card">
+      <div class="fn-name">replace</div>
+      <div class="fn-sig">heapx.replace(heap, values, indices=None, object=None, predicate=None, ...)</div>
+      <p>Replaces items by index, identity, or predicate while maintaining heap property. Single-index path writes value and performs O(log n) sift.</p>
+      <span class="complexity">O(log n) single · O(k + n) batch</span>
+    </div>
+    <div class="api-card">
+      <div class="fn-name">merge</div>
+      <div class="fn-sig">heapx.merge(*heaps, max_heap=False, cmp=None, arity=2, nogil=False)</div>
+      <p>Merges two or more sequences into a single valid heap. O(N) concatenation followed by Floyd's heapify with full dispatch including SIMD/nogil paths.</p>
+      <span class="complexity">O(N) total</span>
+    </div>
+  </div>
+</section>
+
+<!-- Performance -->
+<section id="performance">
+  <div class="section-label">Performance</div>
+  <div class="section-title">Runtime dispatch. Zero waste.</div>
+  <div class="section-sub">An 11-priority dispatch table selects the optimal algorithm based on data type, heap size, arity, and key function presence.</div>
+
+  <div class="stats">
+    <div class="stat"><div class="val">~25%</div><div class="label">Fewer comparisons via Floyd's</div></div>
+    <div class="stat"><div class="val">O(n)</div><div class="label">Key precomputation</div></div>
+    <div class="stat"><div class="val">4 ptr/cyc</div><div class="label">AVX2 type scanning</div></div>
+    <div class="stat"><div class="val">≤16</div><div class="label">Insertion sort threshold</div></div>
+  </div>
+
+  <table class="dispatch-table">
+    <thead>
+      <tr><th>Condition</th><th>Path</th><th>Mechanism</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Homogeneous int/float</td><td><code>list_heapify_homogeneous_*</code></td><td>C-native comparisons, bypass rich compare</td></tr>
+      <tr><td>nogil=True + homogeneous</td><td><code>*_nogil</code> variants</td><td>GIL released, cycle-following permutation</td></tr>
+      <tr><td>n ≤ 16</td><td><code>list_heapify_small_ultra_optimized</code></td><td>Insertion sort, cache-line friendly</td></tr>
+      <tr><td>Arity 2, no key</td><td><code>list_heapify_floyd_ultra_optimized</code></td><td>Floyd's bottom-up, bit-shift parent calc</td></tr>
+      <tr><td>Arity 4, no key</td><td><code>list_heapify_quaternary_ultra_optimized</code></td><td>SIMD child selection, prefetching</td></tr>
+      <tr><td>Arity 8, no key</td><td><code>list_heapify_octonary_ultra_optimized</code></td><td>8-wide SIMD min/max reduction</td></tr>
+      <tr><td>With key function</td><td><code>*_with_key_ultra_optimized</code></td><td>Vectorcall key invocation, cached keys</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- Platforms -->
+<section id="platforms">
+  <div class="section-label">Platform Support</div>
+  <div class="section-title">Runs everywhere Python runs.</div>
+  <div class="section-sub">Native SIMD on x86-64 and ARM64. Scalar fallbacks on all other architectures.</div>
+  <div class="platforms">
+    <div class="pill">macOS · ARM64 (Apple Silicon) · NEON</div>
+    <div class="pill">macOS · x86-64 · AVX2 / SSE2</div>
+    <div class="pill">Linux · x86-64 · AVX2 / SSE2</div>
+    <div class="pill">Linux · ARM64 · NEON / SVE</div>
+    <div class="pill">Windows · x86-64 · AVX2 / SSE2</div>
+    <div class="pill">RISC-V · RV64 · Scalar</div>
+    <div class="pill">IBM POWER · PPC64 · Scalar</div>
+  </div>
+  <div style="margin-top:32px;font-size:.85rem;color:rgba(255,255,255,.35)">
+    Compilers: GCC ≥ 4.9 · Clang ≥ 3.6 · MSVC ≥ 2015. Pip builds with <code style="font-family:'JetBrains Mono',monospace;font-size:.8rem;color:rgba(200,180,255,.6)">-O3 -march=native -flto</code>. Conda uses portable baselines.
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="footer-links">
+    <a href="https://pypi.org/project/heapx/" target="_blank">PyPI</a>
+    <a href="https://github.com/mukherjee08/heapx" target="_blank">GitHub</a>
+    <a href="https://github.com/mukherjee08/heapx/blob/main/LICENSE" target="_blank">MIT License</a>
+  </div>
+  <p>© 2025 Aniruddha Mukherjee. Built with precision.</p>
+</footer>
+
+</div><!-- end #content -->
 
 <script>
-(() => {
-  const canvas = document.getElementById('bg');
-  const gl = canvas.getContext('webgl');
-  if (!gl) return;
+function copyCmd(el,text){
+  navigator.clipboard.writeText(text);
+  var c=el.querySelector('.copied');
+  c.classList.add('show');
+  setTimeout(function(){c.classList.remove('show')},1200);
+}
+</script>
 
-  const vsSource = `attribute vec2 a_pos;void main(){gl_Position=vec4(a_pos,0,1);}`;
+<script>
+(function(){
+  var canvas=document.getElementById('bg');
+  var gl=canvas.getContext('webgl');
+  if(!gl)return;
 
-  const fsSource = `
+  var vs='attribute vec2 a_pos;void main(){gl_Position=vec4(a_pos,0,1);}';
+
+  var fs=`
 precision highp float;
 uniform vec2 u_res;
 uniform float u_time;
@@ -59,111 +371,83 @@ float snoise(vec2 v){
 
 void main(){
   vec2 uv=(gl_FragCoord.xy-.5*u_res)/min(u_res.x,u_res.y);
-  float t=u_time*.12; // very slow drift
-
+  float t=u_time*.12;
   vec2 mouse=(u_mouse-.5*u_res)/min(u_res.x,u_res.y);
   float mouseDist=length(uv-mouse);
-  float mouseInf=smoothstep(1.2,0.,mouseDist)*.18; // gentle, wide radius
-
-  // Large, slow noise — broad soft blobs
+  float mouseInf=smoothstep(1.2,0.,mouseDist)*.18;
   float n1=snoise(uv*.8+vec2(t*.4,t*.3));
   float n2=snoise(uv*1.1-vec2(t*.3,t*.5));
   float n3=snoise(uv*.6+vec2(n1,n2)*.3+mouse*.2);
-
   vec2 distort=vec2(n1,n2)*.07+vec2(n3)*.05;
   distort+=mouseInf*normalize(uv-mouse+.001)*.1;
-
   vec2 st=uv+distort;
-
-  // Muted Miami palette on a near-black base
-  vec3 base=vec3(.04,.02,.06);       // deep dark
-  vec3 c1=vec3(.55,.08,.35);         // muted rose
-  vec3 c2=vec3(.05,.35,.45);         // dark teal
-  vec3 c3=vec3(.5,.15,.55);          // plum
-  vec3 c4=vec3(.08,.22,.38);         // midnight blue
-  vec3 c5=vec3(.55,.25,.1);          // dim amber
-
+  vec3 base=vec3(.04,.02,.06);
+  vec3 c1=vec3(.55,.08,.35);
+  vec3 c2=vec3(.05,.35,.45);
+  vec3 c3=vec3(.5,.15,.55);
+  vec3 c4=vec3(.08,.22,.38);
+  vec3 c5=vec3(.55,.25,.1);
   float w1=snoise(st*.9+t*.25)*.5+.5;
   float w2=snoise(st*1.1-t*.2+3.)*.5+.5;
   float w3=snoise(st*.7+t*.3+7.)*.5+.5;
-
   vec3 col=mix(c1,c2,w1);
   col=mix(col,c3,w2*.5);
   col=mix(col,c4,w3*.4);
   col=mix(col,c5,smoothstep(.35,.65,snoise(st*1.2+t*.15+11.))*.25);
-
-  // Blend onto dark base — color only emerges softly
   float intensity=smoothstep(-.3,.6,snoise(st*.7+t*.18+5.))*.45+.15;
   col=mix(base,col,intensity);
-
-  // Soft mouse glow
   col+=vec3(.3,.12,.25)*mouseInf;
-
-  // Deep vignette
   float vig=1.-dot(uv*.55,uv*.55);
   col*=smoothstep(0.,1.,vig);
-
   gl_FragColor=vec4(col,1.);
-}
-`;
+}`;
 
-  function compile(type, src) {
-    const s = gl.createShader(type);
-    gl.shaderSource(s, src);
+  function compile(type,src){
+    var s=gl.createShader(type);
+    gl.shaderSource(s,src);
     gl.compileShader(s);
-    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-      console.error(gl.getShaderInfoLog(s));
-      return null;
-    }
+    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null;}
     return s;
   }
 
-  const prog = gl.createProgram();
-  gl.attachShader(prog, compile(gl.VERTEX_SHADER, vsSource));
-  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fsSource));
+  var prog=gl.createProgram();
+  gl.attachShader(prog,compile(gl.VERTEX_SHADER,vs));
+  gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fs));
   gl.linkProgram(prog);
   gl.useProgram(prog);
 
-  const buf = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
-  const pos = gl.getAttribLocation(prog, 'a_pos');
+  var buf=gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+  var pos=gl.getAttribLocation(prog,'a_pos');
   gl.enableVertexAttribArray(pos);
-  gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
+  gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
 
-  const uRes = gl.getUniformLocation(prog, 'u_res');
-  const uTime = gl.getUniformLocation(prog, 'u_time');
-  const uMouse = gl.getUniformLocation(prog, 'u_mouse');
+  var uRes=gl.getUniformLocation(prog,'u_res');
+  var uTime=gl.getUniformLocation(prog,'u_time');
+  var uMouse=gl.getUniformLocation(prog,'u_mouse');
 
-  let mx = 0, my = 0, tmx = 0, tmy = 0;
+  var mx=0,my=0,tmx=0,tmy=0;
+  window.addEventListener('mousemove',function(e){tmx=e.clientX;tmy=e.clientY;});
+  window.addEventListener('touchmove',function(e){e.preventDefault();tmx=e.touches[0].clientX;tmy=e.touches[0].clientY;},{passive:false});
 
-  window.addEventListener('mousemove', e => { tmx = e.clientX; tmy = e.clientY; });
-  window.addEventListener('touchmove', e => {
-    e.preventDefault();
-    tmx = e.touches[0].clientX;
-    tmy = e.touches[0].clientY;
-  }, { passive: false });
-
-  function resize() {
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = window.innerWidth * dpr;
-    canvas.height = window.innerHeight * dpr;
+  function resize(){
+    var dpr=window.devicePixelRatio||1;
+    canvas.width=window.innerWidth*dpr;
+    canvas.height=window.innerHeight*dpr;
   }
-  window.addEventListener('resize', resize);
+  window.addEventListener('resize',resize);
   resize();
 
-  const t0 = performance.now();
-
-  (function loop() {
-    // Smooth mouse follow
-    mx += (tmx * (window.devicePixelRatio || 1) - mx) * .03;
-    my += ((window.innerHeight - tmy) * (window.devicePixelRatio || 1) - my) * .03;
-
-    gl.viewport(0, 0, canvas.width, canvas.height);
-    gl.uniform2f(uRes, canvas.width, canvas.height);
-    gl.uniform1f(uTime, (performance.now() - t0) / 1000);
-    gl.uniform2f(uMouse, mx, my);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  var t0=performance.now();
+  (function loop(){
+    mx+=(tmx*(window.devicePixelRatio||1)-mx)*.03;
+    my+=((window.innerHeight-tmy)*(window.devicePixelRatio||1)-my)*.03;
+    gl.viewport(0,0,canvas.width,canvas.height);
+    gl.uniform2f(uRes,canvas.width,canvas.height);
+    gl.uniform1f(uTime,(performance.now()-t0)/1000);
+    gl.uniform2f(uMouse,mx,my);
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
     requestAnimationFrame(loop);
   })();
 })();
