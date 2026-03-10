@@ -100,8 +100,8 @@ pre .num{color:rgba(255,190,130,.8)}
 .dispatch-table code{font-family:'JetBrains Mono',monospace;font-size:.78rem;color:rgba(200,180,255,.7)}
 
 /* Platform pills */
-.platforms{display:flex;gap:10px;flex-wrap:wrap;margin-top:24px}
-.pill{padding:8px 18px;border-radius:10px;font-size:.8rem;font-weight:500;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:rgba(255,255,255,.5)}
+.platforms{display:flex;gap:16px;flex-wrap:wrap;margin-top:24px}
+.pill{padding:14px 24px;border-radius:14px;font-size:1.25rem;font-weight:500;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:rgba(255,255,255,.5);font-family:'JetBrains Mono',monospace}
 
 /* Footer */
 footer{padding:48px;text-align:center;border-top:1px solid rgba(255,255,255,.06);margin-top:80px}
@@ -336,7 +336,7 @@ tasks = [{<span class="str">"pri"</span>: <span class="num">10</span>}, {<span c
 <section id="platforms">
   <div class="section-label">Platform Support</div>
   <div class="section-title">Runs everywhere Python runs.</div>
-  <div class="section-sub">Native SIMD on x86-64 and ARM64. Scalar fallbacks on all other architectures.</div>
+  <div class="section-sub" style="max-width:none">Native SIMD on x86-64 and ARM64. Scalar fallbacks on all other architectures.</div>
   <div class="platforms">
     <div class="pill">macOS · ARM64 (Apple Silicon) · NEON</div>
     <div class="pill">macOS · x86-64 · AVX2 / SSE2</div>
@@ -346,24 +346,24 @@ tasks = [{<span class="str">"pri"</span>: <span class="num">10</span>}, {<span c
     <div class="pill">RISC-V · RV64 · Scalar</div>
     <div class="pill">IBM POWER · PPC64 · Scalar</div>
   </div>
-  <div style="margin-top:32px;font-size:.85rem;color:rgba(255,255,255,.35)">
-    Compilers: GCC ≥ 4.9 · Clang ≥ 3.6 · MSVC ≥ 2015. Pip builds with <code style="font-family:'JetBrains Mono',monospace;font-size:.8rem;color:rgba(200,180,255,.6)">-O3 -march=native -flto</code>. Conda uses portable baselines.
-  </div>
+  <div class="section-sub" style="max-width:none;margin-top:12px">Compilers: GCC ≥ 4.9 · Clang ≥ 3.6 · MSVC ≥ 2015. Pip builds with <code style="font-family:'JetBrains Mono',monospace;color:rgba(200,180,255,.6)">-O3 -march=native -flto</code>. Conda uses portable baselines.</div>
 </section>
 
 <!-- Footer -->
 <footer>
   <div class="footer-links">
     <a href="https://pypi.org/project/heapx/" target="_blank">PyPI</a>
+    <a href="https://anaconda.org/conda-forge/heapx" target="_blank">Anaconda</a>
     <a href="https://github.com/mukherjee08/heapx" target="_blank">GitHub</a>
     <a href="https://github.com/mukherjee08/heapx/blob/main/LICENSE" target="_blank">MIT License</a>
   </div>
-  <p>© 2025 Aniruddha Mukherjee. Built with precision.</p>
+  <p>© <span id="year"></span> Aniruddha Mukherjee · <a href="mailto:mukherjee08@outlook.com">mukherjee08@outlook.com</a></p>
 </footer>
 
 </div><!-- end #content -->
 
 <script>
+document.getElementById('year').textContent=new Date().getFullYear();
 function copyCmd(el,text){
   navigator.clipboard.writeText(text);
   var c=el.querySelector('.copied');

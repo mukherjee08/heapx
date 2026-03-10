@@ -107,12 +107,17 @@ footer .footer-links{display:flex;gap:24px;justify-content:center;margin-bottom:
 <footer>
   <div class="footer-links">
     <a href="https://pypi.org/project/heapx/" target="_blank">PyPI</a>
+    <a href="https://anaconda.org/conda-forge/heapx" target="_blank">Anaconda</a>
     <a href="https://github.com/mukherjee08/heapx" target="_blank">GitHub</a>
     <a href="https://github.com/mukherjee08/heapx/blob/main/LICENSE" target="_blank">MIT License</a>
   </div>
-  <p>© 2025 Aniruddha Mukherjee. Built with precision.</p>
+  <p>© <span id="year"></span> Aniruddha Mukherjee · <a href="mailto:mukherjee08@outlook.com">mukherjee08@outlook.com</a></p>
 </footer>
 </div>
+
+<script>
+document.getElementById('year').textContent=new Date().getFullYear();
+</script>
 
 <script>
 // Nav scroll behavior
