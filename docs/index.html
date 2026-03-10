@@ -11,10 +11,10 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html{font-size:16px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
-html,body{width:100%;height:100%;background:#000}
+html,body{width:100%;height:100%;background:#000;overflow:hidden}
 body{font-family:'Inter',system-ui,-apple-system,sans-serif;color:rgba(255,255,255,.92);line-height:1.7}
 canvas#bg{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0}
-#content{position:relative;z-index:1;overflow-y:auto;height:100%}
+#content{position:relative;z-index:1;overflow-x:hidden;overflow-y:auto;height:100%;-webkit-overflow-scrolling:touch}
 
 /* Scrollbar */
 #content::-webkit-scrollbar{width:6px}
@@ -59,15 +59,15 @@ section{padding:140px 48px 100px;max-width:1120px;margin:0 auto}
 /* Section headers */
 .section-label{font-size:clamp(1rem,2vw,1.35rem);font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.35);margin-bottom:12px}
 .section-title{font-size:clamp(2rem,4vw,3rem);font-weight:700;letter-spacing:-.03em;line-height:1.15;margin-bottom:12px}
-.section-sub{font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.45);max-width:560px;line-height:1.6;font-weight:300;margin-bottom:56px}
+.section-sub{font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.45);max-width:720px;line-height:1.6;font-weight:300;margin-bottom:56px}
 
 /* Feature grid */
-.features-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}
-.feature-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:32px;transition:all .3s}
+.features-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;width:100vw;position:relative;left:50%;transform:translateX(-50%);padding:0 48px;box-sizing:border-box}
+.feature-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:20px;padding:40px;transition:all .3s}
 .feature-card:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.12);transform:translateY(-2px)}
-.feature-card .icon{font-size:1.6rem;margin-bottom:16px;display:block}
-.feature-card h3{font-size:1.05rem;font-weight:600;margin-bottom:8px;letter-spacing:-.01em}
-.feature-card p{font-size:.88rem;color:rgba(255,255,255,.45);line-height:1.6}
+.feature-card .icon{font-size:2.2rem;margin-bottom:20px;display:block}
+.feature-card h3{font-size:1.6rem;font-weight:600;margin-bottom:12px;letter-spacing:-.02em}
+.feature-card p{font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.45);line-height:1.6;font-weight:300}
 
 /* API cards */
 .api-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px}
@@ -111,10 +111,14 @@ footer a:hover{color:rgba(255,255,255,.7)}
 footer .footer-links{display:flex;gap:24px;justify-content:center;margin-bottom:16px}
 
 /* Responsive */
+@media(max-width:1024px){
+  .features-grid{grid-template-columns:repeat(2,1fr)}
+}
 @media(max-width:768px){
   nav{padding:0 20px}
   nav .links{gap:16px}
   section{padding:100px 20px 60px}
+  .features-grid{grid-template-columns:1fr;padding:0 20px}
   .stats{gap:24px}
   .install-bar{flex-direction:column;align-items:center}
 }
@@ -185,39 +189,69 @@ tasks = [{<span class="str">"pri"</span>: <span class="num">10</span>}, {<span c
 
 <!-- Features -->
 <section id="features">
-  <div class="section-label">Architecture</div>
-  <div class="section-title">Five optimization layers.</div>
-  <div class="section-sub">Every code path is engineered for the specific data it encounters.</div>
+  <div class="section-label">Why heapx</div>
+  <div class="section-title">Engineered at every layer.</div>
+  <div class="section-sub">9,451 lines of C. An 11-priority dispatch table. Zero compromises.</div>
   <div class="features-grid">
+    <div class="feature-card">
+      <span class="icon">🔁</span>
+      <h3>Drop-In heapq Replacement</h3>
+      <p>Six functions (heapify, push, pop, remove, replace, merge) with native max-heap support, bulk operations, and custom key functions. No negation hacks. No wrappers.</p>
+    </div>
     <div class="feature-card">
       <span class="icon">⚡</span>
       <h3>Floyd's Bottom-Up Heapify</h3>
-      <p>Wegener 1993 variant descends to a leaf comparing only children, then bubbles up — reducing comparisons by ~25% versus standard sift-down.</p>
+      <p>Wegener 1993 variant descends to a leaf comparing only children, then bubbles up, reducing comparisons by ~25% versus standard sift-down. O(n) construction.</p>
     </div>
     <div class="feature-card">
-      <span class="icon">🔑</span>
-      <h3>Precomputed Key Caching</h3>
-      <p>Keys computed in a single O(n) pass via vectorcall, eliminating 100,000 tuple allocations for n=100K elements.</p>
+      <span class="icon">🧠</span>
+      <h3>Runtime Algorithm Selection</h3>
+      <p>An 11-priority dispatch table selects the optimal code path at runtime based on data type, heap size, arity, key function presence, and element homogeneity.</p>
     </div>
     <div class="feature-card">
       <span class="icon">🔬</span>
-      <h3>Homogeneous Type Detection</h3>
-      <p>SIMD-accelerated type pointer scanning (AVX2: 4 ptrs/cycle, NEON: 2 ptrs/cycle) routes to C-native comparison loops bypassing PyObject_RichCompareBool.</p>
+      <h3>SIMD Acceleration</h3>
+      <p>AVX2, SSE2, and ARM NEON intrinsics for type pointer scanning (4 ptrs/cycle) and child selection in quaternary/octonary heaps. Scalar fallbacks on all platforms.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🏎️</span>
+      <h3>Fast Comparison Paths</h3>
+      <p>Type-specialized C comparisons for int, float, bytes, str, bool, and tuple, bypassing PyObject_RichCompareBool entirely. Recursive fast-compare for nested tuples.</p>
     </div>
     <div class="feature-card">
       <span class="icon">🧵</span>
       <h3>GIL-Releasing Computation</h3>
-      <p>Extracts raw C values, releases the GIL, performs pure-C heapify, then rearranges Python objects via cycle-following permutation.</p>
-    </div>
-    <div class="feature-card">
-      <span class="icon">📦</span>
-      <h3>Stack-First Allocation</h3>
-      <p>Key arrays ≤128 and value arrays ≤2,048 elements use stack buffers, avoiding malloc/free overhead for the common case.</p>
+      <p>For homogeneous int/float arrays: extracts raw C values, releases the GIL, performs pure-C heapify, then rearranges Python objects via cycle-following permutation.</p>
     </div>
     <div class="feature-card">
       <span class="icon">🌳</span>
       <h3>Multi-Arity Heaps</h3>
-      <p>Binary, ternary, quaternary, and octonary heaps with bit-shift parent/child calculations. Arity 1–64 supported.</p>
+      <p>Binary, ternary, quaternary, and octonary heaps with bit-shift parent/child calculations. Arity 1–64 supported. Cache-friendly access patterns for large n.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🔑</span>
+      <h3>Precomputed Key Caching</h3>
+      <p>Keys computed in a single O(n) pass via Python 3.8+ vectorcall protocol, eliminating one tuple allocation per element. Stack-buffered for n ≤ 128.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🎯</span>
+      <h3>Zero-Overhead Fast Paths</h3>
+      <p>push(heap, item) and pop(heap) bypass all argument parsing for the common case, saving ~20ns per call. Bulk push delegates to O(n+k) heapify when k ≥ n.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🛡️</span>
+      <h3>Memory Safety</h3>
+      <p>Py_INCREF/DECREF on all objects across comparisons. List-size validation after every Python callback. NaN-aware ordering across all float paths. No undefined behavior.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">📦</span>
+      <h3>Stack-First Allocation</h3>
+      <p>Key arrays ≤128 and value arrays ≤2,048 elements use stack buffers with architecture-aligned hints, avoiding malloc/free overhead for the common case.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🌍</span>
+      <h3>Universal Compatibility</h3>
+      <p>Python 3.9–3.14. macOS, Linux, Windows. x86-64, ARM64, RISC-V, POWER. GCC, Clang, MSVC. Works on any mutable sequence, not just lists. Zero dependencies.</p>
     </div>
   </div>
 </section>
