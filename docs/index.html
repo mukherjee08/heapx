@@ -23,7 +23,7 @@ canvas#bg{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0}
 
 /* Nav */
 nav{position:fixed;top:0;left:0;right:0;z-index:100;padding:0 48px;height:72px;display:flex;align-items:center;justify-content:space-between;backdrop-filter:blur(40px) saturate(1.8);-webkit-backdrop-filter:blur(40px) saturate(1.8);background:rgba(0,0,0,.55);border-bottom:1px solid rgba(255,255,255,.08);transition:background .3s}
-nav .logo{font-size:1.4rem;font-weight:600;letter-spacing:-.02em;color:#fff}
+nav .logo{font-size:1.4rem;font-weight:600;letter-spacing:-.02em;color:#fff;text-decoration:none;cursor:pointer}
 nav .logo span{color:rgba(255,255,255,.4);font-weight:400}
 nav .links{display:flex;gap:32px;align-items:center}
 nav .links a{color:rgba(255,255,255,.6);text-decoration:none;font-size:1.0rem;font-weight:500;letter-spacing:.01em;transition:color .2s}
@@ -38,6 +38,10 @@ section{padding:140px 48px 100px;max-width:1120px;margin:0 auto}
 /* Hero */
 .hero .badge{display:inline-block;padding:6px 16px;border-radius:20px;font-size:.75rem;font-weight:500;letter-spacing:.04em;text-transform:uppercase;border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.55);margin-bottom:28px;backdrop-filter:blur(10px);background:rgba(255,255,255,.04)}
 .hero h1{font-size:clamp(3rem,7vw,5.5rem);font-weight:700;letter-spacing:-.04em;line-height:1.15;margin-bottom:40px;background:linear-gradient(135deg,#fff 0%,rgba(255,255,255,.7) 50%,rgba(200,180,255,.6) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero h1 .cursor{display:inline-block;width:.06em;height:1.05em;vertical-align:text-bottom;margin-left:2px;animation:blink .6s step-end infinite;-webkit-text-fill-color:initial;background:rgba(255,255,255,.85);background-clip:padding-box;-webkit-background-clip:padding-box}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+@keyframes bounceIn{0%{transform:scale(.97);opacity:.8}50%{transform:scale(1.015)}100%{transform:scale(1);opacity:1}}
+.hero h1.bounce{animation:bounceIn .45s cubic-bezier(.34,1.56,.64,1) forwards}
 .hero .sub{font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.5);max-width:640px;line-height:1.6;font-weight:300;margin-bottom:40px}
 
 /* Install bar */
@@ -46,10 +50,10 @@ section{padding:140px 48px 100px;max-width:1120px;margin:0 auto}
 .install-btn:hover{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.15)}
 .install-btn .cmd{display:flex;align-items:center;gap:12px;padding:16px 24px;color:rgba(255,255,255,.7);cursor:pointer;transition:color .2s;position:relative}
 .install-btn .cmd:hover{color:#fff}
-.install-btn .cmd .copied{position:absolute;top:-34px;left:50%;transform:translateX(-50%);font-family:'Inter',sans-serif;font-size:.7rem;background:rgba(255,255,255,.15);padding:3px 10px;border-radius:6px;opacity:0;transition:opacity .2s;pointer-events:none}
+.install-btn .cmd .copied{position:absolute;top:-40px;left:50%;transform:translateX(-50%);font-family:'Inter',sans-serif;font-size:.85rem;font-weight:500;background:rgba(255,255,255,.18);backdrop-filter:blur(10px);padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,.12);opacity:0;transition:opacity .25s;pointer-events:none;color:rgba(255,255,255,.85);white-space:nowrap}
 .install-btn .cmd .copied.show{opacity:1}
 .install-btn .divider{width:1px;background:rgba(255,255,255,.12);align-self:stretch}
-.install-btn .link{display:flex;align-items:center;justify-content:center;padding:0 20px;color:rgba(255,255,255,.45);text-decoration:none;transition:all .2s}
+.install-btn .link{display:flex;align-items:center;justify-content:center;padding:0 20px;color:rgba(255,255,255,.45);text-decoration:none;transition:all .2s;font-size:1.6rem;font-family:system-ui,sans-serif}
 .install-btn .link:hover{color:#fff;background:rgba(255,255,255,.06)}
 
 /* Section headers */
@@ -120,7 +124,7 @@ footer .footer-links{display:flex;gap:24px;justify-content:center;margin-bottom:
 <canvas id="bg"></canvas>
 
 <nav>
-  <div class="logo">heapx<span>.py</span></div>
+  <a href="#" class="logo" onclick="document.getElementById('content').scrollTo({top:0,behavior:'smooth'});return false;">heapx<span>.py</span></a>
   <div class="links">
     <a href="#features">Features</a>
     <a href="#api">API</a>
@@ -139,12 +143,12 @@ footer .footer-links{display:flex;gap:24px;justify-content:center;margin-bottom:
   <p class="sub">A single-file C extension delivering SIMD acceleration, GIL-releasing computation, and a multi-tier dispatch system that selects the optimal algorithm at runtime.</p>
   <div class="install-bar">
     <div class="install-btn">
-      <div class="cmd" onclick="copyCmd(this,'pip install heapx')"><span>$</span> pip install heapx<div class="copied">Copied!</div></div>
+      <div class="cmd" onclick="copyCmd(this,'pip install heapx')"><span>$</span> pip install heapx<div class="copied">✓ Copied to clipboard</div></div>
       <div class="divider"></div>
       <a href="https://pypi.org/project/heapx/" class="link" target="_blank" title="View on PyPI">↗</a>
     </div>
     <div class="install-btn">
-      <div class="cmd" onclick="copyCmd(this,'conda install -c conda-forge heapx')"><span>$</span> conda install -c conda-forge heapx<div class="copied">Copied!</div></div>
+      <div class="cmd" onclick="copyCmd(this,'conda install -c conda-forge heapx')"><span>$</span> conda install -c conda-forge heapx<div class="copied">✓ Copied to clipboard</div></div>
       <div class="divider"></div>
       <a href="https://pypi.org/project/heapx/" class="link" target="_blank" title="View on conda-forge">↗</a>
     </div>
@@ -328,8 +332,41 @@ function copyCmd(el,text){
   navigator.clipboard.writeText(text);
   var c=el.querySelector('.copied');
   c.classList.add('show');
-  setTimeout(function(){c.classList.remove('show')},1200);
+  el.style.background='rgba(255,255,255,.1)';
+  setTimeout(function(){c.classList.remove('show');el.style.background='';},1400);
 }
+</script>
+
+<script>
+(function(){
+  var h1=document.querySelector('.hero h1');
+  if(!h1)return;
+  var full='Ultra-optimized heap operations\nfor Python, written in C.';
+  if(sessionStorage.getItem('heapx_typed')){return;}
+  sessionStorage.setItem('heapx_typed','1');
+  h1.textContent='';
+  var cursor=document.createElement('span');
+  cursor.className='cursor';
+  h1.appendChild(cursor);
+  var i=0;
+  var speed=45;
+  function type(){
+    if(i<full.length){
+      var ch=full[i];
+      if(ch==='\n'){
+        h1.insertBefore(document.createElement('br'),cursor);
+      }else{
+        h1.insertBefore(document.createTextNode(ch),cursor);
+      }
+      i++;
+      setTimeout(type,speed);
+    }else{
+      cursor.remove();
+      h1.classList.add('bounce');
+    }
+  }
+  setTimeout(type,400);
+})();
 </script>
 
 <script>
