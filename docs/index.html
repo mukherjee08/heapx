@@ -57,9 +57,9 @@ section{padding:140px 48px 100px;max-width:1120px;margin:0 auto}
 .install-btn .link:hover{color:#fff;background:rgba(255,255,255,.06)}
 
 /* Section headers */
-.section-label{font-size:.72rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.35);margin-bottom:12px}
+.section-label{font-size:clamp(1rem,2vw,1.35rem);font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.35);margin-bottom:12px}
 .section-title{font-size:clamp(2rem,4vw,3rem);font-weight:700;letter-spacing:-.03em;line-height:1.15;margin-bottom:16px}
-.section-sub{font-size:1.05rem;color:rgba(255,255,255,.45);max-width:560px;line-height:1.6;font-weight:300;margin-bottom:56px}
+.section-sub{font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.45);max-width:560px;line-height:1.6;font-weight:300;margin-bottom:56px}
 
 /* Feature grid */
 .features-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}
@@ -79,7 +79,7 @@ section{padding:140px 48px 100px;max-width:1120px;margin:0 auto}
 .api-card .complexity{display:inline-block;margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:.72rem;padding:3px 10px;border-radius:6px;background:rgba(255,255,255,.06);color:rgba(255,255,255,.4)}
 
 /* Code block */
-pre{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:24px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:.82rem;line-height:1.7;color:rgba(255,255,255,.7);margin:32px 0}
+pre{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:32px 36px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:1.25rem;line-height:1.7;color:rgba(255,255,255,.7);margin:32px 0}
 pre .kw{color:rgba(200,180,255,.8)}
 pre .fn{color:rgba(130,200,255,.8)}
 pre .str{color:rgba(160,220,150,.8)}
@@ -139,7 +139,7 @@ footer .footer-links{display:flex;gap:24px;justify-content:center;margin-bottom:
 <!-- Hero -->
 <section class="hero">
   <div class="badge">v1.0.0 · MIT License · Python ≥ 3.9</div>
-  <h1>Ultra-optimized heap operations<br>for Python, written in C.</h1>
+  <h1>Ultra-optimized heap operations for Python,<br>written in C.</h1>
   <p class="sub">A single-file C extension delivering SIMD acceleration, GIL-releasing computation, and a multi-tier dispatch system that selects the optimal algorithm at runtime.</p>
   <div class="install-bar">
     <div class="install-btn">
@@ -341,7 +341,7 @@ function copyCmd(el,text){
 (function(){
   var h1=document.querySelector('.hero h1');
   if(!h1)return;
-  var full='Ultra-optimized heap operations\nfor Python, written in C.';
+  var full='Ultra-optimized heap operations for Python,\nwritten in C.';
   if(sessionStorage.getItem('heapx_typed')){return;}
   sessionStorage.setItem('heapx_typed','1');
   h1.textContent='';
@@ -349,7 +349,7 @@ function copyCmd(el,text){
   cursor.className='cursor';
   h1.appendChild(cursor);
   var i=0;
-  var speed=45;
+  var speed=65;
   function type(){
     if(i<full.length){
       var ch=full[i];
