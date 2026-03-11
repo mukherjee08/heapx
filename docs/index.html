@@ -347,21 +347,17 @@ document.getElementById('year').textContent=new Date().getFullYear();
 // Load case studies dynamically
 (function(){
   var container=document.getElementById('case-study-list');
-  fetch('case-studies/index.json')
-    .then(function(r){return r.ok?r.json():[]})
-    .then(function(studies){
-      if(!studies.length){container.innerHTML='<p style="font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.4);font-weight:300">Case studies coming soon.</p>';return;}
-      studies.forEach(function(s){
-        var a=document.createElement('a');
-        a.href='case-studies/'+s.dir+'.html';
-        a.className='install-btn';
-        a.style.fontSize='1.25rem';
-        a.style.textDecoration='none';
-        a.innerHTML='<span class="cmd" style="padding:16px 24px;cursor:pointer">'+s.name+'</span>';
-        container.appendChild(a);
-      });
-    })
-    .catch(function(){container.innerHTML='<p style="font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.4);font-weight:300">Case studies coming soon.</p>';});
+  /* CASE_STUDIES_DATA:BEGIN */var studies=[{"dir": "Bioinformatics_Sequence-Alignment", "name": "Bioinformatics Sequence-Alignment"}, {"dir": "Financial_Order-Book-Simulation", "name": "Financial Order-Book-Simulation"}, {"dir": "Network-Routing_Dijkstras-Algorithm", "name": "Network-Routing Dijkstras-Algorithm"}];/* CASE_STUDIES_DATA:END */
+  if(!studies.length){container.innerHTML='<p style="font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.4);font-weight:300">Case studies coming soon.</p>';return;}
+  studies.forEach(function(s){
+    var a=document.createElement('a');
+    a.href='case-studies/'+s.dir+'.html';
+    a.className='install-btn';
+    a.style.fontSize='1.25rem';
+    a.style.textDecoration='none';
+    a.innerHTML='<span class="cmd" style="padding:16px 24px;cursor:pointer">'+s.name+'</span>';
+    container.appendChild(a);
+  });
 })();
 function copyCmd(el,text){
   navigator.clipboard.writeText(text);

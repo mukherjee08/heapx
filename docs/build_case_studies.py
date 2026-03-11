@@ -238,7 +238,23 @@ def main():
     with open(index_path, "w", encoding="utf-8") as f:
         json.dump(index, f, indent=2)
 
-    print(f"\nDone. Generated {len(studies)} pages. Removed {removed} stale. index.json has {len(index)} entries.")
+    # Patch index.html with embedded case study list
+    index_html_path = os.path.join(REPO_ROOT, "docs", "index.html")
+    if os.path.isfile(index_html_path):
+        with open(index_html_path, "r", encoding="utf-8") as f:
+            html = f.read()
+        embedded = f"var studies={json.dumps(index)};"
+        import re as _re
+        patched = _re.sub(
+            r'/\* CASE_STUDIES_DATA:BEGIN \*/.*?/\* CASE_STUDIES_DATA:END \*/',
+            f'/* CASE_STUDIES_DATA:BEGIN */{embedded}/* CASE_STUDIES_DATA:END */',
+            html
+        )
+        with open(index_html_path, "w", encoding="utf-8") as f:
+            f.write(patched)
+        print(f"  Patched index.html with {len(index)} case studies.")
+
+    print(f"\nDone. Generated {len(studies)} pages. Removed {removed} stale.")
 
 
 if __name__ == "__main__":
