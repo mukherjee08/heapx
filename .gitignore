@@ -32,3 +32,6 @@ Thumbs.db
 .vscode/
 .idea/
 .pypirc
+
+# Large data files (exceed GitHub 100MB limit)
+case-studies/Network-Routing_Dijkstras-Algorithm/data/

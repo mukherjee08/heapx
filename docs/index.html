@@ -135,7 +135,7 @@ footer .footer-links{display:flex;gap:24px;justify-content:center;margin-bottom:
   <div class="links">
     <a href="#features">Features</a>
     <a href="#api">API</a>
-    <a href="#performance">Performance</a>
+    <a href="#case-studies">Case Studies</a>
     <a href="#platforms">Platforms</a>
     <a href="https://github.com/mukherjee08/heapx" class="cta" target="_blank">GitHub</a>
   </div>
@@ -304,33 +304,12 @@ tasks = [{<span class="str">"pri"</span>: <span class="num">10</span>}, {<span c
   </div>
 </section>
 
-<!-- Performance -->
-<section id="performance">
-  <div class="section-label">Performance</div>
-  <div class="section-title">Runtime dispatch. Zero waste.</div>
-  <div class="section-sub">An 11-priority dispatch table selects the optimal algorithm based on data type, heap size, arity, and key function presence.</div>
-
-  <div class="stats">
-    <div class="stat"><div class="val">~25%</div><div class="label">Fewer comparisons via Floyd's</div></div>
-    <div class="stat"><div class="val">O(n)</div><div class="label">Key precomputation</div></div>
-    <div class="stat"><div class="val">4 ptr/cyc</div><div class="label">AVX2 type scanning</div></div>
-    <div class="stat"><div class="val">≤16</div><div class="label">Insertion sort threshold</div></div>
-  </div>
-
-  <table class="dispatch-table">
-    <thead>
-      <tr><th>Condition</th><th>Path</th><th>Mechanism</th></tr>
-    </thead>
-    <tbody>
-      <tr><td>Homogeneous int/float</td><td><code>list_heapify_homogeneous_*</code></td><td>C-native comparisons, bypass rich compare</td></tr>
-      <tr><td>nogil=True + homogeneous</td><td><code>*_nogil</code> variants</td><td>GIL released, cycle-following permutation</td></tr>
-      <tr><td>n ≤ 16</td><td><code>list_heapify_small_ultra_optimized</code></td><td>Insertion sort, cache-line friendly</td></tr>
-      <tr><td>Arity 2, no key</td><td><code>list_heapify_floyd_ultra_optimized</code></td><td>Floyd's bottom-up, bit-shift parent calc</td></tr>
-      <tr><td>Arity 4, no key</td><td><code>list_heapify_quaternary_ultra_optimized</code></td><td>SIMD child selection, prefetching</td></tr>
-      <tr><td>Arity 8, no key</td><td><code>list_heapify_octonary_ultra_optimized</code></td><td>8-wide SIMD min/max reduction</td></tr>
-      <tr><td>With key function</td><td><code>*_with_key_ultra_optimized</code></td><td>Vectorcall key invocation, cached keys</td></tr>
-    </tbody>
-  </table>
+<!-- Case Studies -->
+<section id="case-studies">
+  <div class="section-label">Case Studies</div>
+  <div class="section-title">Real-world applications.</div>
+  <div class="section-sub" style="max-width:none">Explore how heapx powers production workloads across domains.</div>
+  <div id="case-study-list" class="install-bar" style="flex-direction:column;align-items:flex-start;gap:12px"></div>
 </section>
 
 <!-- Platforms -->
@@ -365,6 +344,25 @@ tasks = [{<span class="str">"pri"</span>: <span class="num">10</span>}, {<span c
 
 <script>
 document.getElementById('year').textContent=new Date().getFullYear();
+// Load case studies dynamically
+(function(){
+  var container=document.getElementById('case-study-list');
+  fetch('case-studies/index.json')
+    .then(function(r){return r.ok?r.json():[]})
+    .then(function(studies){
+      if(!studies.length){container.innerHTML='<p style="font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.4);font-weight:300">Case studies coming soon.</p>';return;}
+      studies.forEach(function(s){
+        var a=document.createElement('a');
+        a.href='case-studies/'+s.dir+'.html';
+        a.className='install-btn';
+        a.style.fontSize='1.25rem';
+        a.style.textDecoration='none';
+        a.innerHTML='<span class="cmd" style="padding:16px 24px;cursor:pointer">'+s.name+'</span>';
+        container.appendChild(a);
+      });
+    })
+    .catch(function(){container.innerHTML='<p style="font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.4);font-weight:300">Case studies coming soon.</p>';});
+})();
 function copyCmd(el,text){
   navigator.clipboard.writeText(text);
   var c=el.querySelector('.copied');
