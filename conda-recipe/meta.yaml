@@ -7,7 +7,7 @@ package:
 
 source:
   url: https://github.com/mukherjee08/{{ name }}/archive/refs/tags/v{{ version }}.tar.gz
-  # sha256: UPDATE_THIS_AFTER_CREATING_THE_GITHUB_RELEASE
+  sha256: cab33e41d503257222c81b05c9c90499cd5fc7bf89a971e0c3572d405881f66c
 
 build:
   number: 0
