@@ -190,7 +190,7 @@ python3 -c "import sysconfig; print(f'clang -shared -fPIC -O3 -march=native -mtu
   #define FORCE_INLINE __forceinline
   #define HOT_FUNCTION
   #define COLD_FUNCTION
-  #define ASSUME_ALIGNED(ptr, align) __assume((uintptr_t)(ptr) % (align) == 0); (ptr)
+  #define ASSUME_ALIGNED(ptr, align) (__assume((uintptr_t)(ptr) % (align) == 0), (ptr))
 #else
   #define likely(x)   (x)
   #define unlikely(x) (x)
@@ -1480,7 +1480,7 @@ detect_homogeneous_type(PyObject **items, Py_ssize_t n) {
       (int64_t)Py_TYPE(obj0)
     );
     
-    __m128i cmp = _mm_cmpeq_epi64(types, target_type);
+    __m128i cmp = _mm_cmpeq_epi32(types, target_type);
     int mask = _mm_movemask_epi8(cmp);
     
     /* All 2 must match: mask should be 0xFFFF (all 16 bytes equal) */
