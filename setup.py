@@ -39,6 +39,7 @@ class OptimizedBuildExt(build_ext):
     arch = platform.machine().lower()
     is_64bit = sys.maxsize > 2**32
     is_conda = os.environ.get('CONDA_BUILD', '') == '1'
+    is_cibuildwheel = os.environ.get('CIBUILDWHEEL', '') == '1'
 
     common = ['-DNDEBUG', '-DPY_SSIZE_T_CLEAN']
 
@@ -52,6 +53,15 @@ class OptimizedBuildExt(build_ext):
           arch_flags = ['-march=x86-64-v2']
         elif ('arm' in arch) or ('aarch' in arch):
           arch_flags = []  # conda-forge sets its own ARM baseline
+        else:
+          arch_flags = []
+      elif is_cibuildwheel:
+        # cibuildwheel builds: portable baselines for wheel compatibility
+        # aarch64 wheels run under QEMU emulation where -march=native fails
+        if ('x86' in arch) and is_64bit:
+          arch_flags = ['-march=x86-64-v2', '-mtune=generic']
+        elif ('arm' in arch) or ('aarch' in arch):
+          arch_flags = ['-march=armv8-a', '-mtune=generic']
         else:
           arch_flags = []
       else:
