@@ -12,9 +12,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-13, macos-14, windows-latest]
+        os: [ubuntu-latest, macos-15-intel, macos-14, windows-latest]
         # ubuntu-latest  → Linux x86-64 (+ ARM64 via QEMU)
-        # macos-13       → macOS x86-64 (Intel)
+        # macos-15-intel → macOS x86-64 (Intel) — last Intel runner, supported until Aug 2027
         # macos-14       → macOS ARM64 (Apple Silicon)
         # windows-latest → Windows x86-64
 
