@@ -1187,7 +1187,7 @@ simd_find_best_child_float(const double * HEAPX_RESTRICT values,
 }
 
 /* Enhanced fast comparison for comprehensive Python type coverage */
-static FORCE_INLINE int
+static inline int
 fast_compare(PyObject *a, PyObject *b, int op, int *result) {
   /* OPTIMIZATION 1: Fast path for long integers (most common case) */
   if (likely(PyLong_CheckExact(a) && PyLong_CheckExact(b))) {
