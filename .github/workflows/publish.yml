@@ -1,0 +1,94 @@
+name: Build and Publish to PyPI
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build-wheels:
+    name: Wheels · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-13, macos-14, windows-latest]
+        # ubuntu-latest  → Linux x86-64 (+ ARM64 via QEMU)
+        # macos-13       → macOS x86-64 (Intel)
+        # macos-14       → macOS ARM64 (Apple Silicon)
+        # windows-latest → Windows x86-64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # setuptools-scm needs full history
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # QEMU is required for cross-compiling Linux ARM64 wheels on x86-64 runners
+      - name: Set up QEMU
+        if: runner.os == 'Linux'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v3.4.0
+        env:
+          # Python 3.9 through 3.14, CPython only
+          CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-* cp314-*"
+          # Skip 32-bit, musl, and PyPy — not in your platform support matrix
+          CIBW_SKIP: "*-win32 *-manylinux_i686 *-musllinux* pp*"
+          # Linux: build both x86-64 and ARM64 (ARM64 via QEMU emulation)
+          CIBW_ARCHS_LINUX: "x86_64 aarch64"
+          # macOS: each runner builds its native arch only
+          CIBW_ARCHS_MACOS: "native"
+          # Windows: x86-64 only
+          CIBW_ARCHS_WINDOWS: "AMD64"
+          # Smoke test every wheel after build
+          CIBW_TEST_COMMAND: >
+            python -c "import heapx; d=[5,2,8,1,9]; heapx.heapify(d); assert d[0]==1; print('heapx OK')"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: ./wheelhouse/*.whl
+
+  build-sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist
+        run: pipx run build --sdist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  publish:
+    name: Publish to PyPI
+    needs: [build-wheels, build-sdist]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # Required for PyPI trusted publishing
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
