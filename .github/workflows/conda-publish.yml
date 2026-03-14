@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-and-upload:
-    name: Conda · ${{ matrix.os }}
+    name: Conda · ${{ matrix.os }} · py${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -24,19 +24,39 @@ jobs:
         with:
           auto-update-conda: true
           python-version: "3.12"
+          channels: conda-forge,defaults
 
       - name: Install conda-build and anaconda-client
         shell: bash -el {0}
         run: conda install conda-build anaconda-client -y
 
-      - name: Build conda package
+      - name: Build conda package (Unix)
+        if: runner.os != 'Windows'
         shell: bash -el {0}
-        run: conda build conda-recipe --python ${{ matrix.python-version }}
+        run: conda build conda-recipe --python ${{ matrix.python-version }} -c conda-forge
 
-      - name: Upload to Anaconda.org
+      - name: Build conda package (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd /C call {0}
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          conda build conda-recipe --python ${{ matrix.python-version }} -c conda-forge
+
+      - name: Upload to Anaconda.org (Unix)
+        if: runner.os != 'Windows'
         shell: bash -el {0}
         env:
           ANACONDA_API_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
         run: |
-          PKG=$(conda build conda-recipe --python ${{ matrix.python-version }} --output)
+          PKG=$(conda build conda-recipe --python ${{ matrix.python-version }} -c conda-forge --output)
           anaconda --token "$ANACONDA_API_TOKEN" upload --force "$PKG"
+
+      - name: Upload to Anaconda.org (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd /C call {0}
+        env:
+          ANACONDA_API_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          for /f "delims=" %%i in ('conda build conda-recipe --python ${{ matrix.python-version }} -c conda-forge --output') do set PKG=%%i
+          anaconda --token "%ANACONDA_API_TOKEN%" upload --force "%PKG%"
