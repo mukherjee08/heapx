@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>heapx — Ultra-Optimized Heap Operations for Python</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90' fill='%23d4a0b0'>Σ</text></svg>">
+<meta name="description" content="heapx is a C extension for Python delivering ultra-optimized heap operations with SIMD acceleration, GIL-releasing computation, and multi-arity support.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html{font-size:16px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+html,body{width:100%;height:100%;background:#000;overflow:hidden}
+body{font-family:'Inter',system-ui,-apple-system,sans-serif;color:rgba(255,255,255,.92);line-height:1.7}
+canvas#bg{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0}
+#content{position:relative;z-index:1;overflow-x:hidden;overflow-y:auto;height:100%;-webkit-overflow-scrolling:touch}
+
+/* Scrollbar */
+#content::-webkit-scrollbar{width:6px}
+#content::-webkit-scrollbar-track{background:transparent}
+#content::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:3px}
+
+/* Nav */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;padding:0 48px;height:72px;display:flex;align-items:center;justify-content:space-between;backdrop-filter:blur(40px) saturate(1.8);-webkit-backdrop-filter:blur(40px) saturate(1.8);background:rgba(0,0,0,.55);border-bottom:1px solid rgba(255,255,255,.08);transition:background .3s}
+nav .logo{font-size:1.4rem;font-weight:600;letter-spacing:-.02em;color:#fff;text-decoration:none;cursor:pointer}
+nav .logo span{color:rgba(255,255,255,.4);font-weight:400}
+nav .links{display:flex;gap:32px;align-items:center}
+nav .links a{color:rgba(255,255,255,.6);text-decoration:none;font-size:1.0rem;font-weight:500;letter-spacing:.01em;transition:color .2s}
+nav .links a:hover{color:#fff}
+nav .links a.cta{background:rgba(255,255,255,.12);padding:8px 22px;border-radius:20px;color:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.1);transition:all .2s}
+nav .links a.cta:hover{background:rgba(255,255,255,.2);color:#fff}
+
+/* Sections */
+section{padding:140px 48px 100px;max-width:1120px;margin:0 auto}
+.hero{min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding-top:0;padding-bottom:0}
+
+/* Hero */
+.hero .badge{display:inline-block;padding:6px 16px;border-radius:20px;font-size:.75rem;font-weight:500;letter-spacing:.04em;text-transform:uppercase;border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.55);margin-bottom:28px;backdrop-filter:blur(10px);background:rgba(255,255,255,.04)}
+.hero h1{font-size:clamp(3rem,7vw,5.5rem);font-weight:700;letter-spacing:-.04em;line-height:1.15;margin-bottom:40px;background:linear-gradient(135deg,#fff 0%,rgba(255,255,255,.7) 50%,rgba(200,180,255,.6) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero h1 .cursor{display:inline-block;width:.06em;height:1.05em;vertical-align:text-bottom;margin-left:2px;animation:blink .6s step-end infinite;-webkit-text-fill-color:initial;background:rgba(255,255,255,.85);background-clip:padding-box;-webkit-background-clip:padding-box}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+@keyframes bounceIn{0%{transform:scale(.97);opacity:.8}50%{transform:scale(1.015)}100%{transform:scale(1);opacity:1}}
+.hero h1.bounce{animation:bounceIn .45s cubic-bezier(.34,1.56,.64,1) forwards}
+.hero .sub{font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.5);max-width:640px;line-height:1.6;font-weight:300;margin-bottom:40px}
+
+/* Install bar */
+.install-bar{display:flex;gap:16px;flex-wrap:wrap;justify-content:center}
+.install-btn{display:flex;align-items:stretch;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:14px;overflow:hidden;transition:all .2s;font-family:'JetBrains Mono',monospace;font-size:1.25rem}
+.install-btn:hover{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.15)}
+.install-btn .cmd{display:flex;align-items:center;gap:12px;padding:16px 24px;color:rgba(255,255,255,.7);cursor:pointer;transition:color .2s;position:relative}
+.install-btn .cmd:hover{color:#fff}
+.install-btn .cmd .copied{position:absolute;top:-40px;left:50%;transform:translateX(-50%);font-family:'Inter',sans-serif;font-size:.85rem;font-weight:500;background:rgba(255,255,255,.18);backdrop-filter:blur(10px);padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,.12);opacity:0;transition:opacity .25s;pointer-events:none;color:rgba(255,255,255,.85);white-space:nowrap}
+.install-btn .cmd .copied.show{opacity:1}
+.install-btn .divider{width:1px;background:rgba(255,255,255,.12);align-self:stretch}
+.install-btn .link{display:flex;align-items:center;justify-content:center;padding:0 20px;color:rgba(255,255,255,.45);text-decoration:none;transition:all .2s;font-size:1.6rem;font-family:system-ui,sans-serif}
+.install-btn .link:hover{color:#fff;background:rgba(255,255,255,.06)}
+
+/* Section headers */
+.section-label{font-size:clamp(1rem,2vw,1.35rem);font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.35);margin-bottom:12px}
+.section-title{font-size:clamp(2rem,4vw,3rem);font-weight:700;letter-spacing:-.03em;line-height:1.15;margin-bottom:12px}
+.section-sub{font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.45);max-width:720px;line-height:1.6;font-weight:300;margin-bottom:56px}
+
+/* Feature grid */
+.features-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;width:100vw;position:relative;left:50%;transform:translateX(-50%);padding:0 48px;box-sizing:border-box}
+.feature-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:20px;padding:40px;transition:all .3s}
+.feature-card:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.12);transform:translateY(-2px)}
+.feature-card .icon{font-size:2.2rem;margin-bottom:20px;display:block}
+.feature-card h3{font-size:1.6rem;font-weight:600;margin-bottom:12px;letter-spacing:-.02em}
+.feature-card p{font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.45);line-height:1.6;font-weight:300}
+
+/* API cards */
+.api-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;width:100vw;position:relative;left:50%;transform:translateX(-50%);padding:0 48px;box-sizing:border-box}
+.api-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:20px;padding:40px;transition:all .3s}
+.api-card:hover{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.12)}
+.api-card .fn-name{font-family:'JetBrains Mono',monospace;font-size:clamp(1.2rem,2.4vw,1.65rem);font-weight:500;color:rgba(200,180,255,.8);margin-bottom:8px}
+.api-card .fn-sig{font-family:'JetBrains Mono',monospace;font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.7);margin-bottom:16px;word-break:break-all;font-weight:300}
+.api-card p{font-size:clamp(1.1rem,2.2vw,1.5rem);color:rgba(255,255,255,.45);line-height:1.6;font-weight:300}
+.api-card .complexity{display:inline-block;margin-top:14px;font-family:'JetBrains Mono',monospace;font-size:clamp(.8rem,1.6vw,1.05rem);padding:5px 14px;border-radius:8px;background:rgba(255,255,255,.06);color:rgba(255,255,255,.4)}
+
+/* Code block */
+pre{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:32px 36px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:1.25rem;line-height:1.7;color:rgba(255,255,255,.7);margin:32px 0}
+pre .kw{color:rgba(200,180,255,.8)}
+pre .fn{color:rgba(130,200,255,.8)}
+pre .str{color:rgba(160,220,150,.8)}
+pre .cm{color:rgba(255,255,255,.25)}
+pre .num{color:rgba(255,190,130,.8)}
+
+/* Stats row */
+.stats{display:flex;gap:48px;flex-wrap:wrap;margin:48px 0}
+.stat{text-align:center}
+.stat .val{font-size:2.5rem;font-weight:700;letter-spacing:-.03em;background:linear-gradient(135deg,#fff,rgba(200,180,255,.7));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.stat .label{font-size:.78rem;color:rgba(255,255,255,.35);margin-top:4px;font-weight:400}
+
+/* Dispatch table */
+.dispatch-table{width:100%;border-collapse:collapse;margin:32px 0;font-size:.82rem}
+.dispatch-table th{text-align:left;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.4);font-weight:500;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase}
+.dispatch-table td{padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.05);color:rgba(255,255,255,.55)}
+.dispatch-table tr:hover td{background:rgba(255,255,255,.03)}
+.dispatch-table code{font-family:'JetBrains Mono',monospace;font-size:.78rem;color:rgba(200,180,255,.7)}
+
+/* Platform pills */
+.platforms{display:flex;gap:16px;flex-wrap:wrap;margin-top:24px}
+.pill{padding:14px 24px;border-radius:14px;font-size:1.25rem;font-weight:500;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:rgba(255,255,255,.5);font-family:'JetBrains Mono',monospace}
+
+/* Footer */
+footer{padding:48px;text-align:center;border-top:1px solid rgba(255,255,255,.06);margin-top:80px}
+footer p{font-size:.8rem;color:rgba(255,255,255,.25)}
+footer a{color:rgba(255,255,255,.4);text-decoration:none}
+footer a:hover{color:rgba(255,255,255,.7)}
+footer .footer-links{display:flex;gap:24px;justify-content:center;margin-bottom:16px}
+
+/* Responsive */
+@media(max-width:1024px){
+  .features-grid{grid-template-columns:repeat(2,1fr)}
+  .api-grid{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:768px){
+  nav{padding:0 20px}
+  nav .links{gap:16px}
+  section{padding:100px 20px 60px}
+  .features-grid{grid-template-columns:1fr;padding:0 20px}
+  .api-grid{grid-template-columns:1fr;padding:0 20px}
+  .stats{gap:24px}
+  .install-bar{flex-direction:column;align-items:center}
+}
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+
+<nav>
+  <a href="#" class="logo" onclick="document.getElementById('content').scrollTo({top:0,behavior:'smooth'});return false;">heapx<span>.py</span></a>
+  <div class="links">
+    <a href="#features">Features</a>
+    <a href="#api">API</a>
+    <a href="#case-studies">Case Studies</a>
+    <a href="#platforms">Platforms</a>
+    <a href="https://github.com/mukherjee08/heapx" class="cta" target="_blank">GitHub</a>
+  </div>
+</nav>
+
+<div id="content">
+
+<!-- Hero -->
+<section class="hero">
+  <div class="badge">v1.0.1 · MIT License · Python ≥ 3.9</div>
+  <h1>Ultra-optimized heap operations for Python,<br>written in C.</h1>
+  <p class="sub">A single-file C extension delivering SIMD acceleration, GIL-releasing computation, and a multi-tier dispatch system that selects the optimal algorithm at runtime.</p>
+  <div class="install-bar">
+    <div class="install-btn">
+      <div class="cmd" onclick="copyCmd(this,'pip install heapx')"><span>$</span> pip install heapx<div class="copied">✓ Copied to clipboard</div></div>
+      <div class="divider"></div>
+      <a href="https://pypi.org/project/heapx/" class="link" target="_blank" title="View on PyPI">↗</a>
+    </div>
+    <div class="install-btn">
+      <div class="cmd" onclick="copyCmd(this,'conda install mukherjee08::heapx')"><span>$</span> conda install mukherjee08::heapx<div class="copied">✓ Copied to clipboard</div></div>
+      <div class="divider"></div>
+      <a href="https://pypi.org/project/heapx/" class="link" target="_blank" title="View on conda-forge">↗</a>
+    </div>
+  </div>
+</section>
+
+<!-- Quick Start -->
+<section>
+  <div class="section-label">Quick Start</div>
+  <div class="section-title">Drop-in. Zero dependencies.</div>
+  <div class="section-sub">Six functions. One import. Immediate performance.</div>
+  <pre><span class="kw">import</span> <span class="fn">heapx</span>
+
+<span class="cm"># Min-heap — Floyd's bottom-up O(n) construction</span>
+data = [<span class="num">5</span>, <span class="num">2</span>, <span class="num">8</span>, <span class="num">1</span>, <span class="num">9</span>, <span class="num">3</span>, <span class="num">7</span>]
+<span class="fn">heapx</span>.heapify(data)
+
+<span class="cm"># Max-heap — native support, no negation hacks</span>
+<span class="fn">heapx</span>.heapify(data, max_heap=<span class="kw">True</span>)
+
+<span class="cm"># Push, pop, remove, replace, merge</span>
+<span class="fn">heapx</span>.push(data, <span class="num">6</span>, max_heap=<span class="kw">True</span>)
+largest = <span class="fn">heapx</span>.pop(data, max_heap=<span class="kw">True</span>)
+top3 = <span class="fn">heapx</span>.pop(data, n=<span class="num">3</span>, max_heap=<span class="kw">True</span>)
+
+<span class="cm"># GIL-releasing for multi-threaded workloads</span>
+floats = [<span class="fn">float</span>(x) <span class="kw">for</span> x <span class="kw">in</span> <span class="fn">range</span>(<span class="num">1_000_000</span>)]
+<span class="fn">heapx</span>.heapify(floats, nogil=<span class="kw">True</span>)
+
+<span class="cm"># Custom keys — computed once in O(n), not O(n log n)</span>
+tasks = [{<span class="str">"pri"</span>: <span class="num">10</span>}, {<span class="str">"pri"</span>: <span class="num">1</span>}, {<span class="str">"pri"</span>: <span class="num">5</span>}]
+<span class="fn">heapx</span>.heapify(tasks, cmp=<span class="kw">lambda</span> x: x[<span class="str">"pri"</span>])</pre>
+</section>
+
+<!-- Features -->
+<section id="features">
+  <div class="section-label">Why heapx</div>
+  <div class="section-title">Engineered at every layer.</div>
+  <div class="section-sub">9,451 lines of C. An 11-priority dispatch table. Zero compromises.</div>
+  <div class="features-grid">
+    <div class="feature-card">
+      <span class="icon">🔁</span>
+      <h3>Drop-In heapq Replacement</h3>
+      <p>Six functions (heapify, push, pop, remove, replace, merge) with native max-heap support, bulk operations, and custom key functions. No negation hacks. No wrappers.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">⚡</span>
+      <h3>Floyd's Bottom-Up Heapify</h3>
+      <p>Wegener 1993 variant descends to a leaf comparing only children, then bubbles up, reducing comparisons by ~25% versus standard sift-down. O(n) construction.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🧠</span>
+      <h3>Runtime Algorithm Selection</h3>
+      <p>An 11-priority dispatch table selects the optimal code path at runtime based on data type, heap size, arity, key function presence, and element homogeneity.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🔬</span>
+      <h3>SIMD Acceleration</h3>
+      <p>AVX2, SSE2, and ARM NEON intrinsics for type pointer scanning (4 ptrs/cycle) and child selection in quaternary/octonary heaps. Scalar fallbacks on all platforms.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🏎️</span>
+      <h3>Fast Comparison Paths</h3>
+      <p>Type-specialized C comparisons for int, float, bytes, str, bool, and tuple, bypassing PyObject_RichCompareBool entirely. Recursive fast-compare for nested tuples.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🧵</span>
+      <h3>GIL-Releasing Computation</h3>
+      <p>For homogeneous int/float arrays: extracts raw C values, releases the GIL, performs pure-C heapify, then rearranges Python objects via cycle-following permutation.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🌳</span>
+      <h3>Multi-Arity Heaps</h3>
+      <p>Binary, ternary, quaternary, and octonary heaps with bit-shift parent/child calculations. Arity 1–64 supported. Cache-friendly access patterns for large n.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🔑</span>
+      <h3>Precomputed Key Caching</h3>
+      <p>Keys computed in a single O(n) pass via Python 3.8+ vectorcall protocol, eliminating one tuple allocation per element. Stack-buffered for n ≤ 128.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🎯</span>
+      <h3>Zero-Overhead Fast Paths</h3>
+      <p>push(heap, item) and pop(heap) bypass all argument parsing for the common case, saving ~20ns per call. Bulk push delegates to O(n+k) heapify when k ≥ n.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🛡️</span>
+      <h3>Memory Safety</h3>
+      <p>Py_INCREF/DECREF on all objects across comparisons. List-size validation after every Python callback. NaN-aware ordering across all float paths. No undefined behavior.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">📦</span>
+      <h3>Stack-First Allocation</h3>
+      <p>Key arrays ≤128 and value arrays ≤2,048 elements use stack buffers with architecture-aligned hints, avoiding malloc/free overhead for the common case.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🌍</span>
+      <h3>Universal Compatibility</h3>
+      <p>Python 3.9–3.14. macOS, Linux, Windows. x86-64, ARM64, RISC-V, POWER. GCC, Clang, MSVC. Works on any mutable sequence, not just lists. Zero dependencies.</p>
+    </div>
+  </div>
+</section>
+
+<!-- API -->
+<section id="api">
+  <div class="section-label">API Reference</div>
+  <div class="section-title" style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">Six functions. Complete control. <a href="readme.html" class="install-btn" style="font-size:inherit;text-decoration:none"><span class="cmd" style="padding:10px 20px;cursor:pointer">README.md</span></a></div>
+  <div class="section-sub" style="max-width:none">Every function shares consistent parameters: <strong style="color:rgba(255,255,255,.7);font-weight:600">max_heap</strong>, <strong style="color:rgba(255,255,255,.7);font-weight:600">cmp</strong>, <strong style="color:rgba(255,255,255,.7);font-weight:600">arity</strong>, <strong style="color:rgba(255,255,255,.7);font-weight:600">nogil</strong>.</div>
+  <div class="api-grid">
+    <div class="api-card">
+      <div class="fn-name">heapify</div>
+      <div class="fn-sig">heapx.heapify(heap, max_heap=False, cmp=None, arity=2, nogil=False)</div>
+      <p>Transforms a mutable sequence into a valid heap in-place using Floyd's bottom-up algorithm. Two-phase dispatch: homogeneous type-specialized paths first, then generic arity-selected paths.</p>
+      <span class="complexity">O(n)</span>
+    </div>
+    <div class="api-card">
+      <div class="fn-name">push</div>
+      <div class="fn-sig">heapx.push(heap, items, max_heap=False, cmp=None, arity=2, nogil=False)</div>
+      <p>Inserts one or more items. Lists trigger batch mode. Zero-overhead fast path for single binary min-heap push saves ~20ns per call. Bulk push delegates to heapify when k ≥ n.</p>
+      <span class="complexity">O(log n) single · O(n+k) bulk</span>
+    </div>
+    <div class="api-card">
+      <div class="fn-name">pop</div>
+      <div class="fn-sig">heapx.pop(heap, n=1, max_heap=False, cmp=None, arity=2, nogil=False)</div>
+      <p>Removes and returns top element(s). n=1 returns single item, n&gt;1 returns list. Type-specialized sift-down for bulk pop with GIL-releasing path for homogeneous arrays.</p>
+      <span class="complexity">O(log n) single · O(k log n) bulk</span>
+    </div>
+    <div class="api-card">
+      <div class="fn-name">remove</div>
+      <div class="fn-sig">heapx.remove(heap, indices=None, object=None, predicate=None, ...)</div>
+      <p>Removes items by index, object identity, or predicate. Single-index hot path achieves O(log n) via inline sift-up/sift-down without full re-heapify.</p>
+      <span class="complexity">O(log n) single · O(k + n) batch</span>
+    </div>
+    <div class="api-card">
+      <div class="fn-name">replace</div>
+      <div class="fn-sig">heapx.replace(heap, values, indices=None, object=None, predicate=None, ...)</div>
+      <p>Replaces items by index, identity, or predicate while maintaining heap property. Single-index path writes value and performs O(log n) sift.</p>
+      <span class="complexity">O(log n) single · O(k + n) batch</span>
+    </div>
+    <div class="api-card">
+      <div class="fn-name">merge</div>
+      <div class="fn-sig">heapx.merge(*heaps, max_heap=False, cmp=None, arity=2, nogil=False)</div>
+      <p>Merges two or more sequences into a single valid heap. O(N) concatenation followed by Floyd's heapify with full dispatch including SIMD/nogil paths.</p>
+      <span class="complexity">O(N) total</span>
+    </div>
+  </div>
+</section>
+
+<!-- Case Studies -->
+<section id="case-studies">
+  <div class="section-label">Case Studies</div>
+  <div class="section-title">Real-world applications.</div>
+  <div class="section-sub" style="max-width:none">Explore how heapx powers production workloads across domains.</div>
+  <div id="case-study-list" class="install-bar" style="justify-content:flex-start;gap:16px"></div>
+</section>
+
+<!-- Platforms -->
+<section id="platforms">
+  <div class="section-label">Platform Support</div>
+  <div class="section-title">Runs everywhere Python runs.</div>
+  <div class="section-sub" style="max-width:none">Native SIMD on x86-64 and ARM64. Scalar fallbacks on all other architectures.</div>
+  <div class="platforms">
+    <div class="pill">macOS · ARM64 (Apple Silicon) · NEON</div>
+    <div class="pill">macOS · x86-64 · AVX2 / SSE2</div>
+    <div class="pill">Linux · x86-64 · AVX2 / SSE2</div>
+    <div class="pill">Linux · ARM64 · NEON / SVE</div>
+    <div class="pill">Windows · x86-64 · AVX2 / SSE2</div>
+    <div class="pill">RISC-V · RV64 · Scalar</div>
+    <div class="pill">IBM POWER · PPC64 · Scalar</div>
+  </div>
+  <div class="section-sub" style="max-width:none;margin-top:12px">Compilers: GCC ≥ 4.9 · Clang ≥ 3.6 · MSVC ≥ 2015. Pip builds with <code style="font-family:'JetBrains Mono',monospace;color:rgba(200,180,255,.6)">-O3 -march=native -flto</code>. Conda uses portable baselines.</div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="footer-links">
+    <a href="https://pypi.org/project/heapx/" target="_blank">PyPI</a>
+    <a href="https://anaconda.org/conda-forge/heapx" target="_blank">Anaconda</a>
+    <a href="https://github.com/mukherjee08/heapx" target="_blank">GitHub</a>
+    <a href="https://github.com/mukherjee08/heapx/blob/main/LICENSE" target="_blank">MIT License</a>
+  </div>
+  <p>© <span id="year"></span> Aniruddha Mukherjee · <a href="mailto:mukherjee08@outlook.com">mukherjee08@outlook.com</a></p>
+</footer>
+
+</div><!-- end #content -->
+
+<script>
+document.getElementById('year').textContent=new Date().getFullYear();
+// Load case studies dynamically
+(function(){
+  var container=document.getElementById('case-study-list');
+  /* CASE_STUDIES_DATA:BEGIN */var studies=[{"dir": "Bioinformatics_Sequence-Alignment", "name": "Bioinformatics Sequence-Alignment"}, {"dir": "Financial_Order-Book-Simulation", "name": "Financial Order-Book-Simulation"}, {"dir": "Network-Routing_Dijkstras-Algorithm", "name": "Network-Routing Dijkstras-Algorithm"}];/* CASE_STUDIES_DATA:END */
+  if(!studies.length){container.innerHTML='<p style="font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.4);font-weight:300">Case studies coming soon.</p>';return;}
+  studies.forEach(function(s){
+    var a=document.createElement('a');
+    a.href='case-studies/'+s.dir+'.html';
+    a.className='install-btn';
+    a.style.fontSize='1.25rem';
+    a.style.textDecoration='none';
+    a.innerHTML='<span class="cmd" style="padding:16px 24px;cursor:pointer">'+s.name+'</span>';
+    container.appendChild(a);
+  });
+})();
+function copyCmd(el,text){
+  navigator.clipboard.writeText(text);
+  var c=el.querySelector('.copied');
+  c.classList.add('show');
+  el.style.background='rgba(255,255,255,.1)';
+  setTimeout(function(){c.classList.remove('show');el.style.background='';},1400);
+}
+</script>
+
+<script>
+(function(){
+  var h1=document.querySelector('.hero h1');
+  if(!h1)return;
+  var full='Ultra-optimized heap operations for Python,\nwritten in C.';
+  if(sessionStorage.getItem('heapx_typed')){return;}
+  sessionStorage.setItem('heapx_typed','1');
+  h1.textContent='';
+  var cursor=document.createElement('span');
+  cursor.className='cursor';
+  h1.appendChild(cursor);
+  var i=0;
+  var speed=65;
+  function type(){
+    if(i<full.length){
+      var ch=full[i];
+      if(ch==='\n'){
+        h1.insertBefore(document.createElement('br'),cursor);
+      }else{
+        h1.insertBefore(document.createTextNode(ch),cursor);
+      }
+      i++;
+      setTimeout(type,speed);
+    }else{
+      cursor.remove();
+      h1.classList.add('bounce');
+    }
+  }
+  setTimeout(type,400);
+})();
+</script>
+
+<script>
+(function(){
+  var canvas=document.getElementById('bg');
+  var gl=canvas.getContext('webgl');
+  if(!gl)return;
+
+  var vs='attribute vec2 a_pos;void main(){gl_Position=vec4(a_pos,0,1);}';
+
+  var fs=`
+precision highp float;
+uniform vec2 u_res;
+uniform float u_time;
+uniform vec2 u_mouse;
+
+vec3 mod289(vec3 x){return x-floor(x*(1./289.))*289.;}
+vec2 mod289(vec2 x){return x-floor(x*(1./289.))*289.;}
+vec3 permute(vec3 x){return mod289(((x*34.)+1.)*x);}
+float snoise(vec2 v){
+  const vec4 C=vec4(.211324865405187,.366025403784439,-.577350269189626,.024390243902439);
+  vec2 i=floor(v+dot(v,C.yy));
+  vec2 x0=v-i+dot(i,C.xx);
+  vec2 i1=(x0.x>x0.y)?vec2(1,0):vec2(0,1);
+  vec4 x12=x0.xyxy+C.xxzz;
+  x12.xy-=i1;
+  i=mod289(i);
+  vec3 p=permute(permute(i.y+vec3(0,i1.y,1.))+i.x+vec3(0,i1.x,1.));
+  vec3 m=max(.5-vec3(dot(x0,x0),dot(x12.xy,x12.xy),dot(x12.zw,x12.zw)),0.);
+  m=m*m;m=m*m;
+  vec3 x=2.*fract(p*C.www)-1.;
+  vec3 h=abs(x)-.5;
+  vec3 ox=floor(x+.5);
+  vec3 a0=x-ox;
+  m*=1.79284291400159-.85373472095314*(a0*a0+h*h);
+  vec3 g;
+  g.x=a0.x*x0.x+h.x*x0.y;
+  g.yz=a0.yz*x12.xz+h.yz*x12.yw;
+  return 130.*dot(m,g);
+}
+
+void main(){
+  vec2 uv=(gl_FragCoord.xy-.5*u_res)/min(u_res.x,u_res.y);
+  float t=u_time*.12;
+  vec2 mouse=(u_mouse-.5*u_res)/min(u_res.x,u_res.y);
+  float mouseDist=length(uv-mouse);
+  float mouseInf=smoothstep(1.2,0.,mouseDist)*.18;
+  float n1=snoise(uv*.8+vec2(t*.4,t*.3));
+  float n2=snoise(uv*1.1-vec2(t*.3,t*.5));
+  float n3=snoise(uv*.6+vec2(n1,n2)*.3+mouse*.2);
+  vec2 distort=vec2(n1,n2)*.07+vec2(n3)*.05;
+  distort+=mouseInf*normalize(uv-mouse+.001)*.1;
+  vec2 st=uv+distort;
+  vec3 base=vec3(.04,.02,.06);
+  vec3 c1=vec3(.55,.08,.35);
+  vec3 c2=vec3(.05,.35,.45);
+  vec3 c3=vec3(.5,.15,.55);
+  vec3 c4=vec3(.08,.22,.38);
+  vec3 c5=vec3(.55,.25,.1);
+  float w1=snoise(st*.9+t*.25)*.5+.5;
+  float w2=snoise(st*1.1-t*.2+3.)*.5+.5;
+  float w3=snoise(st*.7+t*.3+7.)*.5+.5;
+  vec3 col=mix(c1,c2,w1);
+  col=mix(col,c3,w2*.5);
+  col=mix(col,c4,w3*.4);
+  col=mix(col,c5,smoothstep(.35,.65,snoise(st*1.2+t*.15+11.))*.25);
+  float intensity=smoothstep(-.3,.6,snoise(st*.7+t*.18+5.))*.45+.15;
+  col=mix(base,col,intensity);
+  col+=vec3(.3,.12,.25)*mouseInf;
+  float vig=1.-dot(uv*.55,uv*.55);
+  col*=smoothstep(0.,1.,vig);
+  gl_FragColor=vec4(col,1.);
+}`;
+
+  function compile(type,src){
+    var s=gl.createShader(type);
+    gl.shaderSource(s,src);
+    gl.compileShader(s);
+    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null;}
+    return s;
+  }
+
+  var prog=gl.createProgram();
+  gl.attachShader(prog,compile(gl.VERTEX_SHADER,vs));
+  gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fs));
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+
+  var buf=gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+  var pos=gl.getAttribLocation(prog,'a_pos');
+  gl.enableVertexAttribArray(pos);
+  gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
+
+  var uRes=gl.getUniformLocation(prog,'u_res');
+  var uTime=gl.getUniformLocation(prog,'u_time');
+  var uMouse=gl.getUniformLocation(prog,'u_mouse');
+
+  var mx=0,my=0,tmx=0,tmy=0;
+  window.addEventListener('mousemove',function(e){tmx=e.clientX;tmy=e.clientY;});
+  window.addEventListener('touchmove',function(e){e.preventDefault();tmx=e.touches[0].clientX;tmy=e.touches[0].clientY;},{passive:false});
+
+  function resize(){
+    var dpr=window.devicePixelRatio||1;
+    canvas.width=window.innerWidth*dpr;
+    canvas.height=window.innerHeight*dpr;
+  }
+  window.addEventListener('resize',resize);
+  resize();
+
+  var t0=performance.now();
+  (function loop(){
+    mx+=(tmx*(window.devicePixelRatio||1)-mx)*.03;
+    my+=((window.innerHeight-tmy)*(window.devicePixelRatio||1)-my)*.03;
+    gl.viewport(0,0,canvas.width,canvas.height);
+    gl.uniform2f(uRes,canvas.width,canvas.height);
+    gl.uniform1f(uTime,(performance.now()-t0)/1000);
+    gl.uniform2f(uMouse,mx,my);
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+    requestAnimationFrame(loop);
+  })();
+})();
+</script>
+</body>
+</html>

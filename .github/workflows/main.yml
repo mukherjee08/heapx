@@ -1,0 +1,68 @@
+name: Sync to Public Repository
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    if: github.repository == 'ivan121500/heapx'
+    steps:
+      - name: Checkout private repository
+        uses: actions/checkout@v4
+        with:
+          path: private-repo
+
+      - name: Checkout public repository
+        uses: actions/checkout@v4
+        with:
+          repository: mukherjee08/heapx
+          token: ${{ secrets.HEAPX }}
+          path: public-repo
+
+      - name: Sync files
+        run: |
+          rsync -av --delete \
+            --exclude '.git' \
+            --exclude '.github/workflows/main.yml' \
+            private-repo/ public-repo/
+
+      - name: Update docs with current version and line count
+        run: |
+          cd public-repo
+
+          # Extract version from pyproject.toml
+          VERSION=$(python3 -c "
+          import re
+          with open('pyproject.toml') as f:
+              m = re.search(r'^version\s*=\s*\"(.+?)\"', f.read(), re.M)
+          print(m.group(1))
+          ")
+
+          # Count lines in heapx.c
+          LINES=$(wc -l < src/heapx/heapx.c | tr -d ' ')
+          LINES_FMT=$(printf "%'d" "$LINES")
+
+          # Update badge version in index.html
+          sed -i "s/v[0-9]\+\.[0-9]\+\.[0-9]\+ · MIT License/v${VERSION} · MIT License/" docs/index.html
+
+          # Update line count in index.html
+          sed -i "s/[0-9,]\+ lines of C/${LINES_FMT} lines of C/" docs/index.html
+
+          echo "Updated docs: version=$VERSION, lines=$LINES_FMT"
+
+      - name: Commit and push
+        run: |
+          cd public-repo
+          git config user.name "Aniruddha Mukherjee"
+          git config user.email "mukherjee08@users.noreply.github.com"
+          git add .
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "Update heapx"
+            git push origin main
+          else
+            echo "No changes to sync."
+          fi

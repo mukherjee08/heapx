@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build and distribution artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Compiled extension artifacts
+src/heapx/*.so
+src/heapx/*.pyd
+src/heapx/*cpython*.so
+src/heapx/*.dylib
+src/heapx/_version.py
+
+# Editor/OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+.pypirc
+
+# Large data files (exceed GitHub 100MB limit)
+case-studies/Network-Routing_Dijkstras-Algorithm/data/

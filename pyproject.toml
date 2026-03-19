@@ -1,0 +1,176 @@
+[build-system]
+requires = [
+  "setuptools>=61",
+  "wheel",
+  "setuptools-scm[toml]>=6.0",
+  "Cython>=0.29.0",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heapx"
+version = "1.0.1"
+description = "Ultra-optimized heap operations for Python, written in C."
+authors = [{name = "Aniruddha Mukherjee", email = "mukherjee08@outlook.com"}]
+readme = {file = "README.md", content-type = "text/markdown"}
+requires-python = ">=3.9"
+keywords = [
+  "heap",
+  "priority-queue", 
+  "optimized",
+  "algorithm",
+  "data-structures",
+  "performance",
+  "n-ary-heap",
+  "max-heap",
+  "min-heap",
+]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Scientific/Engineering",
+  "Topic :: System :: Hardware",
+  "Topic :: Utilities",
+  "Typing :: Typed",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=6.0",
+  "pytest-benchmark>=3.4",
+  "black>=22.0",
+  "isort>=5.0",
+  "mypy>=0.900",
+  "flake8>=4.0",
+]
+test = [
+  "pytest>=6.0",
+  "pytest-benchmark>=3.4",
+]
+docs = [
+  "sphinx>=4.0",
+  "sphinx-rtd-theme>=1.0",
+]
+
+[project.urls]
+Homepage = "https://mukherjee08.github.io/heapx"
+Documentation = "https://mukherjee08.github.io/heapx/readme.html"
+Repository = "https://github.com/mukherjee08/heapx"
+Changelog = "https://github.com/mukherjee08/heapx/releases"
+Issues = "https://github.com/mukherjee08/heapx/issues"
+
+[project.scripts]
+
+[project.gui-scripts]
+
+[tool.setuptools]
+zip-safe = false
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["heapx*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.pyi", "py.typed"]
+
+[tool.setuptools_scm]
+# write version into the src package so builds in an isolated environment succeed
+write_to = "src/heapx/_version.py"
+# fallback when no git metadata present (useful for local/offline tests)
+fallback_version = "1.0.1"
+
+[tool.black]
+line-length = 100
+target-version = ['py39']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 100
+known_first_party = ["heapx"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = [
+  "heapx.*",
+]
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --strict-markers --strict-config"
+testpaths = ["tests"]
+markers = [
+  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+  "benchmark: marks tests as benchmark tests",
+]
+filterwarnings = [
+  "error",
+  "ignore:.*U.*mode is deprecated:DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["heapx"]
+omit = [
+  "*/tests/*",
+  "*/test_*",
+  "*/_version.py",
+]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "def __repr__",
+  "if self.debug:",
+  "if settings.DEBUG",
+  "raise AssertionError",
+  "raise NotImplementedError",
+  "if 0:",
+  "if __name__ == .__main__.:",
+  "class .*\\bProtocol\\):",
+  "@(abc\\.)?abstractmethod",
+]

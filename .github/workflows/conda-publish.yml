@@ -1,0 +1,103 @@
+name: Build and Upload to Anaconda.org
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  version-check:
+    name: Verify version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check PyPI and Conda versions match
+        run: |
+          PYPI_VER=$(python3 -c "
+          import re
+          with open('pyproject.toml') as f:
+              m = re.search(r'^version\s*=\s*\"(.+?)\"', f.read(), re.M)
+          print(m.group(1))
+          ")
+          CONDA_VER=$(python3 -c "
+          import re
+          with open('conda-recipe/meta.yaml') as f:
+              m = re.search(r'set version\s*=\s*\"(.+?)\"', f.read())
+          print(m.group(1))
+          ")
+          echo "PyPI version:  $PYPI_VER"
+          echo "Conda version: $CONDA_VER"
+          if [ "$PYPI_VER" != "$CONDA_VER" ]; then
+            IFS='.' read -r MAJOR MINOR PATCH_PYPI <<< "$PYPI_VER"
+            IFS='.' read -r _ _ PATCH_CONDA <<< "$CONDA_VER"
+            if [ "$PATCH_PYPI" -gt "$PATCH_CONDA" ]; then
+              NEXT_PATCH=$((PATCH_PYPI + 1))
+            else
+              NEXT_PATCH=$((PATCH_CONDA + 1))
+            fi
+            SUGGESTED="${MAJOR}.${MINOR}.${NEXT_PATCH}"
+            echo ""
+            echo "::error::VERSION MISMATCH DETECTED"
+            echo "::error::  pyproject.toml (PyPI):      $PYPI_VER"
+            echo "::error::  conda-recipe/meta.yaml:     $CONDA_VER"
+            echo "::error::  Suggested synced version:    $SUGGESTED"
+            echo "::error::Update both files to the same version before publishing."
+            exit 1
+          fi
+          echo "✓ Versions match: $PYPI_VER"
+
+  build-and-upload:
+    name: Conda · ${{ matrix.os }} · py${{ matrix.python-version }}
+    needs: [version-check]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15-intel, macos-14, windows-latest]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: "3.12"
+          channels: conda-forge,defaults
+
+      - name: Install conda-build and anaconda-client
+        shell: bash -el {0}
+        run: conda install conda-build anaconda-client -y
+
+      - name: Build conda package (Unix)
+        if: runner.os != 'Windows'
+        shell: bash -el {0}
+        run: conda build conda-recipe --python ${{ matrix.python-version }} -c conda-forge
+
+      - name: Build conda package (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd /C call {0}
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          conda build conda-recipe --python ${{ matrix.python-version }} -c conda-forge
+
+      - name: Upload to Anaconda.org (Unix)
+        if: runner.os != 'Windows'
+        shell: bash -el {0}
+        env:
+          ANACONDA_API_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+        run: |
+          PKG=$(conda build conda-recipe --python ${{ matrix.python-version }} -c conda-forge --output)
+          anaconda --token "$ANACONDA_API_TOKEN" upload --force "$PKG"
+
+      - name: Upload to Anaconda.org (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd /C call {0}
+        env:
+          ANACONDA_API_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          for /f "delims=" %%i in ('conda build conda-recipe --python ${{ matrix.python-version }} -c conda-forge --output') do set PKG=%%i
+          anaconda --token "%ANACONDA_API_TOKEN%" upload --force "%PKG%"

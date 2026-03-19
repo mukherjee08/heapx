@@ -1,0 +1,14 @@
+[
+  {
+    "dir": "Bioinformatics_Sequence-Alignment",
+    "name": "Bioinformatics Sequence-Alignment"
+  },
+  {
+    "dir": "Financial_Order-Book-Simulation",
+    "name": "Financial Order-Book-Simulation"
+  },
+  {
+    "dir": "Network-Routing_Dijkstras-Algorithm",
+    "name": "Network-Routing Dijkstras-Algorithm"
+  }
+]
