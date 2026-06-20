@@ -1,0 +1,87 @@
+{
+  "k_values": [
+    100,
+    1000,
+    10000,
+    100000
+  ],
+  "n_stream": 2000000,
+  "replace": [
+    {
+      "k": 100,
+      "accepted": 972,
+      "total_ms": 0.146,
+      "avg_ns": 150.3
+    },
+    {
+      "k": 1000,
+      "accepted": 7739,
+      "total_ms": 1.373,
+      "avg_ns": 177.5
+    },
+    {
+      "k": 10000,
+      "accepted": 52755,
+      "total_ms": 12.035,
+      "avg_ns": 228.1
+    },
+    {
+      "k": 100000,
+      "accepted": 300219,
+      "total_ms": 86.484,
+      "avg_ns": 288.1
+    }
+  ],
+  "pop_push": [
+    {
+      "k": 100,
+      "accepted": 972,
+      "total_ms": 0.08,
+      "avg_ns": 82.6
+    },
+    {
+      "k": 1000,
+      "accepted": 7739,
+      "total_ms": 0.934,
+      "avg_ns": 120.7
+    },
+    {
+      "k": 10000,
+      "accepted": 52755,
+      "total_ms": 8.865,
+      "avg_ns": 168.0
+    },
+    {
+      "k": 100000,
+      "accepted": 300219,
+      "total_ms": 69.49,
+      "avg_ns": 231.5
+    }
+  ],
+  "heapq": [
+    {
+      "k": 100,
+      "accepted": 972,
+      "total_ms": 0.061,
+      "avg_ns": 63.0
+    },
+    {
+      "k": 1000,
+      "accepted": 7739,
+      "total_ms": 0.776,
+      "avg_ns": 100.3
+    },
+    {
+      "k": 10000,
+      "accepted": 52755,
+      "total_ms": 7.933,
+      "avg_ns": 150.4
+    },
+    {
+      "k": 100000,
+      "accepted": 300219,
+      "total_ms": 71.198,
+      "avg_ns": 237.2
+    }
+  ]
+}

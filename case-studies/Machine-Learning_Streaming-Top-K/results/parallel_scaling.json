@@ -1,0 +1,72 @@
+{
+  "parameters": {
+    "n_arrays": 8,
+    "n_per_array": 2000000
+  },
+  "nogil_true": {
+    "1": {
+      "wall_time_s": 0.2471,
+      "speedup": 1.0
+    },
+    "2": {
+      "wall_time_s": 0.1781,
+      "speedup": 1.39
+    },
+    "4": {
+      "wall_time_s": 0.1649,
+      "speedup": 1.5
+    },
+    "8": {
+      "wall_time_s": 0.1591,
+      "speedup": 1.55
+    },
+    "12": {
+      "wall_time_s": 0.1573,
+      "speedup": 1.57
+    }
+  },
+  "nogil_false": {
+    "1": {
+      "wall_time_s": 0.124,
+      "speedup": 1.0
+    },
+    "2": {
+      "wall_time_s": 0.1266,
+      "speedup": 0.98
+    },
+    "4": {
+      "wall_time_s": 0.1257,
+      "speedup": 0.99
+    },
+    "8": {
+      "wall_time_s": 0.1276,
+      "speedup": 0.97
+    },
+    "12": {
+      "wall_time_s": 0.127,
+      "speedup": 0.98
+    }
+  },
+  "scaling": {
+    "1": {
+      "wall_time_s": 0.2471,
+      "speedup": 1.0
+    },
+    "2": {
+      "wall_time_s": 0.1781,
+      "speedup": 1.39
+    },
+    "4": {
+      "wall_time_s": 0.1649,
+      "speedup": 1.5
+    },
+    "8": {
+      "wall_time_s": 0.1591,
+      "speedup": 1.55
+    },
+    "12": {
+      "wall_time_s": 0.1573,
+      "speedup": 1.57
+    }
+  }
+}

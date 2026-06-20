@@ -1,0 +1,30 @@
+{
+  "parameters": {
+    "n_events": 200000,
+    "queue_size": 50000,
+    "cancel_rate": 0.3,
+    "reschedule_rate": 0.05,
+    "seed": 42
+  },
+  "heapx": {
+    "engine": "heapx",
+    "elapsed_s": 0.12351708300411701,
+    "events_processed": 192256,
+    "pushes": 200000,
+    "pops": 192256,
+    "cancellations": 57744,
+    "reschedules": 9561,
+    "throughput_eps": 1556513.4418984929
+  },
+  "heapq": {
+    "engine": "heapq",
+    "elapsed_s": 50.888508332980564,
+    "events_processed": 192256,
+    "pushes": 200000,
+    "pops": 192256,
+    "cancellations": 57744,
+    "reschedules": 9561,
+    "throughput_eps": 3777.9845842995546
+  },
+  "speedup": 411.9957101908274
+}
