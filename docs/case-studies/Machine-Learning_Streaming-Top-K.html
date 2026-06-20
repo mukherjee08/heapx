@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>heapx — Machine-Learning Streaming-Top-K</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90' fill='%23d4a0b0'>Σ</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/python.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/bash.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/c.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html{font-size:16px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+html,body{width:100%;height:100%;background:#000;overflow:hidden}
+body{font-family:'Inter',system-ui,-apple-system,sans-serif;color:rgba(255,255,255,.92);line-height:1.7}
+canvas#bg{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0}
+#content{position:relative;z-index:1;overflow-x:hidden;overflow-y:auto;height:100%;-webkit-overflow-scrolling:touch}
+#content::-webkit-scrollbar{width:6px}
+#content::-webkit-scrollbar-track{background:transparent}
+#content::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:3px}
+nav{position:fixed;top:0;left:0;right:0;z-index:100;padding:0 48px;height:72px;display:flex;align-items:center;justify-content:space-between;backdrop-filter:blur(40px) saturate(1.8);-webkit-backdrop-filter:blur(40px) saturate(1.8);background:rgba(0,0,0,.55);border-bottom:1px solid rgba(255,255,255,.08);transition:all .4s ease}
+nav .logo{font-size:1.4rem;font-weight:600;letter-spacing:-.02em;color:#fff;text-decoration:none;cursor:pointer;transition:all .4s ease}
+nav .logo span{color:rgba(255,255,255,.4);font-weight:400}
+nav .links{display:flex;gap:32px;align-items:center;transition:all .4s ease}
+nav .links a{color:rgba(255,255,255,.6);text-decoration:none;font-size:1.0rem;font-weight:500;transition:all .2s}
+nav .links a:hover{color:#fff}
+nav .links a.cta{background:rgba(255,255,255,.12);padding:8px 22px;border-radius:20px;color:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.1);transition:all .2s}
+nav .links a.cta:hover{background:rgba(255,255,255,.2);color:#fff}
+nav.scrolled{background:transparent;border-bottom-color:transparent;backdrop-filter:none;-webkit-backdrop-filter:none}
+nav.scrolled .logo{background:rgba(0,0,0,.55);backdrop-filter:blur(40px) saturate(1.8);-webkit-backdrop-filter:blur(40px) saturate(1.8);padding:8px 20px;border-radius:14px;border:1px solid rgba(255,255,255,.1);transition:all .2s}
+nav.scrolled .logo:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.18);color:#fff}
+nav.scrolled .links a.cta{background:rgba(0,0,0,.55);backdrop-filter:blur(40px) saturate(1.8);-webkit-backdrop-filter:blur(40px) saturate(1.8);border:1px solid rgba(255,255,255,.1);transition:all .2s}
+nav.scrolled .links a.cta:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.18);color:#fff}
+.readme-wrap{padding:140px 48px 100px;max-width:1120px;margin:0 auto}
+.md h1{font-size:clamp(2.2rem,4.5vw,3.2rem);font-weight:700;letter-spacing:-.03em;line-height:1.15;margin:64px 0 24px;background:linear-gradient(135deg,#fff 0%,rgba(255,255,255,.7) 50%,rgba(200,180,255,.6) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.md h1:first-child{margin-top:0}
+.md h2{font-size:clamp(1.6rem,3vw,2.2rem);font-weight:700;letter-spacing:-.02em;margin:56px 0 20px;color:rgba(255,255,255,.9);padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,.08)}
+.md h3{font-size:clamp(1.3rem,2.5vw,1.75rem);font-weight:600;letter-spacing:-.01em;margin:40px 0 16px;color:rgba(255,255,255,.85)}
+.md h4{font-size:clamp(1.1rem,2vw,1.5rem);font-weight:600;margin:32px 0 12px;color:rgba(255,255,255,.8)}
+.md p{font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.55);line-height:1.7;margin:0 0 16px;font-weight:300}
+.md strong{color:rgba(255,255,255,.8);font-weight:600}
+.md a{color:rgba(200,180,255,.7);text-decoration:none;border-bottom:1px solid rgba(200,180,255,.2);transition:all .2s}
+.md a:hover{color:rgba(200,180,255,1);border-bottom-color:rgba(200,180,255,.5)}
+.md ul,.md ol{margin:0 0 16px 24px;color:rgba(255,255,255,.55);font-size:clamp(1rem,2vw,1.35rem);font-weight:300}
+.md li{margin-bottom:6px;line-height:1.6}
+.md code{font-family:'JetBrains Mono',monospace;font-size:.88em;background:rgba(255,255,255,.07);padding:2px 7px;border-radius:5px;color:rgba(200,180,255,.75)}
+.md pre{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:28px 32px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:clamp(.95rem,1.8vw,1.2rem);line-height:1.7;color:rgba(255,255,255,.7);margin:24px 0 28px}
+.md pre code{background:none;padding:0;border-radius:0;font-size:inherit;color:inherit}
+.hljs-keyword,.hljs-built_in,.hljs-type,.hljs-literal,.hljs-selector-tag{color:rgba(200,180,255,.8)}
+.hljs-function .hljs-title,.hljs-title.function_,.hljs-title.class_{color:rgba(130,200,255,.8)}
+.hljs-string,.hljs-doctag{color:rgba(160,220,150,.8)}
+.hljs-comment{color:rgba(255,255,255,.25)}
+.hljs-number{color:rgba(255,190,130,.8)}
+.hljs-variable,.hljs-params,.hljs-attr{color:rgba(255,255,255,.7)}
+.hljs-meta,.hljs-meta .hljs-keyword{color:rgba(200,180,255,.6)}
+.hljs-operator,.hljs-punctuation{color:rgba(255,255,255,.5)}
+.md table{width:100%;border-collapse:collapse;margin:24px 0;font-size:clamp(1rem,2vw,1.35rem)}
+.md th{text-align:left;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.5);font-weight:600;font-size:clamp(.85rem,1.5vw,1.05rem);letter-spacing:.04em;text-transform:uppercase}
+.md td{padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.05);color:rgba(255,255,255,.55);font-weight:300}
+.md td code{font-size:.88em}
+.md tr:hover td{background:rgba(255,255,255,.03)}
+.md blockquote{border-left:3px solid rgba(200,180,255,.3);padding:8px 20px;margin:16px 0;color:rgba(255,255,255,.45);font-style:italic;font-size:clamp(1rem,2vw,1.35rem)}
+.md hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:48px 0}
+.md img{max-width:100%;border-radius:8px}
+footer{padding:48px;text-align:center;border-top:1px solid rgba(255,255,255,.06);margin-top:80px}
+footer p{font-size:.8rem;color:rgba(255,255,255,.25)}
+footer a{color:rgba(255,255,255,.4);text-decoration:none}
+footer a:hover{color:rgba(255,255,255,.7)}
+footer .footer-links{display:flex;gap:24px;justify-content:center;margin-bottom:16px}
+@media(max-width:768px){
+  nav{padding:0 20px}
+  nav.scrolled .logo{padding:6px 14px;font-size:1.1rem}
+  .readme-wrap{padding:100px 20px 60px}
+}
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<nav id="navbar">
+  <a href="../index.html" class="logo">heapx<span>.py</span></a>
+  <div class="links">
+    <a href="https://github.com/mukherjee08/heapx/tree/main/case-studies/Machine-Learning_Streaming-Top-K" class="cta" target="_blank">Source Code</a>
+  </div>
+</nav>
+<div id="content">
+<div class="readme-wrap">
+  <div id="readme" class="md"></div>
+</div>
+<footer>
+  <div class="footer-links">
+    <a href="https://pypi.org/project/heapx/" target="_blank">PyPI</a>
+    <a href="https://anaconda.org/conda-forge/heapx" target="_blank">Anaconda</a>
+    <a href="https://github.com/mukherjee08/heapx" target="_blank">GitHub</a>
+    <a href="https://github.com/mukherjee08/heapx/blob/main/LICENSE" target="_blank">MIT License</a>
+  </div>
+  <p>&copy; <span id="year"></span> Aniruddha Mukherjee &middot; <a href="mailto:mukherjee08@outlook.com">mukherjee08@outlook.com</a></p>
+</footer>
+</div>
+
+<script>document.getElementById('year').textContent=new Date().getFullYear();</script>
+<script>
+(function(){
+  var nav=document.getElementById('navbar');
+  var content=document.getElementById('content');
+  content.addEventListener('scroll',function(){
+    if(content.scrollTop>80){nav.classList.add('scrolled')}else{nav.classList.remove('scrolled')}
+  });
+})();
+</script>
+<script>
+(function(){
+  var md="# Case Study 5 \u2014 Machine Learning: Streaming Top-K\n\n## 1. Introduction\n\nThis case study benchmarks `heapx` on streaming top-K selection, the\noperation of keeping the K largest (or smallest) values seen so far while a\nstream of N values flows past one at a time. Top-K selection is a building\nblock that shows up across machine learning: beam search keeps the K\nbest-scoring decoding hypotheses, k-nearest-neighbour search keeps the K\nclosest points, feature selection keeps the K highest-importance features,\nand streaming anomaly detection keeps the K most anomalous observations.\n\nThe baselines are `heapq` (the CPython standard heap) and NumPy's batch\nselection routines (`numpy.argpartition`, `numpy.partition`, `numpy.argsort`).\nThe study is organized around one primitive, the bounded-heap replace, and\nthen applies it to five ML workloads (k-nearest neighbours, feature\nselection, anomaly detection, beam search, and sliding-window monitoring)\nplus a parallel-heapify experiment that exercises `heapx`'s ability to\nrelease the global interpreter lock.\n\nEvery experiment is seeded (`seed=42`), and all timings are the median of\nfive measured runs after two warm-up runs unless a module states otherwise.\n\n## 2. The Core Primitive: Bounded-Heap Replace\n\n### 2.1 The streaming top-K problem\n\nGiven a stream of N scores and a fixed budget K, report the K largest. The\nnaive approach (store all N, sort, take the top K) costs O(N log N) time and\nO(N) memory, which is impossible when N is large or unbounded. The streaming\napproach keeps only K values in memory.\n\nThe data structure is a min-heap of size K holding the current K largest\nscores. Its root is the smallest of those K, that is, the current K-th\nlargest overall, and so it is the admission threshold. For each new score\n`s`:\n\n```\nif s > heap[0]:        # s beats the weakest of the current top-K\n    replace the root with s and sift down   # O(log K)\nelse:\n    discard s                                # O(1), no heap touch\n```\n\n```\n   incoming score s = 7.4\n            |\n            v\n   compare with root (threshold)\n   heap (min-heap of size K=4):\n                 3.1   <- root = smallest kept = threshold\n                /   \\\n             5.0     4.2\n             /\n           9.8\n   s = 7.4 > 3.1  ->  evict 3.1, insert 7.4, sift down\n   new root becomes 4.2 (the threshold rises)\n```\n\nEach accepted score costs O(log K) and each rejected score costs O(1), so a\nstream of N scores costs O(N log K) overall. This is optimal for the\nstreaming setting (Munro and Paterson 1980): the threshold rises over time,\nso most late-arriving scores are rejected in O(1) and never touch the heap.\n\n### 2.2 The fused replace\n\nEvicting the root and inserting a new value is naturally two operations\n(pop then push). A fused replace overwrites the root and sifts down once,\nsaving one of the two heap traversals. `heapx.replace(heap, s, indices=0)`\ndoes exactly this, and `heapq.heapreplace(heap, s)` is the stdlib\nequivalent. In `streaming_topk.py`:\n\n```python\nheap = scores[:k].tolist()\nheapx.heapify(heap)\nfor s in rest:\n    if s > heap[0]:\n        heapx.replace(heap, s, indices=0)   # fused: overwrite root, sift down\n```\n\n### 2.3 Experimental setup\n\n| Parameter | Value |\n|---|---|\n| Stream size N | 10,000,000 |\n| Heap size K | 1,000 default; varied 10 to 100,000 |\n| Score distribution | N(0, 1) standard normal |\n| Random seed | 42 |\n| Timing | `time.perf_counter`, median of 5 runs after 2 warm-ups |\n\n## 3. The Seven Performance Dimensions\n\nThe study measures `heapx` along seven axes (`README` section 3 in the\nsource tree, realized by `run_benchmarks.py` and `visualize.py`):\n\n1. Bulk heapify of homogeneous float arrays.\n2. Type-specialized heapify (float, int, str, tuple).\n3. N-ary (d-ary) heap tuning (arity 2, 3, 4, 8).\n4. Bulk top-K extraction.\n5. Push throughput (single and bulk).\n6. Parallel heapify with GIL release.\n7. End-to-end streaming top-K.\n\nFive later dimensions apply the primitive to ML tasks: fused-replace\nmicrobenchmark, beam-search decoding, sliding-window monitoring, per-replace\nlatency distribution, and a speedup summary.\n\n### 3.1 Bulk heapify\n\nBuilding a heap from an unordered array is O(n) by Floyd's bottom-up method.\n`heapx.heapify` runs this in C over a homogeneous float array, avoiding the\nper-element Python object handling that `heapq.heapify` pays.\n\n### 3.6 Parallel heapify and GIL release\n\n`heapx.heapify(array, nogil=True)` extracts the raw C values from a\nhomogeneous array, releases the global interpreter lock, heapifies in pure C,\nthen reacquires the lock. Because the heavy work happens with the lock\nreleased, multiple threads heapify different arrays at the same time. `heapq`\ncannot do this: it holds the lock for every comparison. `parallel_topk.py`\ndistributes eight arrays of two million floats across a thread pool:\n\n```python\n# parallel_topk.py, _worker\nbarrier.wait()\nfor i in indices:\n    heapx.heapify(arrays[i], nogil=use_nogil)\n```\n\nThe barrier ensures all threads start together so the measured wall time\nreflects genuine concurrency.\n\n## 4. The ML Application Modules\n\n### 4.1 k-Nearest Neighbours (`ml_knn.py`)\n\nThe selection phase of kNN finds the K smallest distances in a distance\narray. The module heapifies the raw float distances as a min-heap and bulk-pops\nthe K smallest:\n\n```python\nheapx.heapify(d)\nreturn heapx.pop(d, n=k)        # the K smallest, default min-heap\n```\n\nThe baselines are `heapq.nsmallest(k, ...)`, `numpy.partition`, and\n`numpy.sort`.\n\n### 4.2 Feature Selection (`ml_feature_selection.py`)\n\nSelecting the K highest feature-importance scores is a max-heap top-K. The\nmodule heapifies as a max-heap and bulk-pops K, in both binary and arity-4\nform:\n\n```python\nheapx.heapify(d, max_heap=True)\nheapx.pop(d, n=K, max_heap=True)\n# arity-4 variant:\nheapx.heapify(d, max_heap=True, arity=4)\nheapx.pop(d, n=K, max_heap=True, arity=4)\n```\n\n`heapx`'s native `max_heap=True` removes the manual key-negation trick\n(`heapq.nlargest` or pushing `-score`) that `heapq` requires.\n\n### 4.3 Streaming Anomaly Detection (`ml_anomaly_detection.py`)\n\nAnomaly scores are computed as the L2 norm of each observation from the\norigin. Normal points are drawn from N(0, 1) and injected anomalies from\nN(5, 0.5), so anomalies have larger norms. A bounded min-heap of `(score,\nindex)` tuples keeps the top-K most anomalous, using the same fused-replace\npattern as the core primitive:\n\n```python\nheap = [(float(scores[i]), i) for i in range(k)]\nheapx.heapify(heap)\nfor ...:\n    if s > heap[0][0]:\n        heapx.replace(heap, (s, i), indices=0)\n```\n\nThe quality baseline is scikit-learn's `IsolationForest`. The module checks\nprecision@K and recall@K, which are identical for the heap and the forest,\nso the only axis left to compare is speed.\n\n### 4.4 Beam Search (`ml_beam_search.py`)\n\nAt each of T decoding steps, beam search scores K x V candidate\n(hypothesis, token) pairs and keeps the K highest. The module builds a\nmax-heap over the candidate scores and bulk-pops K:\n\n```python\nscores = cand.tolist()\nheapx.heapify(scores, max_heap=True)\ntop = heapx.pop(scores, n=k, max_heap=True)\n```\n\nDefaults: vocabulary V = 32,000, T = 50 steps, beam sizes 4 through 128. The\nmodule also implements Gumbel-Top-K sampling (Kool et al. 2019) for sampling\nsequences without replacement.\n\n### 4.5 Sliding-Window Monitoring (`ml_sliding_window.py`)\n\nContinuous top-K over a sliding window of the W most recent observations\nrequires expiring the element that leaves the window. The whole window is\nkept as a max-heap of `(score, seq)` tuples, and the expiring element is\nremoved by object identity in O(log n):\n\n```python\nheapx.remove(heap, object=expired, max_heap=True)   # O(log n) inline removal\nheapx.push(heap, entry, max_heap=True)\n```\n\nThe `heapq` eager baseline must call `list.remove` followed by a full O(n)\n`heapq.heapify` for each expiry; the `heapq` lazy baseline avoids that but\ngrows without bound.\n\n## 5. Results\n\nThe numbers below are read from the committed JSON in `results/`. Where the\nsource README quotes slightly different figures, those came from a separate\nre-run; the values here are the committed measured data. Speedups are\n`heapq_time / heapx_time` unless stated.\n\n### 5.1 Bulk heapify (homogeneous float, median ms)\n\n| N | heapx | heapq | speedup |\n|---|---|---|---|\n| 10,000 | 0.039 | 0.141 | 3.65x |\n| 100,000 | 0.714 | 1.639 | 2.29x |\n| 1,000,000 | 9.693 | 17.920 | 1.85x |\n| 5,000,000 | 59.811 | 94.470 | 1.58x |\n\n`heapx` heapifies floats roughly 1.6x to 3.7x faster than `heapq`. The\nadvantage shrinks at large N as both become bound by memory bandwidth rather\nthan per-element overhead.\n\n### 5.2 N-ary heap tuning (1,000,000 floats, heapify ms)\n\n| Arity | heapify ms | speedup vs heapq binary (17.92 ms) |\n|---|---|---|\n| 2 | 10.823 | 1.66x |\n| 3 | 9.518 | 1.88x |\n| 4 | 7.755 | 2.31x |\n| 8 | 6.368 | 2.81x |\n\nRaising the arity flattens the tree, reducing levels and improving cache\nlocality because each node's children sit contiguously. Arity 8 heapifies a\nmillion floats 2.81x faster than the stdlib binary heap.\n\n### 5.3 Bulk top-K extraction (1,000,000 elements, max-heap)\n\n| K | heapx ms | heapq ms | speedup |\n|---|---|---|---|\n| 1 | 11.64 | 4.39 | 0.38x |\n| 1,000 | 14.02 | 7.79 | 0.56x |\n| 10,000 | 16.62 | 23.28 | 1.40x |\n| 50,000 | 28.00 | 113.93 | 4.13x |\n| 100,000 | 40.60 | 183.58 | 4.52x |\n\nFor small K, `heapq.nlargest` wins because `heapx`'s bulk-pop path has fixed\nsetup cost that does not pay off. The crossover is near K = 5,000; beyond it\n`heapx` pulls ahead, reaching 4.5x at K = 100,000. This is an honest,\nworkload-dependent result, and the figures show the crossover rather than\nhiding it.\n\n### 5.4 Parallel heapify (8 arrays x 2,000,000 floats, GIL release)\n\n| Threads | nogil=True wall (s) | speedup | nogil=False wall (s) | speedup |\n|---|---|---|---|---|\n| 1 | 0.247 | 1.00x | 0.124 | 1.00x |\n| 2 | 0.178 | 1.39x | 0.127 | 0.98x |\n| 4 | 0.165 | 1.50x | 0.126 | 0.99x |\n| 8 | 0.159 | 1.55x | 0.128 | 0.97x |\n\nWith `nogil=True`, adding threads cuts wall time because heapify runs in\nparallel C. With `nogil=False` the lock is held throughout, so more threads\ngive no speedup (the curve is flat at 1.0x). This dimension demonstrates a\ncapability `heapq` does not have, rather than a raw per-call win.\n\n### 5.5 End-to-end streaming top-K (N = 10,000,000, K = 1,000)\n\n| Method | Wall (s) | Throughput (scores/s) |\n|---|---|---|\n| heapx | 0.5159 | 19,384,066 |\n| heapq | 0.5164 | 19,363,746 |\n| numpy (batch) | 0.0519 | 192,672,195 |\n\nFor the full stream, `heapx` and `heapq` reach near parity (1.001x), because\nthe rising threshold means almost all of the ten million scores are rejected\nby the O(1) `s > heap[0]` guard and the heap is rarely touched. NumPy is\nabout 10x faster here, but it is a batch routine that needs the entire array\nin memory at once, so it does not solve the streaming problem; it is included\nas a ceiling, not a competitor.\n\n### 5.6 Fused replace microbenchmark (N = 2,000,000, ns per accepted update)\n\n| K | heapx replace | pop+push | heapq.heapreplace |\n|---|---|---|---|\n| 100 | 150.3 | 82.6 | 63.0 |\n| 1,000 | 177.5 | 120.7 | 100.3 |\n| 100,000 | 288.1 | 231.5 | 237.2 |\n\nThis is the study's most candid finding. On the isolated per-replace\noperation, `heapq.heapreplace` and even a manual pop+push beat `heapx.replace`\nat every tested K, with `heapx` approaching parity only at K = 100,000. The\n`heapx` advantage in this case study lives in bulk heapify, large-K bulk\nextraction, native max-heap and key support, d-ary tuning, and GIL release,\nnot in single-element replace latency.\n\n### 5.7 Anomaly detection vs scikit-learn (end-to-end)\n\n| Method | Time (ms) | Precision@K |\n|---|---|---|\n| heapx top-K | 6.4 | 1.0 |\n| IsolationForest | 550.2 | 1.0 |\n\nAt equal detection quality (both reach precision 1.0 on this well-separated\ndata), the heap-based pipeline finishes 86.6x faster than the forest, because\nselecting the top-K anomalies by score is far cheaper than fitting an\nensemble.\n\n### 5.8 Feature selection (K = 100, top-K from F features)\n\n| F | heapx ms | heapx arity-4 ms | heapq ms | speedup (arity-4) |\n|---|---|---|---|---|\n| 1,000 | 0.005 | 0.009 | 0.054 | 6.00x |\n| 10,000 | 0.066 | 0.065 | 0.135 | 2.08x |\n| 100,000 | 0.887 | 0.616 | 0.684 | 1.11x |\n| 1,000,000 | 17.102 | 10.477 | 6.809 | 0.65x |\n\nFor small to moderate feature counts `heapx` leads, and the arity-4 variant\nextends the lead. For very large F at small K, `heapq.nlargest` wins, again\nthe crossover behavior of section 5.3.\n\n## 6. Figures\n\nCore figures (`fig1` through `fig7`) cover heapify, type specialization,\narity tuning, bulk top-K, push throughput, parallel scaling, and the score\ndistribution. ML figures cover each application: `knn_*`, `fs_*`, `ad_*`\n(anomaly detection, including precision/recall panels), `fig_beam_search_*`,\n`fig_gumbel_topk.png`, `fig_sliding_window_scaling.png`,\n`fig_replace_vs_popush.png`, `fig_latency_cdf.png` (per-replace latency CDF\nwith p50/p99 markers, following Dean and Barroso 2013), and\n`fig_speedup_summary.png`. All are 600 DPI with a colour-blind-safe palette\n(heapx blue, heapq orange, numpy green).\n\n## 7. Why heapx for Machine-Learning Top-K\n\n`heapx` is the strongest choice when the workload is one of:\n\n- Bulk heapify of large homogeneous numeric arrays (1.6x to 3.7x over\n  `heapq`), as in the kNN and feature-selection selection phases.\n- Large-K bulk extraction, where `heapx` overtakes `heapq` past the\n  K ~ 5,000 crossover and reaches 4.5x at K = 100,000.\n- Native max-heap and key support, removing the negation and tuple-wrapping\n  tricks `heapq` forces on max-oriented ML scoring.\n- d-ary tuning, where arity 8 gives a further 1.5x on heapify by improving\n  cache locality.\n- Parallel heapify, where GIL release lets multiple threads build heaps at\n  once, which `heapq` cannot do.\n\n`heapq` remains preferable for single-element replace latency and for\nsmall-K extraction, and NumPy is faster when the entire dataset fits in\nmemory and streaming is not required. The benchmarks report these cases\nplainly so the choice can be made on the actual workload.\n\n## 8. Reproducing the Results\n\n### 8.1 Requirements\n\n```\nheapx >= 1.0.0\nnumpy\nmatplotlib\nscikit-learn\n```\n\n`heapx` installs from conda:\n\n```bash\nconda install mukherjee08::heapx\n```\n\n### 8.2 Run\n\n```bash\npython run_all.py                  # full pipeline: all benchmarks then figures\npython run_all.py --only ml_knn    # run a single stage\npython run_all.py --skip parallel_topk   # skip a stage\npython run_benchmarks.py           # the seven core dimensions\npython visualize.py                # figures from cached results\n```\n\nResults land in `results/` and figures in `figures/`.\n\n## References\n\n1. J. I. Munro and M. S. Paterson, \"Selection and Sorting with Limited\n   Storage,\" Theoretical Computer Science 12, pp. 315-323, 1980.\n2. M. Freitag and Y. Al-Onaizan, \"Beam Search Strategies for Neural Machine\n   Translation,\" Proc. First Workshop on Neural Machine Translation, 2017.\n3. S. Wiseman and A. M. Rush, \"Sequence-to-Sequence Learning as Beam-Search\n   Optimization,\" EMNLP 2016.\n4. W. Kool, H. Van Hoof, and M. Welling, \"Stochastic Beams and Where to Find\n   Them: The Gumbel-Top-k Trick for Sampling Sequences Without Replacement,\"\n   ICML 2019.\n5. K. Mouratidis, S. Bakiras, and D. Papadias, \"Continuous Monitoring of\n   Top-k Queries over Sliding Windows,\" SIGMOD 2006.\n6. J. S. Vitter, \"External Memory Algorithms and Data Structures: Dealing\n   with Massive Data,\" ACM Computing Surveys 33(2), pp. 209-271, 2001.\n7. J. Dean and L. A. Barroso, \"The Tail at Scale,\" Communications of the ACM\n   56(2), pp. 74-80, 2013.\n8. C. R. Harris et al., \"Array Programming with NumPy,\" Nature 585,\n   pp. 357-362, 2020.\n9. T. H. Cormen, C. E. Leiserson, R. L. Rivest, and C. Stein, Introduction\n   to Algorithms, 3rd ed., Chapter 6 (Heapsort), MIT Press, 2009.\n";
+  var renderer=new marked.Renderer();
+  renderer.heading=function(text,level){
+    var slug=text.toLowerCase().replace(/<[^>]*>/g,'').replace(/`/g,'').replace(/[^\w]+/g,'-').replace(/^-+|-+$/g,'');
+    return '<h'+level+' id="'+slug+'">'+text+'</h'+level+'>\n';
+  };
+  document.getElementById('readme').innerHTML=marked.parse(md,{renderer:renderer,highlight:function(code,lang){if(lang&&hljs.getLanguage(lang))return hljs.highlight(code,{language:lang}).value;return hljs.highlightAuto(code).value;}});
+  var content=document.getElementById('content');
+  document.querySelectorAll('.md a[href^="#"]').forEach(function(a){
+    a.addEventListener('click',function(e){
+      e.preventDefault();
+      var id=this.getAttribute('href').slice(1);
+      var target=document.getElementById(id);
+      if(target){content.scrollTo({top:target.offsetTop-100,behavior:'smooth'})}
+    });
+  });
+})();
+</script>
+<script>
+(function(){
+  var canvas=document.getElementById('bg');var gl=canvas.getContext('webgl');if(!gl)return;
+  var vs='attribute vec2 a_pos;void main(){gl_Position=vec4(a_pos,0,1);}';
+  var fs=`precision highp float;uniform vec2 u_res;uniform float u_time;uniform vec2 u_mouse;vec3 mod289(vec3 x){return x-floor(x*(1./289.))*289.;}vec2 mod289(vec2 x){return x-floor(x*(1./289.))*289.;}vec3 permute(vec3 x){return mod289(((x*34.)+1.)*x);}float snoise(vec2 v){const vec4 C=vec4(.211324865405187,.366025403784439,-.577350269189626,.024390243902439);vec2 i=floor(v+dot(v,C.yy));vec2 x0=v-i+dot(i,C.xx);vec2 i1=(x0.x>x0.y)?vec2(1,0):vec2(0,1);vec4 x12=x0.xyxy+C.xxzz;x12.xy-=i1;i=mod289(i);vec3 p=permute(permute(i.y+vec3(0,i1.y,1.))+i.x+vec3(0,i1.x,1.));vec3 m=max(.5-vec3(dot(x0,x0),dot(x12.xy,x12.xy),dot(x12.zw,x12.zw)),0.);m=m*m;m=m*m;vec3 x=2.*fract(p*C.www)-1.;vec3 h=abs(x)-.5;vec3 ox=floor(x+.5);vec3 a0=x-ox;m*=1.79284291400159-.85373472095314*(a0*a0+h*h);vec3 g;g.x=a0.x*x0.x+h.x*x0.y;g.yz=a0.yz*x12.xz+h.yz*x12.yw;return 130.*dot(m,g);}void main(){vec2 uv=(gl_FragCoord.xy-.5*u_res)/min(u_res.x,u_res.y);float t=u_time*.12;vec2 mouse=(u_mouse-.5*u_res)/min(u_res.x,u_res.y);float mouseDist=length(uv-mouse);float mouseInf=smoothstep(1.2,0.,mouseDist)*.18;float n1=snoise(uv*.8+vec2(t*.4,t*.3));float n2=snoise(uv*1.1-vec2(t*.3,t*.5));float n3=snoise(uv*.6+vec2(n1,n2)*.3+mouse*.2);vec2 distort=vec2(n1,n2)*.07+vec2(n3)*.05;distort+=mouseInf*normalize(uv-mouse+.001)*.1;vec2 st=uv+distort;vec3 base=vec3(.04,.02,.06);vec3 c1=vec3(.55,.08,.35);vec3 c2=vec3(.05,.35,.45);vec3 c3=vec3(.5,.15,.55);vec3 c4=vec3(.08,.22,.38);vec3 c5=vec3(.55,.25,.1);float w1=snoise(st*.9+t*.25)*.5+.5;float w2=snoise(st*1.1-t*.2+3.)*.5+.5;float w3=snoise(st*.7+t*.3+7.)*.5+.5;vec3 col=mix(c1,c2,w1);col=mix(col,c3,w2*.5);col=mix(col,c4,w3*.4);col=mix(col,c5,smoothstep(.35,.65,snoise(st*1.2+t*.15+11.))*.25);float intensity=smoothstep(-.3,.6,snoise(st*.7+t*.18+5.))*.45+.15;col=mix(base,col,intensity);col+=vec3(.3,.12,.25)*mouseInf;float vig=1.-dot(uv*.55,uv*.55);col*=smoothstep(0.,1.,vig);gl_FragColor=vec4(col,1.);}`;
+  function compile(type,src){var s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null;}return s;}
+  var prog=gl.createProgram();gl.attachShader(prog,compile(gl.VERTEX_SHADER,vs));gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);gl.useProgram(prog);
+  var buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);var pos=gl.getAttribLocation(prog,'a_pos');gl.enableVertexAttribArray(pos);gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
+  var uRes=gl.getUniformLocation(prog,'u_res');var uTime=gl.getUniformLocation(prog,'u_time');var uMouse=gl.getUniformLocation(prog,'u_mouse');
+  var mx=0,my=0,tmx=0,tmy=0;window.addEventListener('mousemove',function(e){tmx=e.clientX;tmy=e.clientY;});window.addEventListener('touchmove',function(e){e.preventDefault();tmx=e.touches[0].clientX;tmy=e.touches[0].clientY;},{passive:false});
+  function resize(){var dpr=window.devicePixelRatio||1;canvas.width=window.innerWidth*dpr;canvas.height=window.innerHeight*dpr;}window.addEventListener('resize',resize);resize();
+  var t0=performance.now();(function loop(){mx+=(tmx*(window.devicePixelRatio||1)-mx)*.03;my+=((window.innerHeight-tmy)*(window.devicePixelRatio||1)-my)*.03;gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(uRes,canvas.width,canvas.height);gl.uniform1f(uTime,(performance.now()-t0)/1000);gl.uniform2f(uMouse,mx,my);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);requestAnimationFrame(loop);})();
+})();
+</script>
+</body>
+</html>

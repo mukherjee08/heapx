@@ -8,7 +8,19 @@
     "name": "Financial Order-Book-Simulation"
   },
   {
+    "dir": "Machine-Learning_Streaming-Top-K",
+    "name": "Machine-Learning Streaming-Top-K"
+  },
+  {
     "dir": "Network-Routing_Dijkstras-Algorithm",
     "name": "Network-Routing Dijkstras-Algorithm"
+  },
+  {
+    "dir": "Operating-Systems_Task-Scheduling",
+    "name": "Operating-Systems Task-Scheduling"
+  },
+  {
+    "dir": "Real-Time-Systems_Discrete-Event-Simulation",
+    "name": "Real-Time-Systems Discrete-Event-Simulation"
   }
 ]

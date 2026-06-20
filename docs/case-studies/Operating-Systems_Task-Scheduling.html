@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>heapx — Operating-Systems Task-Scheduling</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90' fill='%23d4a0b0'>Σ</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/python.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/bash.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/c.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html{font-size:16px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+html,body{width:100%;height:100%;background:#000;overflow:hidden}
+body{font-family:'Inter',system-ui,-apple-system,sans-serif;color:rgba(255,255,255,.92);line-height:1.7}
+canvas#bg{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0}
+#content{position:relative;z-index:1;overflow-x:hidden;overflow-y:auto;height:100%;-webkit-overflow-scrolling:touch}
+#content::-webkit-scrollbar{width:6px}
+#content::-webkit-scrollbar-track{background:transparent}
+#content::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:3px}
+nav{position:fixed;top:0;left:0;right:0;z-index:100;padding:0 48px;height:72px;display:flex;align-items:center;justify-content:space-between;backdrop-filter:blur(40px) saturate(1.8);-webkit-backdrop-filter:blur(40px) saturate(1.8);background:rgba(0,0,0,.55);border-bottom:1px solid rgba(255,255,255,.08);transition:all .4s ease}
+nav .logo{font-size:1.4rem;font-weight:600;letter-spacing:-.02em;color:#fff;text-decoration:none;cursor:pointer;transition:all .4s ease}
+nav .logo span{color:rgba(255,255,255,.4);font-weight:400}
+nav .links{display:flex;gap:32px;align-items:center;transition:all .4s ease}
+nav .links a{color:rgba(255,255,255,.6);text-decoration:none;font-size:1.0rem;font-weight:500;transition:all .2s}
+nav .links a:hover{color:#fff}
+nav .links a.cta{background:rgba(255,255,255,.12);padding:8px 22px;border-radius:20px;color:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.1);transition:all .2s}
+nav .links a.cta:hover{background:rgba(255,255,255,.2);color:#fff}
+nav.scrolled{background:transparent;border-bottom-color:transparent;backdrop-filter:none;-webkit-backdrop-filter:none}
+nav.scrolled .logo{background:rgba(0,0,0,.55);backdrop-filter:blur(40px) saturate(1.8);-webkit-backdrop-filter:blur(40px) saturate(1.8);padding:8px 20px;border-radius:14px;border:1px solid rgba(255,255,255,.1);transition:all .2s}
+nav.scrolled .logo:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.18);color:#fff}
+nav.scrolled .links a.cta{background:rgba(0,0,0,.55);backdrop-filter:blur(40px) saturate(1.8);-webkit-backdrop-filter:blur(40px) saturate(1.8);border:1px solid rgba(255,255,255,.1);transition:all .2s}
+nav.scrolled .links a.cta:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.18);color:#fff}
+.readme-wrap{padding:140px 48px 100px;max-width:1120px;margin:0 auto}
+.md h1{font-size:clamp(2.2rem,4.5vw,3.2rem);font-weight:700;letter-spacing:-.03em;line-height:1.15;margin:64px 0 24px;background:linear-gradient(135deg,#fff 0%,rgba(255,255,255,.7) 50%,rgba(200,180,255,.6) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.md h1:first-child{margin-top:0}
+.md h2{font-size:clamp(1.6rem,3vw,2.2rem);font-weight:700;letter-spacing:-.02em;margin:56px 0 20px;color:rgba(255,255,255,.9);padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,.08)}
+.md h3{font-size:clamp(1.3rem,2.5vw,1.75rem);font-weight:600;letter-spacing:-.01em;margin:40px 0 16px;color:rgba(255,255,255,.85)}
+.md h4{font-size:clamp(1.1rem,2vw,1.5rem);font-weight:600;margin:32px 0 12px;color:rgba(255,255,255,.8)}
+.md p{font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.55);line-height:1.7;margin:0 0 16px;font-weight:300}
+.md strong{color:rgba(255,255,255,.8);font-weight:600}
+.md a{color:rgba(200,180,255,.7);text-decoration:none;border-bottom:1px solid rgba(200,180,255,.2);transition:all .2s}
+.md a:hover{color:rgba(200,180,255,1);border-bottom-color:rgba(200,180,255,.5)}
+.md ul,.md ol{margin:0 0 16px 24px;color:rgba(255,255,255,.55);font-size:clamp(1rem,2vw,1.35rem);font-weight:300}
+.md li{margin-bottom:6px;line-height:1.6}
+.md code{font-family:'JetBrains Mono',monospace;font-size:.88em;background:rgba(255,255,255,.07);padding:2px 7px;border-radius:5px;color:rgba(200,180,255,.75)}
+.md pre{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:28px 32px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:clamp(.95rem,1.8vw,1.2rem);line-height:1.7;color:rgba(255,255,255,.7);margin:24px 0 28px}
+.md pre code{background:none;padding:0;border-radius:0;font-size:inherit;color:inherit}
+.hljs-keyword,.hljs-built_in,.hljs-type,.hljs-literal,.hljs-selector-tag{color:rgba(200,180,255,.8)}
+.hljs-function .hljs-title,.hljs-title.function_,.hljs-title.class_{color:rgba(130,200,255,.8)}
+.hljs-string,.hljs-doctag{color:rgba(160,220,150,.8)}
+.hljs-comment{color:rgba(255,255,255,.25)}
+.hljs-number{color:rgba(255,190,130,.8)}
+.hljs-variable,.hljs-params,.hljs-attr{color:rgba(255,255,255,.7)}
+.hljs-meta,.hljs-meta .hljs-keyword{color:rgba(200,180,255,.6)}
+.hljs-operator,.hljs-punctuation{color:rgba(255,255,255,.5)}
+.md table{width:100%;border-collapse:collapse;margin:24px 0;font-size:clamp(1rem,2vw,1.35rem)}
+.md th{text-align:left;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.5);font-weight:600;font-size:clamp(.85rem,1.5vw,1.05rem);letter-spacing:.04em;text-transform:uppercase}
+.md td{padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.05);color:rgba(255,255,255,.55);font-weight:300}
+.md td code{font-size:.88em}
+.md tr:hover td{background:rgba(255,255,255,.03)}
+.md blockquote{border-left:3px solid rgba(200,180,255,.3);padding:8px 20px;margin:16px 0;color:rgba(255,255,255,.45);font-style:italic;font-size:clamp(1rem,2vw,1.35rem)}
+.md hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:48px 0}
+.md img{max-width:100%;border-radius:8px}
+footer{padding:48px;text-align:center;border-top:1px solid rgba(255,255,255,.06);margin-top:80px}
+footer p{font-size:.8rem;color:rgba(255,255,255,.25)}
+footer a{color:rgba(255,255,255,.4);text-decoration:none}
+footer a:hover{color:rgba(255,255,255,.7)}
+footer .footer-links{display:flex;gap:24px;justify-content:center;margin-bottom:16px}
+@media(max-width:768px){
+  nav{padding:0 20px}
+  nav.scrolled .logo{padding:6px 14px;font-size:1.1rem}
+  .readme-wrap{padding:100px 20px 60px}
+}
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<nav id="navbar">
+  <a href="../index.html" class="logo">heapx<span>.py</span></a>
+  <div class="links">
+    <a href="https://github.com/mukherjee08/heapx/tree/main/case-studies/Operating-Systems_Task-Scheduling" class="cta" target="_blank">Source Code</a>
+  </div>
+</nav>
+<div id="content">
+<div class="readme-wrap">
+  <div id="readme" class="md"></div>
+</div>
+<footer>
+  <div class="footer-links">
+    <a href="https://pypi.org/project/heapx/" target="_blank">PyPI</a>
+    <a href="https://anaconda.org/conda-forge/heapx" target="_blank">Anaconda</a>
+    <a href="https://github.com/mukherjee08/heapx" target="_blank">GitHub</a>
+    <a href="https://github.com/mukherjee08/heapx/blob/main/LICENSE" target="_blank">MIT License</a>
+  </div>
+  <p>&copy; <span id="year"></span> Aniruddha Mukherjee &middot; <a href="mailto:mukherjee08@outlook.com">mukherjee08@outlook.com</a></p>
+</footer>
+</div>
+
+<script>document.getElementById('year').textContent=new Date().getFullYear();</script>
+<script>
+(function(){
+  var nav=document.getElementById('navbar');
+  var content=document.getElementById('content');
+  content.addEventListener('scroll',function(){
+    if(content.scrollTop>80){nav.classList.add('scrolled')}else{nav.classList.remove('scrolled')}
+  });
+})();
+</script>
+<script>
+(function(){
+  var md="# Case Study 6 \u2014 Operating Systems: Task Scheduling\n\n## 1. Introduction\n\nThis case study benchmarks `heapx` as the ready queue of a priority-based\noperating-system task scheduler, against `heapq`, `sortedcontainers.SortedList`,\n`heapdict`, and a pure-Python Fibonacci heap. An OS scheduler holds every\nrunnable task in a ready queue ordered by urgency and repeatedly dispatches\nthe most urgent one. Beyond plain enqueue and dispatch, a realistic scheduler\nmust also cancel tasks whose deadlines have passed and boost the priority of\nwaiting tasks. Those last two operations (predicate-based removal and\npriority change) are where the implementations diverge sharply: on a\npriority boost `heapx` is over three orders of magnitude faster than `heapq`.\n\nThe workload is a synthetic task stream modelling Poisson arrivals,\nhyper-exponential CPU bursts, and four priority classes, following the\nscheduling literature (Silberschatz et al., Operating System Concepts,\nChapter 5; Liu and Layland 1973). All runs are seeded (`seed=42`).\n\n## 2. Background: Priority-Based Scheduling\n\n### 2.1 The ready queue\n\nA scheduler keeps the set of runnable tasks in a ready queue. The scheduling\npolicy decides which task runs next by defining an ordering over tasks. This\nstudy uses fixed-priority scheduling with Earliest-Deadline-First (EDF)\ntie-breaking: tasks are ordered first by priority (lower number means more\nurgent) and, among equal priorities, by deadline (sooner first). A stable\nsequence counter breaks remaining ties to give FIFO order among\notherwise-identical tasks.\n\n```\n   ready queue ordered by (priority, deadline, seq):\n\n      (0, 12.4, 7)   <- most urgent: priority 0, earliest deadline\n      (1,  9.1, 3)\n      (1, 15.8, 5)\n      (2,  8.0, 1)\n      ...\n        ^ dispatch always removes the top entry\n```\n\nThis is exactly the priority-queue interface, so the ready queue is a heap\nkeyed by the tuple `(priority, deadline, seq)`.\n\n### 2.2 What the scheduler must do\n\n| Operation | Scheduler meaning | Frequency |\n|---|---|---|\n| enqueue | A task arrives and becomes runnable | high |\n| dispatch | Run the most urgent task (extract-min) | high |\n| cancel_expired | Drop tasks whose deadline has passed | periodic |\n| boost_priority | Raise a waiting task's priority (decrease-key) | frequent |\n\n`enqueue` and `dispatch` are the textbook push and extract-min. The two that\nstrain a plain heap are `cancel_expired` (remove every task matching a\npredicate) and `boost_priority` (change a task's key in place, the classic\ndecrease-key operation). A binary heap with no decrease-key support handles\nneither directly.\n\n### 2.3 The synthetic workload (`workload.py`)\n\nThe workload generator models realistic task arrivals:\n\n- Arrivals: a Poisson process with mean inter-arrival 0.001 s (1,000 tasks\n  per second). Inter-arrival gaps are exponential, accumulated with\n  `np.cumsum`.\n- Priority classes: CRITICAL (priority 0, 5% of tasks), HIGH (1, 15%),\n  NORMAL (2, 60%), LOW (3, 20%), drawn by `rng.choice` with those\n  probabilities.\n- CPU bursts: a hyper-exponential mixture matching the CPU-burst observations\n  in Silberschatz Chapter 5. With probability 0.80 a task is I/O-bound with a\n  short burst (mean 5 ms); otherwise it is CPU-bound with a long burst (mean\n  50 ms).\n- Deadlines: `arrival + 3.0 * burst` (a laxity factor of 3).\n\n```python\n# workload.py (parameters)\nMEAN_INTERARRIVAL = 0.001   # 1 ms mean inter-arrival\nBURST_SHORT_MEAN  = 0.005   # 5 ms  (I/O-bound)\nBURST_LONG_MEAN   = 0.050   # 50 ms (CPU-bound)\nBURST_SHORT_PROB  = 0.80    # 80% short bursts\nLAXITY_FACTOR     = 3.0     # deadline = arrival + 3 * burst\n```\n\nThe hyper-exponential burst (a mixture of two exponentials) reproduces the\nempirical shape of real CPU bursts: many short bursts and a long tail of\nrare long ones, which a single exponential cannot capture.\n\n### 2.4 The Task record (`task.py`)\n\n```python\n@dataclass(slots=True)\nclass Task:\n    task_id: int          # unique monotonic identifier\n    priority: float       # numeric priority (lower = more urgent)\n    deadline: float       # absolute deadline for completion\n    arrival_time: float   # time the task entered the ready queue\n    burst: float          # estimated CPU burst length\n    cancelled: bool = field(default=False, repr=False)\n```\n\n`slots=True` keeps each task compact. The four scheduling attributes\n(priority, deadline, arrival, burst) are the ones real schedulers use.\n\n## 3. The Two Hard Operations\n\n### 3.1 Predicate-based cancellation\n\n`cancel_expired` must drop every task whose deadline is in the past. With\n`heapq` there is no targeted removal, so the only correct approach is to scan\nall n entries, build a new survivor list, and rebuild the heap from scratch:\n\n```python\n# scheduler_heapq.py, cancel_expired  (O(n) per call)\nself._queue = [e for e in self._queue if e[3].deadline >= current_time]\nheapq.heapify(self._queue)\n```\n\nThat allocates a new list and re-heapifies all survivors every call. `heapx`\nexposes a predicate remove that performs the scan and the heap repair in a\nsingle C-level call with no Python-level comprehension and no extra\nallocation:\n\n```python\n# scheduler_heapx.py, cancel_expired\nheapx.remove(self._queue, predicate=lambda e: e[3].deadline < current_time)\n```\n\n### 3.2 Priority boosting (decrease-key)\n\n`boost_priority` lowers a waiting task's priority number so it runs sooner.\nThis is decrease-key. `heapq` has no decrease-key primitive, so the baseline\nmust remove the entry by swapping in the tail, re-heapify the whole array,\nand push the updated entry back:\n\n```python\n# scheduler_heapq.py, boost_priority  (O(n) re-heapify)\nself._queue[idx] = self._queue[-1]\nself._queue.pop()\nif self._queue:\n    heapq.heapify(self._queue)        # O(n)\nheapq.heappush(self._queue, self._wrap(updated, self._seq))\n```\n\n`heapx.replace` writes the new entry into its slot and sifts that one entry\nup or down, a single root-to-leaf path:\n\n```python\n# scheduler_heapx.py, boost_priority  (O(log n) in-place sift)\nnew_entry = (new_priority, task.deadline, entry[2], updated)\nheapx.replace(self._queue, new_entry, indices=idx)\n```\n\nThe asymptotic gap is O(log n) versus O(n) per boost. Section 5 shows this\nbecoming a 6,000x latency difference at a queue of 250,000 tasks.\n\n### 3.3 How the entries are compared\n\nBoth schedulers pack tasks into comparable tuples `(priority, deadline, seq,\ntask)` so the heap orders them without a Python key callback. `heapx` then\ndispatches to its C-native tuple-comparison path rather than calling back into\nPython for every comparison. `heapq` requires the same tuple wrapping, which\nis the workaround documented in the Python `heapq` manual; without it,\ntwo tasks with equal priority would force a comparison of `Task` objects,\nwhich is not defined. (The standalone benchmark file exercises `heapx`'s\nalternative `cmp=` key mode, storing bare `Task` objects; the scheduler\nclasses use the tuple form.)\n\n## 4. Code Architecture\n\n### 4.1 File overview\n\n| File | Role |\n|---|---|\n| `task.py` | The `Task` dataclass |\n| `workload.py` | Synthetic workload generator (Poisson arrivals, hyper-exponential bursts) |\n| `scheduler_heapx.py` | The `heapx`-backed scheduler |\n| `scheduler_heapq.py` | The `heapq`-backed baseline scheduler |\n| `benchmark.py` | Seven benchmarks (B1 to B7) against five competitors |\n| `plot_results.py` | Figure generation (600 DPI) |\n| `run_all.py` | Orchestrator |\n| `results.json` | Benchmark output |\n\n### 4.2 The seven benchmarks (`benchmark.py`)\n\nCompetitors: `heapq`, `sortedcontainers.SortedList`, `heapdict`, and a\npure-Python Fibonacci heap (`fibonacci_heap_mod`). Workload is 10,500,000\ntasks at `seed=42`. Timing uses `time.perf_counter_ns` with garbage\ncollection disabled around each measured region.\n\n| ID | Benchmark | What it measures |\n|---|---|---|\n| B1 | Batch push | Loading many tasks at once |\n| B2 | Single push | Per-insert latency into a pre-built queue |\n| B3 | Single pop | Per-dispatch latency |\n| B4 | Replace (decrease-key) | Per-boost latency at random indices [hero] |\n| B5 | Replace-heavy workload | End-to-end loop with frequent priority updates [hero] |\n| B6 | Queue dynamics | heapx-only trace of queue size and operation mix |\n| B7 | Scheduler throughput | Realistic mixed loop, 40% enqueue, 40% dispatch, 20% boost [hero] |\n\nB6's steady-state mix matches push and pop at 47.5% each with 5% replaces,\nprefilling 50,000 tasks and sampling every 50 events.\n\n### 4.3 Figures\n\n`plot_results.py` produces eleven figures: workload characterization\n(`fig01`), the scheduler architecture and complexity diagram (`fig02`), queue\ndynamics (`fig03`), the per-operation latency plots (`fig04` batch push,\n`fig05` single push, `fig06` single pop, `fig07` replace latency,\n`fig08` replace-heavy), a feature-support matrix (`fig09`), memory overhead\n(`fig10`), and end-to-end scheduler throughput (`fig11`). All are 600 DPI with\na colour-blind-safe palette (heapx blue, heapq orange, SortedList green,\nheapdict pink, Fibonacci amber).\n\n## 5. Results\n\nAll numbers are read from the committed `results.json` (medians across reps).\nSpeedups are computed from those raw values.\n\n### 5.1 Replace / decrease-key latency (microseconds per operation) [B4]\n\n| Queue size | heapx | heapq | sortedcontainers | heapdict |\n|---|---|---|---|---|\n| 1,000 | 0.68 | 34.6 | 1.45 | 3.00 |\n| 10,000 | 0.75 | 341.1 | 1.72 | 3.60 |\n| 100,000 | 0.97 | 3,754.7 | 2.75 | 5.76 |\n| 250,000 | 1.63 | 10,132.0 | 3.77 | 8.13 |\n\nThis is the headline. `heapx` boosts a priority in about 1.6 microseconds\nregardless of queue size, because it sifts one entry. `heapq` must re-heapify\nthe whole array, so its latency grows linearly with the queue, reaching 10.1\nms at 250,000 tasks, a 6,203x gap. The pure-Python O(log n) structures\n(`sortedcontainers`, `heapdict`) stay close to `heapx` asymptotically but run\n2x to 5x slower from interpreter overhead.\n\n### 5.2 Replace-heavy end-to-end workload (seconds) [B5]\n\n| Queue size | heapx | heapq | sortedcontainers | heapdict |\n|---|---|---|---|---|\n| 1,000 | 0.013 | 0.185 | 0.016 | 0.023 |\n| 10,000 | 0.015 | 1.793 | 0.018 | 0.045 |\n| 100,000 | 0.021 | 20.718 | 0.027 | 0.073 |\n| 250,000 | 0.026 | 52.773 | 0.034 | 0.093 |\n\nA workload of 5,000 priority updates plus push/pop runs in 26 ms with `heapx`\nand 52.8 s with `heapq`, a 2,036x difference at 250,000 tasks. `heapx` also\nedges out the pure-Python structures (1.3x over `sortedcontainers`, 3.6x over\n`heapdict`).\n\n### 5.3 Scheduler throughput (operations per second) [B7]\n\n| Queue size | heapx | heapq | speedup |\n|---|---|---|---|\n| 1,000 | 1,931,434 | 114,523 | 17x |\n| 10,000 | 1,389,359 | 13,197 | 105x |\n| 50,000 | 1,157,075 | 2,084 | 555x |\n| 100,000 | 1,125,698 | 942 | 1,195x |\n\nOn the realistic mixed loop (40% enqueue, 40% dispatch, 20% boost), `heapx`\nsustains over a million operations per second at every queue size, while\n`heapq` throughput collapses to under a thousand per second at 100,000 tasks\nbecause every boost triggers an O(n) re-heapify. The advantage grows with the\nqueue, from 17x at 1,000 to 1,195x at 100,000.\n\n### 5.4 Where heapx does not win\n\nThe case study reports the operations `heapx` does not lead, rather than\nhiding them:\n\n- Single push [B2]: `heapq` is about 3x faster (0.07 vs 0.23 microseconds),\n  because its push is a minimal C path.\n- Single pop [B3]: `heapq` is roughly 2x faster.\n- Batch push [B1]: `heapq` is faster in absolute terms across all sizes.\n- Isolated replace at small sizes [B4]: the pure-Python Fibonacci heap beats\n  `heapx` (0.19 vs 0.68 microseconds at 1,000), though it was only measured up\n  to 50,000 and lacks the broader feature set.\n\nThe decisive `heapx` advantage is concentrated in the decrease-key-driven\nbenchmarks (B4, B5, B7), which are exactly the operations a realistic\nscheduler performs most.\n\n## 6. Why heapx for Task Scheduling\n\nA scheduler that only enqueues and dispatches could use `heapq`. A realistic\nscheduler also cancels expired tasks and boosts waiting ones, and those are\nthe operations `heapq` handles in O(n). `heapx` provides both as O(log n)\nC-level primitives:\n\n- `heapx.replace(..., indices=idx)` makes priority boosting O(log n), turning\n  the 52.8 s replace-heavy workload into 26 ms.\n- `heapx.remove(..., predicate=...)` performs deadline-based cancellation in a\n  single C pass with no list rebuild.\n- Native tuple comparison avoids per-comparison Python callbacks.\n\nThe feature matrix (`fig09`) summarizes the gap: `heapx` supports min and max\nheaps, key functions, bulk push and pop, removal by index and by predicate,\ndecrease-key, merge, d-ary arity, GIL release, and SIMD, all in a C\nextension. `heapq` supports only the min-heap basics. For scheduling\nworkloads dominated by priority changes, that difference is the difference\nbetween a scheduler that scales and one that does not.\n\n## 7. Reproducing the Results\n\n### 7.1 Requirements\n\n```\npython >= 3.9\nheapx >= 1.0.0\nnumpy\nmatplotlib\nsortedcontainers\nheapdict\nfibonacci-heap-mod\n```\n\n`heapx` installs from conda:\n\n```bash\nconda install mukherjee08::heapx\n```\n\n### 7.2 Run\n\n```bash\npython run_all.py          # benchmarks then figures\npython benchmark.py        # produces results.json\npython plot_results.py     # produces figures/*.png (600 DPI)\n```\n\n## References\n\n1. A. Silberschatz, P. B. Galvin, and G. Gagne, Operating System Concepts,\n   10th ed., Wiley, 2018, Chapter 5 (CPU Scheduling).\n2. C. L. Liu and J. W. Layland, \"Scheduling Algorithms for Multiprogramming\n   in a Hard-Real-Time Environment,\" Journal of the ACM 20(1), 1973.\n3. G. S. Brodal, \"Priority Queues with Decreasing Keys,\" FUN 2022.\n4. M. Rocklin, \"Dask: Parallel Computation with Blocked Algorithms and Task\n   Scheduling,\" Proc. SciPy 2015.\n5. A. Staffolani et al., \"RLQ: Workload Allocation with Reinforcement\n   Learning in Distributed Queues,\" IEEE Transactions on Parallel and\n   Distributed Systems 34(3), 2023.\n6. R. K. Clark, \"Scheduling Dependent Real-Time Activities,\" CMU-CS-90-155,\n   1990.\n";
+  var renderer=new marked.Renderer();
+  renderer.heading=function(text,level){
+    var slug=text.toLowerCase().replace(/<[^>]*>/g,'').replace(/`/g,'').replace(/[^\w]+/g,'-').replace(/^-+|-+$/g,'');
+    return '<h'+level+' id="'+slug+'">'+text+'</h'+level+'>\n';
+  };
+  document.getElementById('readme').innerHTML=marked.parse(md,{renderer:renderer,highlight:function(code,lang){if(lang&&hljs.getLanguage(lang))return hljs.highlight(code,{language:lang}).value;return hljs.highlightAuto(code).value;}});
+  var content=document.getElementById('content');
+  document.querySelectorAll('.md a[href^="#"]').forEach(function(a){
+    a.addEventListener('click',function(e){
+      e.preventDefault();
+      var id=this.getAttribute('href').slice(1);
+      var target=document.getElementById(id);
+      if(target){content.scrollTo({top:target.offsetTop-100,behavior:'smooth'})}
+    });
+  });
+})();
+</script>
+<script>
+(function(){
+  var canvas=document.getElementById('bg');var gl=canvas.getContext('webgl');if(!gl)return;
+  var vs='attribute vec2 a_pos;void main(){gl_Position=vec4(a_pos,0,1);}';
+  var fs=`precision highp float;uniform vec2 u_res;uniform float u_time;uniform vec2 u_mouse;vec3 mod289(vec3 x){return x-floor(x*(1./289.))*289.;}vec2 mod289(vec2 x){return x-floor(x*(1./289.))*289.;}vec3 permute(vec3 x){return mod289(((x*34.)+1.)*x);}float snoise(vec2 v){const vec4 C=vec4(.211324865405187,.366025403784439,-.577350269189626,.024390243902439);vec2 i=floor(v+dot(v,C.yy));vec2 x0=v-i+dot(i,C.xx);vec2 i1=(x0.x>x0.y)?vec2(1,0):vec2(0,1);vec4 x12=x0.xyxy+C.xxzz;x12.xy-=i1;i=mod289(i);vec3 p=permute(permute(i.y+vec3(0,i1.y,1.))+i.x+vec3(0,i1.x,1.));vec3 m=max(.5-vec3(dot(x0,x0),dot(x12.xy,x12.xy),dot(x12.zw,x12.zw)),0.);m=m*m;m=m*m;vec3 x=2.*fract(p*C.www)-1.;vec3 h=abs(x)-.5;vec3 ox=floor(x+.5);vec3 a0=x-ox;m*=1.79284291400159-.85373472095314*(a0*a0+h*h);vec3 g;g.x=a0.x*x0.x+h.x*x0.y;g.yz=a0.yz*x12.xz+h.yz*x12.yw;return 130.*dot(m,g);}void main(){vec2 uv=(gl_FragCoord.xy-.5*u_res)/min(u_res.x,u_res.y);float t=u_time*.12;vec2 mouse=(u_mouse-.5*u_res)/min(u_res.x,u_res.y);float mouseDist=length(uv-mouse);float mouseInf=smoothstep(1.2,0.,mouseDist)*.18;float n1=snoise(uv*.8+vec2(t*.4,t*.3));float n2=snoise(uv*1.1-vec2(t*.3,t*.5));float n3=snoise(uv*.6+vec2(n1,n2)*.3+mouse*.2);vec2 distort=vec2(n1,n2)*.07+vec2(n3)*.05;distort+=mouseInf*normalize(uv-mouse+.001)*.1;vec2 st=uv+distort;vec3 base=vec3(.04,.02,.06);vec3 c1=vec3(.55,.08,.35);vec3 c2=vec3(.05,.35,.45);vec3 c3=vec3(.5,.15,.55);vec3 c4=vec3(.08,.22,.38);vec3 c5=vec3(.55,.25,.1);float w1=snoise(st*.9+t*.25)*.5+.5;float w2=snoise(st*1.1-t*.2+3.)*.5+.5;float w3=snoise(st*.7+t*.3+7.)*.5+.5;vec3 col=mix(c1,c2,w1);col=mix(col,c3,w2*.5);col=mix(col,c4,w3*.4);col=mix(col,c5,smoothstep(.35,.65,snoise(st*1.2+t*.15+11.))*.25);float intensity=smoothstep(-.3,.6,snoise(st*.7+t*.18+5.))*.45+.15;col=mix(base,col,intensity);col+=vec3(.3,.12,.25)*mouseInf;float vig=1.-dot(uv*.55,uv*.55);col*=smoothstep(0.,1.,vig);gl_FragColor=vec4(col,1.);}`;
+  function compile(type,src){var s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null;}return s;}
+  var prog=gl.createProgram();gl.attachShader(prog,compile(gl.VERTEX_SHADER,vs));gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);gl.useProgram(prog);
+  var buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);var pos=gl.getAttribLocation(prog,'a_pos');gl.enableVertexAttribArray(pos);gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
+  var uRes=gl.getUniformLocation(prog,'u_res');var uTime=gl.getUniformLocation(prog,'u_time');var uMouse=gl.getUniformLocation(prog,'u_mouse');
+  var mx=0,my=0,tmx=0,tmy=0;window.addEventListener('mousemove',function(e){tmx=e.clientX;tmy=e.clientY;});window.addEventListener('touchmove',function(e){e.preventDefault();tmx=e.touches[0].clientX;tmy=e.touches[0].clientY;},{passive:false});
+  function resize(){var dpr=window.devicePixelRatio||1;canvas.width=window.innerWidth*dpr;canvas.height=window.innerHeight*dpr;}window.addEventListener('resize',resize);resize();
+  var t0=performance.now();(function loop(){mx+=(tmx*(window.devicePixelRatio||1)-mx)*.03;my+=((window.innerHeight-tmy)*(window.devicePixelRatio||1)-my)*.03;gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(uRes,canvas.width,canvas.height);gl.uniform1f(uTime,(performance.now()-t0)/1000);gl.uniform2f(uMouse,mx,my);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);requestAnimationFrame(loop);})();
+})();
+</script>
+</body>
+</html>
