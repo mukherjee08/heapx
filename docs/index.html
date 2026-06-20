@@ -347,7 +347,7 @@ document.getElementById('year').textContent=new Date().getFullYear();
 // Load case studies dynamically
 (function(){
   var container=document.getElementById('case-study-list');
-  /* CASE_STUDIES_DATA:BEGIN */var studies=[{"dir": "Bioinformatics_Sequence-Alignment", "name": "Bioinformatics Sequence-Alignment"}, {"dir": "Financial_Order-Book-Simulation", "name": "Financial Order-Book-Simulation"}, {"dir": "Machine-Learning_Streaming-Top-K", "name": "Machine-Learning Streaming-Top-K"}, {"dir": "Network-Routing_Dijkstras-Algorithm", "name": "Network-Routing Dijkstras-Algorithm"}, {"dir": "Operating-Systems_Task-Scheduling", "name": "Operating-Systems Task-Scheduling"}, {"dir": "Real-Time-Systems_Discrete-Event-Simulation", "name": "Real-Time-Systems Discrete-Event-Simulation"}];/* CASE_STUDIES_DATA:END */
+  /* CASE_STUDIES_DATA:BEGIN */var studies=[{"dir": "Bioinformatics_Sequence-Alignment", "name": "Bioinformatics Sequence-Alignment"}, {"dir": "Financial_Order-Book-Simulation", "name": "Financial Order-Book-Simulation"}, {"dir": "Machine-Learning_Streaming-Top-K", "name": "Machine-Learning Streaming-Top-K"}, {"dir": "Network-Routing_Dijkstras-Algorithm", "name": "Network-Routing Dijkstras-Algorithm"}, {"dir": "Operating-Systems_Task-Scheduling", "name": "Operating-Systems Task-Scheduling"}, {"dir": "Real-Time-Systems_DES", "name": "Real-Time-Systems DES"}];/* CASE_STUDIES_DATA:END */
   if(!studies.length){container.innerHTML='<p style="font-size:clamp(1rem,2vw,1.35rem);color:rgba(255,255,255,.4);font-weight:300">Case studies coming soon.</p>';return;}
   studies.forEach(function(s){
     var a=document.createElement('a');
