@@ -1,4 +1,4 @@
-# Case Study 4 — Real-Time Systems: Discrete-Event Simulation
+# Case Study 4 — Real-Time Systems: Discrete-Event Simulation (DES)
 
 ## 1. Introduction
 
